@@ -1,0 +1,6 @@
+[START] dataset=CICIDS2026, files=1, chunk_size=200000
+[FILE-START] 1/1 /home/data/cicids2026.csv
+[FILE-END] cicids2026.csv chunks=2 cumulative_rows=249,792
+[VIS] building plots
+[DOC] writing markdown
+[DONE] report=/home/sr/97/trident/docs/eda_2026/eda.md

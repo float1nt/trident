@@ -1,0 +1,14 @@
+[START] dataset=CICIDS2017, files=5, chunk_size=200000
+[FILE-START] 1/5 /home/data/2017/friday.csv
+[FILE-END] friday.csv chunks=3 cumulative_rows=547,557
+[FILE-START] 2/5 /home/data/2017/monday.csv
+[FILE-END] monday.csv chunks=2 cumulative_rows=919,181
+[FILE-START] 3/5 /home/data/2017/thursday.csv
+[FILE-END] thursday.csv chunks=2 cumulative_rows=1,281,257
+[FILE-START] 4/5 /home/data/2017/tuesday.csv
+[FILE-END] tuesday.csv chunks=2 cumulative_rows=1,603,335
+[FILE-START] 5/5 /home/data/2017/wednesday.csv
+[FILE-END] wednesday.csv chunks=3 cumulative_rows=2,099,976
+[VIS] building plots
+[DOC] writing markdown
+[DONE] report=/home/sr/97/trident/docs/eda_2017/eda.md

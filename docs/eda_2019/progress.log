@@ -1,0 +1,55 @@
+[START] dataset=CICDDoS2019, files=11, chunk_size=150000
+[FILE-START] 1/11 /home/data/2019/DrDoS_DNS.csv
+[PROGRESS] file=DrDoS_DNS.csv chunk=10 total_rows=1,500,000 sample_rows=250,000
+[PROGRESS] file=DrDoS_DNS.csv chunk=20 total_rows=3,000,000 sample_rows=250,000
+[PROGRESS] file=DrDoS_DNS.csv chunk=30 total_rows=4,500,000 sample_rows=250,000
+[FILE-END] DrDoS_DNS.csv chunks=34 cumulative_rows=5,074,413
+[FILE-START] 2/11 /home/data/2019/DrDoS_LDAP.csv
+[PROGRESS] file=DrDoS_LDAP.csv chunk=10 total_rows=6,574,413 sample_rows=250,000
+[FILE-END] DrDoS_LDAP.csv chunks=15 cumulative_rows=7,255,955
+[FILE-START] 3/11 /home/data/2019/DrDoS_MSSQL.csv
+[PROGRESS] file=DrDoS_MSSQL.csv chunk=10 total_rows=8,755,955 sample_rows=250,000
+[PROGRESS] file=DrDoS_MSSQL.csv chunk=20 total_rows=10,255,955 sample_rows=250,000
+[PROGRESS] file=DrDoS_MSSQL.csv chunk=30 total_rows=11,755,955 sample_rows=250,000
+[FILE-END] DrDoS_MSSQL.csv chunks=31 cumulative_rows=11,780,453
+[FILE-START] 4/11 /home/data/2019/DrDoS_NTP.csv
+[FILE-END] DrDoS_NTP.csv chunks=9 cumulative_rows=12,997,460
+[FILE-START] 5/11 /home/data/2019/DrDoS_NetBIOS.csv
+[PROGRESS] file=DrDoS_NetBIOS.csv chunk=10 total_rows=14,497,460 sample_rows=250,000
+[PROGRESS] file=DrDoS_NetBIOS.csv chunk=20 total_rows=15,997,460 sample_rows=250,000
+[FILE-END] DrDoS_NetBIOS.csv chunks=28 cumulative_rows=17,092,446
+[FILE-START] 6/11 /home/data/2019/DrDoS_SNMP.csv
+[PROGRESS] file=DrDoS_SNMP.csv chunk=10 total_rows=18,592,446 sample_rows=250,000
+[PROGRESS] file=DrDoS_SNMP.csv chunk=20 total_rows=20,092,446 sample_rows=250,000
+[PROGRESS] file=DrDoS_SNMP.csv chunk=30 total_rows=21,592,446 sample_rows=250,000
+[FILE-END] DrDoS_SNMP.csv chunks=35 cumulative_rows=22,253,823
+[FILE-START] 7/11 /home/data/2019/DrDoS_SSDP.csv
+[PROGRESS] file=DrDoS_SSDP.csv chunk=10 total_rows=23,753,823 sample_rows=250,000
+[FILE-END] DrDoS_SSDP.csv chunks=18 cumulative_rows=24,865,197
+[FILE-START] 8/11 /home/data/2019/DrDoS_UDP.csv
+[PROGRESS] file=DrDoS_UDP.csv chunk=10 total_rows=26,365,197 sample_rows=250,000
+[PROGRESS] file=DrDoS_UDP.csv chunk=20 total_rows=27,865,197 sample_rows=250,000
+[FILE-END] DrDoS_UDP.csv chunks=21 cumulative_rows=28,001,999
+[FILE-START] 9/11 /home/data/2019/Syn.csv
+[PROGRESS] file=Syn.csv chunk=10 total_rows=29,501,999 sample_rows=250,000
+[FILE-END] Syn.csv chunks=11 cumulative_rows=29,584,680
+[FILE-START] 10/11 /home/data/2019/TFTP.csv
+[PROGRESS] file=TFTP.csv chunk=10 total_rows=31,084,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=20 total_rows=32,584,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=30 total_rows=34,084,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=40 total_rows=35,584,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=50 total_rows=37,084,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=60 total_rows=38,584,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=70 total_rows=40,084,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=80 total_rows=41,584,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=90 total_rows=43,084,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=100 total_rows=44,584,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=110 total_rows=46,084,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=120 total_rows=47,584,680 sample_rows=250,000
+[PROGRESS] file=TFTP.csv chunk=130 total_rows=49,084,680 sample_rows=250,000
+[FILE-END] TFTP.csv chunks=135 cumulative_rows=49,692,507
+[FILE-START] 11/11 /home/data/2019/UDPLag.csv
+[FILE-END] UDPLag.csv chunks=3 cumulative_rows=50,063,112
+[VIS] building plots
+[DOC] writing markdown
+[DONE] report=/home/sr/97/trident/docs/eda_2019/eda.md

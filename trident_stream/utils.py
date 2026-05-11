@@ -52,12 +52,24 @@ def split_year_label(raw_label: str) -> tuple[Optional[str], str]:
 def normalize_base_label(x: str) -> str:
     _, raw = split_year_label(x)
     s = str(raw).strip().upper()
-    return "BENIGN" if s == "BENIGN" else s
+    if s == "BENIGN" or s.startswith("BENIGN|"):
+        return "BENIGN"
+    return s
 
 
 def normalize_label(x: str) -> str:
-    year, _ = split_year_label(x)
+    year, raw = split_year_label(x)
+    s = str(raw).strip()
     base = normalize_base_label(x)
+
+    # Keep BENIGN subtype if present, e.g. 2026|BENIGN|DNS.
+    if s.upper().startswith("BENIGN|"):
+        subtype = s.split("|", 1)[1].strip()
+        if subtype:
+            if year:
+                return f"{year}|BENIGN|{subtype.upper()}"
+            return f"BENIGN|{subtype.upper()}"
+
     if year:
         return f"{year}|{base}"
     return base

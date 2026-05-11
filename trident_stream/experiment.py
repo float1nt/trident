@@ -189,6 +189,122 @@ class TridentStreamingExperiment:
             )
         return rows
 
+    def _learner_display_name(self, learner_name: str) -> str:
+        """
+        Render learner name as: learnerName_dominantLabel(share)
+        Example: NEW_98_2019|DRDOS_NETBIOS(22.6%)
+        """
+        dist = self.learner_cumulative_counts.get(learner_name, {})
+        total = int(sum(int(v) for v in dist.values()))
+        if total <= 0:
+            return f"{learner_name}_UNKNOWN(0.0%)"
+        dominant_label = max(dist, key=dist.get)
+        dominant_count = int(dist[dominant_label])
+        ratio = float(dominant_count / total)
+        return f"{learner_name}_{dominant_label}({ratio:.1%})"
+
+    def _save_overlap_association_figure(
+        self,
+        overlap_df: pd.DataFrame,
+        learner_names: List[str],
+        out_path: Path,
+        top_k_edges: int = 80,
+        min_jaccard: float = 0.10,
+        max_edges: int = 80,
+    ) -> None:
+        """
+        Save a network-style association figure for top-K edges.
+        Edge width is proportional to Jaccard overlap.
+        """
+        if overlap_df.empty or not learner_names:
+            return
+
+        learner_set = set(learner_names)
+        edges: List[Tuple[str, str, float]] = []
+        for _, row in overlap_df.iterrows():
+            a = str(row["learner_a_raw"]) if "learner_a_raw" in overlap_df.columns else str(row["learner_a"])
+            b = str(row["learner_b_raw"]) if "learner_b_raw" in overlap_df.columns else str(row["learner_b"])
+            if a not in learner_set or b not in learner_set:
+                continue
+            jaccard = float(row.get("jaccard_acceptance", 0.0))
+            if jaccard <= 0.0:
+                continue
+            edges.append((a, b, jaccard))
+
+        # Edge-first selection: threshold first, then top-K edges.
+        edges = sorted(edges, key=lambda x: x[2], reverse=True)
+        edges = [e for e in edges if e[2] >= float(min_jaccard)]
+        if top_k_edges > 0:
+            edges = edges[: int(top_k_edges)]
+        if max_edges > 0:
+            edges = edges[: int(max_edges)]
+        if not edges:
+            return
+
+        connected_nodes = sorted({a for a, _, _ in edges} | {b for _, b, _ in edges})
+        selected = connected_nodes
+        if len(selected) < 2:
+            return
+
+        labels = {n: self._learner_display_name(n) for n in selected}
+        max_count = max(int(self.debug_overlap_accept_count.get(n, 0)) for n in selected)
+        max_count = max(max_count, 1)
+
+        # Circular layout for deterministic readability.
+        angles = np.linspace(0, 2 * np.pi, num=len(selected), endpoint=False)
+        pos = {
+            n: (float(np.cos(ang)), float(np.sin(ang)))
+            for n, ang in zip(selected, angles)
+        }
+
+        def _node_color(name: str) -> str:
+            dist = self.learner_cumulative_counts.get(name, {})
+            if not dist:
+                return "#9E9E9E"
+            dominant_label = str(max(dist, key=dist.get))
+            if dominant_label.startswith("2017|"):
+                return "#FFB74D"
+            if dominant_label.startswith("2019|"):
+                return "#64B5F6"
+            if dominant_label.startswith("2026|"):
+                return "#81C784"
+            return "#B0BEC5"
+
+        plt.figure(figsize=(14, 12))
+        ax = plt.gca()
+
+        for a, b, j in edges:
+            x1, y1 = pos[a]
+            x2, y2 = pos[b]
+            lw = 0.8 + 10.0 * j
+            alpha = min(0.85, 0.2 + 2.0 * j)
+            ax.plot([x1, x2], [y1, y2], color="#546E7A", linewidth=lw, alpha=alpha, zorder=1)
+
+        for n in selected:
+            x, y = pos[n]
+            count = int(self.debug_overlap_accept_count.get(n, 0))
+            size = 160.0 + 2200.0 * (count / max_count)
+            ax.scatter([x], [y], s=size, c=_node_color(n), edgecolors="black", linewidths=0.8, zorder=2)
+            ax.text(x, y, labels[n], fontsize=8, ha="center", va="center", zorder=3)
+
+        ax.set_title(
+            f"Learner True Overlap Network (Jaccard >= {float(min_jaccard):.2f}, edges={len(edges)})"
+        )
+        ax.set_xlim(-1.35, 1.35)
+        ax.set_ylim(-1.35, 1.35)
+        ax.set_aspect("equal", adjustable="box")
+        ax.axis("off")
+
+        legend_handles = [
+            plt.Line2D([0], [0], marker="o", color="w", label="2017-dominant", markerfacecolor="#FFB74D", markeredgecolor="black", markersize=8),
+            plt.Line2D([0], [0], marker="o", color="w", label="2019-dominant", markerfacecolor="#64B5F6", markeredgecolor="black", markersize=8),
+            plt.Line2D([0], [0], marker="o", color="w", label="2026-dominant", markerfacecolor="#81C784", markeredgecolor="black", markersize=8),
+        ]
+        ax.legend(handles=legend_handles, loc="upper right", frameon=True)
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=180)
+        plt.close()
+
     @staticmethod
     def _safe_div(x: float, y: float) -> float:
         return float(x / y) if y else 0.0
@@ -673,8 +789,10 @@ class TridentStreamingExperiment:
                 jaccard = self._safe_div(inter, union)
                 rows.append(
                     {
-                        "learner_a": a,
-                        "learner_b": b,
+                        "learner_a_raw": a,
+                        "learner_b_raw": b,
+                        "learner_a": self._learner_display_name(a),
+                        "learner_b": self._learner_display_name(b),
                         "accept_count_a": count_a,
                         "accept_count_b": count_b,
                         "intersection_count": inter,
@@ -689,11 +807,31 @@ class TridentStreamingExperiment:
                 ascending=False,
             )
             overlap_df.to_csv(overlap_pairs_path, index=False)
+            overlap_fig_path = self.output_dir / "learner_true_overlap_network.png"
+            overlap_min_jaccard = float(self.cfg["runtime"].get("debug_overlap_min_jaccard", 0.10))
+            overlap_top_k_edges = int(
+                self.cfg["runtime"].get(
+                    "debug_overlap_top_k_edges",
+                    self.cfg["runtime"].get("debug_overlap_top_k", 80),
+                )
+            )
+            overlap_max_edges = int(self.cfg["runtime"].get("debug_overlap_max_edges", 80))
+            self._save_overlap_association_figure(
+                overlap_df=overlap_df,
+                learner_names=learner_names,
+                out_path=overlap_fig_path,
+                top_k_edges=overlap_top_k_edges,
+                min_jaccard=overlap_min_jaccard,
+                max_edges=overlap_max_edges,
+            )
             overlap_summary = {
                 "debug_overlap_enabled": True,
                 "stream_sample_count": int(self.debug_overlap_stream_samples),
                 "learner_count": int(len(learner_names)),
                 "pair_count": int(len(overlap_df)),
+                "plot_min_jaccard": overlap_min_jaccard,
+                "plot_top_k_edges": overlap_top_k_edges,
+                "plot_max_edges": overlap_max_edges,
                 "top_pairs": overlap_df.head(20).to_dict(orient="records"),
             }
             with open(overlap_summary_path, "w", encoding="utf-8") as f:
@@ -759,9 +897,10 @@ class TridentStreamingExperiment:
         )
         if self.debug_overlap_enabled:
             self.logger.info(
-                "Done. TRUE_OVERLAP=%s | summary=%s | stream_samples=%d",
+                "Done. TRUE_OVERLAP=%s | summary=%s | fig=%s | stream_samples=%d",
                 overlap_pairs_path,
                 overlap_summary_path,
+                overlap_fig_path,
                 self.debug_overlap_stream_samples,
             )
         self.logger.info(
