@@ -1,0 +1,123 @@
+# -----------------------------
+# 数据与输出路径
+# -----------------------------
+
+title: "CIC2017_to_2019_transfer_aligned_v1_subset"
+description: "transfer test using mapped same-name features: aligned_2017_2019 subset"
+
+paths:
+  # 数据目录
+  data_dir: "data"
+  # 流式读取顺序（按这个顺序拼接并按时间排序）
+  input_files:
+    - aligned_2017_2019_sampled_year_tagged.csv
+  # 输出根目录（main.py 会在其下自动创建 runs/<run_id>/）
+  output_dir: "outputs/runs/20260511_170800_batchinfer"
+  # 日志文件名
+  log_file: "run.log"
+
+# -----------------------------
+# 采样构建配置（仅 scripts/prepare_sampled_aligned_data.py 使用）
+# 与主流程运行参数解耦
+# -----------------------------
+sampling:
+  data_dir: "data"
+  input_files:
+    - aligned_2017_2019/2017_monday.csv
+    - aligned_2017_2019/2017_tuesday.csv
+    - aligned_2017_2019/2017_wednesday.csv
+    - aligned_2017_2019/2017_thursday.csv
+    - aligned_2017_2019/2017_friday.csv
+    - aligned_2017_2019/2019_DrDoS_DNS.csv
+    - aligned_2017_2019/2019_DrDoS_LDAP.csv
+    - aligned_2017_2019/2019_DrDoS_MSSQL.csv
+    - aligned_2017_2019/2019_DrDoS_NetBIOS.csv
+    - aligned_2017_2019/2019_DrDoS_NTP.csv
+    - aligned_2017_2019/2019_DrDoS_SNMP.csv
+    - aligned_2017_2019/2019_DrDoS_SSDP.csv
+    - aligned_2017_2019/2019_DrDoS_UDP.csv
+    - aligned_2017_2019/2019_Syn.csv
+    - aligned_2017_2019/2019_TFTP.csv
+    - aligned_2017_2019/2019_UDPLag.csv
+  output_csv: "data/aligned_2017_2019_sampled_year_tagged.csv"
+  report_json: "data/aligned_2017_2019_sampled_year_tagged.report.json"
+  # 分块读取大小
+  chunksize: 100000
+  seed: 42
+  # 每种攻击最多采样数
+  attack_sample_per_type: 5000
+  # BENIGN 总量上限（0 表示不截断）
+  benign_sample_max_rows: 0
+  # BENIGN 每天采样上限（>0 优先生效）
+  benign_sample_per_day: 10000
+
+# -----------------------------
+# 运行控制
+# -----------------------------
+runtime:
+  seed: 42
+  # false=优先 CUDA，true=强制 CPU
+  cpu_only: false
+  # 最大读取行数（0 表示不截断）
+  max_rows: 0
+  # 在线阶段攻击采样上限（0 表示不做二次采样）
+  attack_sample_per_type: 0
+  # 在线阶段 BENIGN 采样上限（0 表示不截断）
+  benign_sample_max_rows: 0
+  # 是否冻结 BENIGN learner 的增量更新
+  freeze_benign_incremental: false
+  # BENIGN 接受阈值缩放（越小越严格）
+  benign_accept_scale: 0.5
+  # 开启真实重叠调试统计
+  debug_overlap_enabled: true
+  # 可手动指定 run_id；main.py 会用当前时间覆盖该值
+  run_id: 20260511_170800_batchinfer
+
+# -----------------------------
+# 流式设置（时间窗口）
+# -----------------------------
+stream:
+  # 前 init_ratio 比例数据用于初始 learner 建立
+  init_ratio: 0.2
+  # 初始模式：仅 BENIGN 作为已知类
+  init_known_mode: "benign_only"
+  # benign_only 下仅使用该年份 BENIGN 初始化
+  init_benign_year: "2017"
+  # 窗口大小
+  window_size: 5000
+
+# -----------------------------
+# tSieve（AE 学习器）
+# -----------------------------
+tsieve:
+  init_epochs: 5
+  new_class_epochs: 4
+  increment_epochs: 1
+  batch_size: 256
+  lr: 0.001
+  max_train_per_class: 20000
+  increment_min_samples: 1000
+  max_increment_samples: 1000
+  min_class_samples: 300
+  historical_sample_rate: 0.0
+  max_history_samples_per_learner: 10000
+  history_samples_per_update: 0
+  benign_history_confidence_scale: 1.0
+
+# -----------------------------
+# tScissors（EVT 阈值）
+# -----------------------------
+tscissors:
+  evt_quantile: 0.95
+  evt_risk: 0.001
+  fallback_quantile: 0.99
+
+# -----------------------------
+# tMagnifier（未知聚类）
+# -----------------------------
+tmagnifier:
+  cluster_trigger_size: 120
+  max_unknown_buffer: 30000
+  dbscan_eps: 1.2
+  dbscan_min_samples: 15
+  new_class_min_size: 80

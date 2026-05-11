@@ -1,0 +1,4 @@
+data/*
+outputs/*
+trident_stream/__pycache__/*
+__pycache__/*
