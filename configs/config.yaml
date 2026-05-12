@@ -68,6 +68,8 @@ runtime:
   freeze_benign_incremental: false
   # BENIGN 接受阈值缩放（越小越严格）
   benign_accept_scale: 0.5
+  # 特征配置：all_numeric_no_env / stable_stats_no_env / compact_stats_no_env
+  feature_profile: "stable_stats_no_env"
   # 开启真实重叠调试统计
   debug_overlap_enabled: true
   # overlap 图边阈值（Jaccard），越低连线越多
@@ -76,6 +78,19 @@ runtime:
   debug_overlap_top_k_edges: 80
   # overlap 图最终边数上限
   debug_overlap_max_edges: 80
+  # 是否在收尾阶段按 overlap 图对 learner 做聚合
+  aggregate_overlap_enabled: true
+  # learner 聚合边阈值（Jaccard）
+  aggregate_min_jaccard: 0.01
+  # learner 聚合保留的高权重边数量
+  aggregate_top_k_edges: 80
+  # learner 聚合最终边数上限
+  aggregate_max_edges: 80
+  # 聚合图算法：connected_components / mutual_knn_components
+  aggregate_graph_algo: "connected_components"
+  # mutual_knn_components 生效时，每个节点保留前 k 个邻居，需互选才连边
+  aggregate_mutual_top_k: 3
+  # 注意：聚合阶段严格无标签，仅使用 overlap 图结构（Jaccard + 图算法）
   # 可手动指定 run_id；main.py 会用当前时间覆盖该值
   run_id: 20260511_170800_batchinfer
 

@@ -1,4 +1,5 @@
 import argparse
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -12,10 +13,17 @@ def build_argparser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_run_id(config_path: str) -> str:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    config_name = Path(config_path).name
+    safe_config_name = re.sub(r"[^A-Za-z0-9._-]", "_", config_name)
+    return f"{timestamp}_{safe_config_name}"
+
+
 def main() -> None:
     args = build_argparser().parse_args()
     cfg = load_config(args.config)
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_id = build_run_id(args.config)
     cfg.setdefault("runtime", {})["run_id"] = run_id
     base_output_dir = Path(cfg["paths"]["output_dir"])
     run_output_dir = base_output_dir / "runs" / run_id

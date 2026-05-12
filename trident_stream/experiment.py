@@ -26,18 +26,137 @@ from .utils import (
 )
 
 
-def preprocess_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
-    drop_cols = [
-        "id",
-        "Flow ID",
-        "Src IP",
-        "Dst IP",
-        "Timestamp",
-        "Label",
-        "Attempted Category",
-    ]
-    feat_df = df.drop(columns=[c for c in drop_cols if c in df.columns])
+ENVIRONMENT_COLUMNS = {
+    "id",
+    "Flow ID",
+    "Src IP",
+    "Dst IP",
+    "Src Port",
+    "Dst Port",
+    "Protocol",
+    "Timestamp",
+    "Label",
+    "Attempted Category",
+}
+
+STABLE_STATS_FEATURES = [
+    "Flow Duration",
+    "Total Fwd Packet",
+    "Total Bwd packets",
+    "Total Length of Fwd Packet",
+    "Total Length of Bwd Packet",
+    "Fwd Packet Length Max",
+    "Fwd Packet Length Min",
+    "Fwd Packet Length Mean",
+    "Fwd Packet Length Std",
+    "Bwd Packet Length Max",
+    "Bwd Packet Length Min",
+    "Bwd Packet Length Mean",
+    "Bwd Packet Length Std",
+    "Flow Bytes/s",
+    "Flow Packets/s",
+    "Flow IAT Mean",
+    "Flow IAT Std",
+    "Flow IAT Max",
+    "Flow IAT Min",
+    "Fwd IAT Total",
+    "Fwd IAT Mean",
+    "Fwd IAT Std",
+    "Fwd IAT Max",
+    "Fwd IAT Min",
+    "Bwd IAT Total",
+    "Bwd IAT Mean",
+    "Bwd IAT Std",
+    "Bwd IAT Max",
+    "Bwd IAT Min",
+    "Fwd Header Length",
+    "Bwd Header Length",
+    "Fwd Packets/s",
+    "Bwd Packets/s",
+    "Packet Length Min",
+    "Packet Length Max",
+    "Packet Length Mean",
+    "Packet Length Std",
+    "Packet Length Variance",
+    "FIN Flag Count",
+    "SYN Flag Count",
+    "RST Flag Count",
+    "PSH Flag Count",
+    "ACK Flag Count",
+    "URG Flag Count",
+    "ECE Flag Count",
+    "Down/Up Ratio",
+    "Average Packet Size",
+    "Fwd Segment Size Avg",
+    "Bwd Segment Size Avg",
+    "Subflow Fwd Packets",
+    "Subflow Fwd Bytes",
+    "Subflow Bwd Packets",
+    "Subflow Bwd Bytes",
+    "FWD Init Win Bytes",
+    "Bwd Init Win Bytes",
+    "Fwd Act Data Pkts",
+    "Fwd Seg Size Min",
+    "Active Mean",
+    "Active Std",
+    "Active Max",
+    "Active Min",
+    "Idle Mean",
+    "Idle Std",
+    "Idle Max",
+    "Idle Min",
+]
+
+COMPACT_STATS_FEATURES = [
+    "Flow Duration",
+    "Total Fwd Packet",
+    "Total Bwd packets",
+    "Total Length of Fwd Packet",
+    "Total Length of Bwd Packet",
+    "Fwd Packet Length Mean",
+    "Fwd Packet Length Std",
+    "Bwd Packet Length Mean",
+    "Bwd Packet Length Std",
+    "Flow Bytes/s",
+    "Flow Packets/s",
+    "Flow IAT Mean",
+    "Flow IAT Std",
+    "Fwd IAT Mean",
+    "Fwd IAT Std",
+    "Bwd IAT Mean",
+    "Bwd IAT Std",
+    "Packet Length Mean",
+    "Packet Length Std",
+    "SYN Flag Count",
+    "ACK Flag Count",
+    "Average Packet Size",
+    "Active Mean",
+    "Active Std",
+    "Idle Mean",
+    "Idle Std",
+]
+
+
+def preprocess_features(df: pd.DataFrame, feature_profile: str = "all_numeric_no_env") -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Feature profile presets:
+      - all_numeric_no_env: all numeric columns excluding environment/leakage fields.
+      - stable_stats_no_env: curated CIC stable statistical features (numeric only), no env fields.
+      - compact_stats_no_env: smaller robust subset for stronger regularization.
+    """
+    drop_cols = [c for c in ENVIRONMENT_COLUMNS if c in df.columns]
+    feat_df = df.drop(columns=drop_cols, errors="ignore")
     numeric_cols = feat_df.select_dtypes(include=[np.number]).columns.tolist()
+
+    if feature_profile == "stable_stats_no_env":
+        keep_cols = [c for c in STABLE_STATS_FEATURES if c in numeric_cols]
+        if keep_cols:
+            numeric_cols = keep_cols
+    elif feature_profile == "compact_stats_no_env":
+        keep_cols = [c for c in COMPACT_STATS_FEATURES if c in numeric_cols]
+        if keep_cols:
+            numeric_cols = keep_cols
+
     feat_df = feat_df[numeric_cols].replace([np.inf, -np.inf], np.nan).fillna(0.0)
     return feat_df, numeric_cols
 
@@ -69,6 +188,7 @@ class TridentStreamingExperiment:
         self.tmagnifier = TMagnifier(**cfg["tmagnifier"])
         self.next_new_id = 1
         self.learner_creation_profiles: List[Dict[str, object]] = []
+        self.learner_creation_sample_count: Dict[str, int] = {}
         self.learner_cumulative_counts: Dict[str, Dict[str, int]] = {}
         self.freeze_benign_incremental = bool(cfg["runtime"].get("freeze_benign_incremental", False))
         self.run_id = str(cfg["runtime"].get("run_id", datetime.now().strftime("%Y%m%d_%H%M%S")))
@@ -78,10 +198,35 @@ class TridentStreamingExperiment:
         self.benign_history_confidence_scale = float(cfg["tsieve"].get("benign_history_confidence_scale", 0.6))
         self.learner_history_pool: Dict[str, np.ndarray] = {}
         self.sample_assignments: List[Dict[str, object]] = []
+        self.feature_profile = str(cfg.get("runtime", {}).get("feature_profile", "all_numeric_no_env"))
         self.debug_overlap_enabled = bool(cfg["runtime"].get("debug_overlap_enabled", False))
         self.debug_overlap_accept_count: Dict[str, int] = {}
         self.debug_overlap_pair_intersections: Dict[Tuple[str, str], int] = {}
         self.debug_overlap_stream_samples: int = 0
+        self.aggregate_overlap_enabled = bool(cfg["runtime"].get("aggregate_overlap_enabled", False))
+        self.aggregate_min_jaccard = float(
+            cfg["runtime"].get(
+                "aggregate_min_jaccard",
+                cfg["runtime"].get("debug_overlap_min_jaccard", 0.10),
+            )
+        )
+        self.aggregate_top_k_edges = int(
+            cfg["runtime"].get(
+                "aggregate_top_k_edges",
+                cfg["runtime"].get("debug_overlap_top_k_edges", 80),
+            )
+        )
+        self.aggregate_max_edges = int(
+            cfg["runtime"].get(
+                "aggregate_max_edges",
+                cfg["runtime"].get("debug_overlap_max_edges", 80),
+            )
+        )
+        # overlap graph aggregation strategy:
+        # - connected_components: legacy behavior
+        # - mutual_knn_components: keep mutual top-k neighbors, then connected components
+        self.aggregate_graph_algo = str(cfg["runtime"].get("aggregate_graph_algo", "connected_components"))
+        self.aggregate_mutual_top_k = int(cfg["runtime"].get("aggregate_mutual_top_k", 3))
         self.perf_stats: Dict[str, float] = {
             "detect_seconds_total": 0.0,
             "cluster_seconds_total": 0.0,
@@ -115,6 +260,9 @@ class TridentStreamingExperiment:
     def _log_learner_distribution(self, stage: str, learner_name: str, labels: np.ndarray) -> None:
         dist = self._label_distribution(labels)
         total = int(len(labels))
+        if stage in {"init", "new"}:
+            # Record one-time creation sample count per learner.
+            self.learner_creation_sample_count.setdefault(learner_name, total)
         self.learner_creation_profiles.append(
             {
                 "stage": stage,
@@ -169,6 +317,13 @@ class TridentStreamingExperiment:
         for learner_name in ordered_learners:
             dist = self.learner_cumulative_counts[learner_name]
             total = int(sum(dist.values()))
+            benign_count = int(
+                sum(int(n) for label, n in dist.items() if is_benign_label(str(label)))
+            )
+            attack_count = int(max(total - benign_count, 0))
+            attack_ratio = float(attack_count / total) if total > 0 else 0.0
+            creation_sample_count = int(self.learner_creation_sample_count.get(learner_name, 0))
+            post_creation_added_samples = int(max(total - creation_sample_count, 0))
             if total == 0:
                 dominant_label = ""
                 dominant_count = 0
@@ -179,8 +334,11 @@ class TridentStreamingExperiment:
                 dominant_ratio = float(dominant_count / total)
             rows.append(
                 {
+                    "attack_ratio": attack_ratio,
                     "learner_name": learner_name,
                     "total_assigned_samples": total,
+                    "creation_sample_count": creation_sample_count,
+                    "post_creation_added_samples": post_creation_added_samples,
                     "dominant_label": dominant_label,
                     "dominant_count": dominant_count,
                     "dominant_ratio": dominant_ratio,
@@ -306,6 +464,201 @@ class TridentStreamingExperiment:
         plt.close()
 
     @staticmethod
+    def _select_overlap_edges(
+        overlap_df: pd.DataFrame,
+        min_jaccard: float,
+        top_k_edges: int,
+        max_edges: int,
+    ) -> List[Tuple[str, str, float, float]]:
+        if overlap_df.empty:
+            return []
+        edges: List[Tuple[str, str, float, float]] = []
+        for _, row in overlap_df.iterrows():
+            a = str(row["learner_a_raw"]) if "learner_a_raw" in overlap_df.columns else str(row["learner_a"])
+            b = str(row["learner_b_raw"]) if "learner_b_raw" in overlap_df.columns else str(row["learner_b"])
+            jaccard = float(row.get("jaccard_acceptance", 0.0))
+            if jaccard <= 0.0:
+                continue
+            if jaccard < float(min_jaccard):
+                continue
+            score = float(jaccard)
+            edges.append((a, b, jaccard, score))
+        edges = sorted(edges, key=lambda x: (x[3], x[2]), reverse=True)
+        if top_k_edges > 0:
+            edges = edges[: int(top_k_edges)]
+        if max_edges > 0:
+            edges = edges[: int(max_edges)]
+        return edges
+
+    def _components_by_connected(self, learner_names: List[str], edges: List[Tuple[str, str, float, float]]) -> Tuple[List[List[str]], Dict[Tuple[str, str], float], int]:
+        learner_set = set(learner_names)
+        adj: Dict[str, set] = {name: set() for name in learner_names}
+        edge_weights: Dict[Tuple[str, str], float] = {}
+        used_edges = 0
+        for a, b, w, _ in edges:
+            if a not in learner_set or b not in learner_set:
+                continue
+            adj[a].add(b)
+            adj[b].add(a)
+            key = tuple(sorted((a, b)))
+            edge_weights[key] = float(w)
+            used_edges += 1
+        components: List[List[str]] = []
+        visited: set = set()
+        for name in sorted(learner_names, key=self._learner_order_key):
+            if name in visited:
+                continue
+            stack = [name]
+            comp: List[str] = []
+            while stack:
+                cur = stack.pop()
+                if cur in visited:
+                    continue
+                visited.add(cur)
+                comp.append(cur)
+                for nxt in sorted(adj.get(cur, set()), key=self._learner_order_key):
+                    if nxt not in visited:
+                        stack.append(nxt)
+            components.append(sorted(comp, key=self._learner_order_key))
+        return components, edge_weights, int(used_edges)
+
+    def _components_by_mutual_knn(
+        self,
+        learner_names: List[str],
+        edges: List[Tuple[str, str, float, float]],
+        mutual_top_k: int,
+    ) -> Tuple[List[List[str]], Dict[Tuple[str, str], float], int]:
+        learner_set = set(learner_names)
+        neighbors: Dict[str, List[Tuple[str, float]]] = {name: [] for name in learner_names}
+        jaccard_by_edge: Dict[Tuple[str, str], float] = {}
+        for a, b, jaccard, score in edges:
+            if a not in learner_set or b not in learner_set:
+                continue
+            neighbors[a].append((b, float(score)))
+            neighbors[b].append((a, float(score)))
+            jaccard_by_edge[tuple(sorted((a, b)))] = float(jaccard)
+        top_k_sets: Dict[str, set] = {}
+        k = max(1, int(mutual_top_k))
+        for name, nbrs in neighbors.items():
+            nbrs_sorted = sorted(nbrs, key=lambda x: x[1], reverse=True)
+            top_k_sets[name] = {n for n, _ in nbrs_sorted[:k]}
+
+        kept_edges: List[Tuple[str, str, float]] = []
+        for a, b, _, _ in edges:
+            if b in top_k_sets.get(a, set()) and a in top_k_sets.get(b, set()):
+                key = tuple(sorted((a, b)))
+                kept_edges.append((a, b, float(jaccard_by_edge.get(key, 0.0))))
+
+        dedup: Dict[Tuple[str, str], float] = {}
+        for a, b, w in kept_edges:
+            key = tuple(sorted((a, b)))
+            dedup[key] = max(float(dedup.get(key, 0.0)), float(w))
+        reduced_edges = [(a, b, w) for (a, b), w in dedup.items()]
+        # Reuse connected component building.
+        reduced_for_common = [(a, b, w, w) for a, b, w in reduced_edges]
+        return self._components_by_connected(learner_names, reduced_for_common)
+
+    def _aggregate_learners_by_overlap(
+        self,
+        cumulative_rows: List[Dict[str, object]],
+        overlap_df: pd.DataFrame,
+    ) -> Tuple[List[Dict[str, object]], List[Dict[str, object]], Dict[str, object]]:
+        learner_names = [str(row["learner_name"]) for row in cumulative_rows]
+        if not learner_names:
+            return [], [], {}
+
+        edges = self._select_overlap_edges(
+            overlap_df=overlap_df,
+            min_jaccard=self.aggregate_min_jaccard,
+            top_k_edges=self.aggregate_top_k_edges,
+            max_edges=self.aggregate_max_edges,
+        )
+        algo = self.aggregate_graph_algo.strip().lower()
+        if algo == "mutual_knn_components":
+            components, edge_weights, used_edges = self._components_by_mutual_knn(
+                learner_names=learner_names,
+                edges=edges,
+                mutual_top_k=self.aggregate_mutual_top_k,
+            )
+        else:
+            components, edge_weights, used_edges = self._components_by_connected(
+                learner_names=learner_names,
+                edges=edges,
+            )
+
+        agg_rows: List[Dict[str, object]] = []
+        mapping_rows: List[Dict[str, object]] = []
+        for idx, comp in enumerate(components, start=1):
+            agg_name = f"AGG_{idx:03d}"
+            agg_dist: Dict[str, int] = {}
+            agg_creation = 0
+            agg_total = 0
+            for learner_name in comp:
+                dist = self.learner_cumulative_counts.get(learner_name, {})
+                agg_creation += int(self.learner_creation_sample_count.get(learner_name, 0))
+                for label, n in dist.items():
+                    agg_dist[str(label)] = int(agg_dist.get(str(label), 0) + int(n))
+                agg_total += int(sum(int(v) for v in dist.values()))
+
+            dominant_label = ""
+            dominant_count = 0
+            dominant_ratio = 0.0
+            if agg_total > 0 and agg_dist:
+                dominant_label = str(max(agg_dist, key=agg_dist.get))
+                dominant_count = int(agg_dist[dominant_label])
+                dominant_ratio = float(dominant_count / agg_total)
+
+            internal_edges = 0
+            internal_jaccard_sum = 0.0
+            for i in range(len(comp)):
+                for j in range(i + 1, len(comp)):
+                    key = tuple(sorted((comp[i], comp[j])))
+                    if key in edge_weights:
+                        internal_edges += 1
+                        internal_jaccard_sum += float(edge_weights[key])
+            avg_internal_jaccard = (internal_jaccard_sum / internal_edges) if internal_edges > 0 else 0.0
+
+            agg_rows.append(
+                {
+                    "aggregate_name": agg_name,
+                    "member_count": int(len(comp)),
+                    "members_json": json.dumps(comp, ensure_ascii=False),
+                    "total_assigned_samples": int(agg_total),
+                    "creation_sample_count": int(agg_creation),
+                    "post_creation_added_samples": int(max(agg_total - agg_creation, 0)),
+                    "dominant_label": dominant_label,
+                    "dominant_count": int(dominant_count),
+                    "dominant_ratio": float(dominant_ratio),
+                    "internal_edge_count": int(internal_edges),
+                    "avg_internal_jaccard": float(avg_internal_jaccard),
+                    "label_distribution_json": json.dumps(agg_dist, ensure_ascii=False),
+                }
+            )
+            for learner_name in comp:
+                mapping_rows.append(
+                    {
+                        "learner_name": learner_name,
+                        "aggregate_name": agg_name,
+                        "component_size": int(len(comp)),
+                    }
+                )
+
+        agg_rows = sorted(agg_rows, key=lambda x: x["total_assigned_samples"], reverse=True)
+        meta = {
+            "aggregate_overlap_enabled": bool(self.aggregate_overlap_enabled),
+            "aggregate_min_jaccard": float(self.aggregate_min_jaccard),
+            "aggregate_top_k_edges": int(self.aggregate_top_k_edges),
+            "aggregate_max_edges": int(self.aggregate_max_edges),
+            "aggregate_graph_algo": self.aggregate_graph_algo,
+            "aggregate_mutual_top_k": int(self.aggregate_mutual_top_k),
+            "selected_edge_count": int(len(edges)),
+            "used_edge_count_after_algo": int(used_edges),
+            "aggregate_count": int(len(agg_rows)),
+            "learner_count": int(len(learner_names)),
+        }
+        return agg_rows, mapping_rows, meta
+
+    @staticmethod
     def _safe_div(x: float, y: float) -> float:
         return float(x / y) if y else 0.0
 
@@ -381,13 +734,13 @@ class TridentStreamingExperiment:
                 unknown_non_benign += non_benign_count
                 continue
 
-            if is_benign_label(learner_name):
-                # Non-benign accepted by BENIGN learner are risk misses.
+            if dominant_label == "BENIGN":
+                # Cluster is BENIGN-family by dominant label:
+                # non-benign mixed into this cluster are risk misses.
                 non_benign_to_benign += non_benign_count
-                continue
-
-            # For risk false alarm, exclude learners dominated by BENIGN.
-            if dominant_label != "BENIGN":
+            else:
+                # Cluster is attack-family by dominant label:
+                # benign mixed into this cluster are risk false alarms.
                 benign_fp_risk += benign_count
 
         benign_base_for_fpr = int(max(actual_benign - unknown_benign, 0))
@@ -517,7 +870,19 @@ class TridentStreamingExperiment:
                     )
             dfs.append(chunk)
         data = pd.concat(dfs, ignore_index=True)
-        data["Timestamp"] = pd.to_datetime(data["Timestamp"], errors="coerce")
+        ts_raw = data["Timestamp"]
+        try:
+            # pandas >= 2.0: mixed can parse heterogeneous timestamp formats safely.
+            data["Timestamp"] = pd.to_datetime(ts_raw, errors="coerce", format="mixed")
+        except TypeError:
+            # pandas < 2.0 fallback.
+            data["Timestamp"] = pd.to_datetime(ts_raw, errors="coerce")
+        ts_invalid = int(data["Timestamp"].isna().sum())
+        if ts_invalid > 0:
+            self.logger.warning(
+                "[TimestampParse] invalid_timestamp_rows=%d (dropped after parse)",
+                ts_invalid,
+            )
         data = data.dropna(subset=["Timestamp"]).sort_values("Timestamp").reset_index(drop=True)
         data["LabelNorm"] = data["Label"].map(normalize_label)
         data = self._apply_attack_sampling(data)
@@ -526,9 +891,14 @@ class TridentStreamingExperiment:
         if max_rows > 0 and len(data) > max_rows:
             data = data.iloc[:max_rows].reset_index(drop=True)
 
-        feat_df, feature_cols = preprocess_features(data)
+        feat_df, feature_cols = preprocess_features(data, feature_profile=self.feature_profile)
         x_all = feat_df.values.astype(np.float32)
-        self.logger.info("Rows=%d, FeatureDim=%d", len(data), len(feature_cols))
+        self.logger.info(
+            "Rows=%d, FeatureDim=%d, FeatureProfile=%s",
+            len(data),
+            len(feature_cols),
+            self.feature_profile,
+        )
         return data, x_all, feature_cols
 
     def _build_initial_learners(self, data: pd.DataFrame, x_all: np.ndarray) -> int:
@@ -770,13 +1140,21 @@ class TridentStreamingExperiment:
         pd.DataFrame(self.learner_creation_profiles).to_csv(creation_profile_path, index=False)
         profile_path = self.output_dir / "learner_label_distribution.csv"
         cumulative_rows = self._build_cumulative_profile_rows()
-        pd.DataFrame(cumulative_rows).to_csv(profile_path, index=False)
+        profile_df = pd.DataFrame(cumulative_rows)
+        if not profile_df.empty and "attack_ratio" in profile_df.columns:
+            profile_df = profile_df.sort_values(
+                by="attack_ratio",
+                ascending=False,
+                kind="mergesort",
+            )
+        profile_df.to_csv(profile_path, index=False)
         metrics_path = self.output_dir / "metrics.json"
         metrics = self._compute_run_metrics(cumulative_rows)
         with open(metrics_path, "w", encoding="utf-8") as f:
             json.dump(metrics, f, ensure_ascii=False, indent=2)
         overlap_pairs_path = self.output_dir / "debug_true_overlap_pairs.csv"
         overlap_summary_path = self.output_dir / "debug_true_overlap_summary.json"
+        overlap_df = pd.DataFrame()
         if self.debug_overlap_enabled:
             learner_names = sorted([str(name) for name in self.tsieve.learners.keys()])
             rows: List[Dict[str, object]] = []
@@ -836,6 +1214,26 @@ class TridentStreamingExperiment:
             }
             with open(overlap_summary_path, "w", encoding="utf-8") as f:
                 json.dump(overlap_summary, f, ensure_ascii=False, indent=2)
+
+        if self.aggregate_overlap_enabled:
+            agg_rows, mapping_rows, agg_meta = self._aggregate_learners_by_overlap(
+                cumulative_rows=cumulative_rows,
+                overlap_df=overlap_df,
+            )
+            agg_profile_path = self.output_dir / "learner_aggregated_distribution.csv"
+            agg_map_path = self.output_dir / "learner_aggregation_mapping.csv"
+            agg_summary_path = self.output_dir / "learner_aggregation_summary.json"
+            pd.DataFrame(agg_rows).to_csv(agg_profile_path, index=False)
+            pd.DataFrame(mapping_rows).to_csv(agg_map_path, index=False)
+            with open(agg_summary_path, "w", encoding="utf-8") as f:
+                json.dump(agg_meta, f, ensure_ascii=False, indent=2)
+            self.logger.info(
+                "Done. AGG_PROFILE=%s | AGG_MAP=%s | AGG_SUMMARY=%s | aggregates=%d",
+                agg_profile_path,
+                agg_map_path,
+                agg_summary_path,
+                int(agg_meta.get("aggregate_count", 0)),
+            )
         perf_path = self.output_dir / "performance_metrics.json"
         windows_count = int(self.perf_stats["windows_count"])
         perf_summary = {
