@@ -1,0 +1,13 @@
+seed: 42
+min_jaccard: 0.15
+top_k_edges: 200
+max_edges: 200
+mutual_top_k: 3
+
+algorithms:
+  - name: connected_components
+  - name: mutual_knn_components
+    mutual_top_k: 3
+  - name: label_propagation
+  - name: greedy_modularity
+  - name: louvain

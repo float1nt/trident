@@ -68,6 +68,11 @@ runtime:
   freeze_benign_incremental: false
   # BENIGN 接受阈值缩放（越小越严格）
   benign_accept_scale: 0.5
+  # 推理阶段是否所有 learner 一视同仁（false=允许 benign 锚点特殊处理）
+  uniform_learner_treatment: false
+  # 是否用 learner 名称里的 BENIGN 语义做在线逻辑（建议关闭，避免标签泄露）。
+  # 当本项为 false 时，BENIGN 特殊处理仅基于 init 阶段建立的 benign 锚点。
+  use_name_based_benign_logic: false
   # 特征配置：all_numeric_no_env / stable_stats_no_env / compact_stats_no_env
   feature_profile: "stable_stats_no_env"
   # 开启真实重叠调试统计
@@ -90,6 +95,9 @@ runtime:
   aggregate_graph_algo: "connected_components"
   # mutual_knn_components 生效时，每个节点保留前 k 个邻居，需互选才连边
   aggregate_mutual_top_k: 3
+  # 聚合后按初始良性锚点（默认 2017|BENIGN）判断 agg 良/恶
+  aggregate_init_benign_label: "2017|BENIGN"
+  aggregate_init_benign_ratio_threshold: 0.5
   # 注意：聚合阶段严格无标签，仅使用 overlap 图结构（Jaccard + 图算法）
   # 可手动指定 run_id；main.py 会用当前时间覆盖该值
   run_id: 20260511_170800_batchinfer
@@ -108,9 +116,13 @@ stream:
   window_size: 5000
 
 # -----------------------------
-# tSieve（AE 学习器）
+# tSieve（一类分类器：AE / IsolationForest）
 # -----------------------------
 tsieve:
+  # ae / iforest
+  classifier_backend: "ae"
+  # 仅 iforest 生效
+  iforest_n_estimators: 200
   init_epochs: 5
   new_class_epochs: 4
   increment_epochs: 1
@@ -122,8 +134,30 @@ tsieve:
   min_class_samples: 300
   historical_sample_rate: 0.0
   max_history_samples_per_learner: 10000
+  history_pool_compress_enabled: true
   history_samples_per_update: 0
+  # 历史采样时间衰减系数（>0 启用指数衰减采样；0 关闭，回退到原有损失分布抽样）
+  history_time_decay_lambda: 0.0
   benign_history_confidence_scale: 1.0
+  # 增量门控（无标签）
+  increment_use_last_train_gap: false
+  increment_gate_enabled: false
+  increment_gate_min_benign_prob_mean: 0.02
+  increment_gate_max_own_exceed_rate: 0.90
+  # NEW learner 增量防污染门控：基于 own margin 与 margin gap 的高相关特征
+  increment_route_gate_enabled: false
+  increment_route_apply_to_new_only: true
+  increment_route_min_samples: 300
+  increment_route_min_own_margin: 0.02
+  increment_route_min_margin_gap: 0.03
+  increment_route_min_confident_ratio: 0.55
+  # NEW learner 增量 IForest 防污染门控：用该 learner 自身样本初始化
+  increment_iforest_guard_enabled: false
+  increment_iforest_guard_apply_to_new_only: true
+  increment_iforest_guard_min_samples: 300
+  increment_iforest_guard_n_estimators: 200
+  increment_iforest_guard_train_max_samples: 5000
+  increment_iforest_guard_keep_quantile: 0.90
 
 # -----------------------------
 # tScissors（EVT 阈值）
@@ -142,3 +176,30 @@ tmagnifier:
   dbscan_eps: 1.2
   dbscan_min_samples: 15
   new_class_min_size: 80
+  # 新簇纯度门控（仅影响 NEW learner 是否创建，不影响 DBSCAN 聚类本身）
+  cluster_purity_gate_enabled: false
+  # 任一 BENIGN learner 的接受率上限（超出则拒绝创建 NEW）
+  cluster_gate_max_benign_accept_rate: 1.0
+  # 任一 BENIGN learner 的 soft 概率均值上限（超出则拒绝创建 NEW）
+  cluster_gate_max_benign_prob_mean: 1.0
+  # 任一 BENIGN learner 的 soft 概率 p90 上限（超出则拒绝创建 NEW）
+  cluster_gate_max_benign_prob_p90: 1.0
+  # 混合簇检查（无标签）：当 benign_prob_p10 < low 且 benign_prob_p90 > high 时拒绝
+  cluster_gate_mixed_check_enabled: false
+  cluster_gate_mixed_prob_low: 0.2
+  cluster_gate_mixed_prob_high: 0.8
+  # 结构混合门控（无标签）：簇可被稳定二分且两子簇都够大时，视为混合簇并拒绝
+  cluster_gate_structure_check_enabled: false
+  cluster_gate_structure_min_samples: 600
+  cluster_gate_structure_min_child_ratio: 0.2
+  cluster_gate_structure_min_silhouette: 0.18
+  cluster_gate_structure_min_split_gain: 0.45
+  # 路由一致性门控（无标签）：簇内样本若被多个现有 learner 高比例共同接纳，且winner不集中，则拒绝
+  cluster_gate_route_consistency_enabled: false
+  cluster_gate_route_min_samples: 500
+  cluster_gate_route_min_multi_accept_ratio: 0.3
+  cluster_gate_route_max_top1_share: 0.7
+  # soft 概率温度系数（sigmoid(k*margin)）
+  cluster_gate_soft_k: 4.0
+  # 拒绝簇处理策略：reinject_unknown / drop
+  cluster_gate_rejected_action: "reinject_unknown"

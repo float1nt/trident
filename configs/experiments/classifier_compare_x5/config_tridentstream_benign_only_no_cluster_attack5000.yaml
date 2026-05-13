@@ -1,0 +1,58 @@
+title: "trident_stream_binary_like_benign_only_no_cluster_attack5000"
+description: "Single benign learner in trident_stream; no clustering/new learner creation; attack per-type sampling=5000."
+
+paths:
+  data_dir: "data"
+  input_files:
+    - aligned_2017_2019_2026_sampled_x5_yeartagged_for_main.csv
+  output_dir: "outputs"
+  log_file: "run.log"
+
+runtime:
+  seed: 42
+  cpu_only: false
+  max_rows: 0
+  attack_sample_per_type: 5000
+  benign_sample_max_rows: 0
+  freeze_benign_incremental: true
+  benign_accept_scale: 1.0
+  uniform_learner_treatment: false
+  use_name_based_benign_logic: false
+  feature_profile: "stable_stats_no_env"
+  debug_overlap_enabled: false
+  aggregate_overlap_enabled: false
+
+stream:
+  init_ratio: 0.2
+  init_known_mode: "benign_only"
+  init_benign_year: "2017"
+  window_size: 5000
+
+tsieve:
+  classifier_backend: "ae"
+  iforest_n_estimators: 200
+  init_epochs: 5
+  new_class_epochs: 4
+  increment_epochs: 1
+  batch_size: 256
+  lr: 0.001
+  max_train_per_class: 20000
+  increment_min_samples: 1000
+  max_increment_samples: 1000
+  min_class_samples: 300
+  historical_sample_rate: 0.0
+  max_history_samples_per_learner: 10000
+  history_samples_per_update: 0
+  benign_history_confidence_scale: 1.0
+
+tscissors:
+  evt_quantile: 0.95
+  evt_risk: 0.001
+  fallback_quantile: 0.99
+
+tmagnifier:
+  cluster_trigger_size: 999999999
+  max_unknown_buffer: 999999999
+  dbscan_eps: 1.2
+  dbscan_min_samples: 15
+  new_class_min_size: 80

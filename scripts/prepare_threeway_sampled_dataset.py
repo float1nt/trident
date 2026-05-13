@@ -113,6 +113,7 @@ def process_file(
     first_write: bool,
     chunksize: int,
     rng: np.random.Generator,
+    benign_multiplier: float,
 ) -> bool:
     for chunk in pd.read_csv(file_path, low_memory=False, chunksize=chunksize):
         chunk = standardize_columns(chunk, year_tag=year_tag)
@@ -132,8 +133,8 @@ def process_file(
         if not attack_labels.empty:
             total_attack.update(attack_labels.value_counts().to_dict())
 
-        benign_remaining = max(0, benign_cap - kept_benign[year_tag])
-        if benign_remaining > 0:
+        benign_remaining = max(0, benign_cap - kept_benign[year_tag]) if benign_cap > 0 else -1
+        if benign_cap <= 0 or benign_remaining > 0:
             benign_rows = chunk.loc[benign_mask, common_features].copy()
             benign_rows["Label"] = BENIGN_BY_YEAR[year_tag]
             benign_rows["year_tag"] = year_tag
@@ -143,7 +144,18 @@ def process_file(
                 benign_rows["original_label"].astype(str),
                 "",
             )
-            benign_sample = sample_subset(benign_rows, benign_remaining, rng=rng)
+            if benign_cap <= 0:
+                benign_sample = benign_rows
+            else:
+                benign_sample = sample_subset(benign_rows, benign_remaining, rng=rng)
+
+            if benign_multiplier > 1.0 and not benign_sample.empty:
+                extra_n = int(round((benign_multiplier - 1.0) * len(benign_sample)))
+                if extra_n > 0:
+                    picks = rng.choice(benign_sample.index.to_numpy(), size=extra_n, replace=True)
+                    benign_extra = benign_sample.loc[picks].copy()
+                    benign_sample = pd.concat([benign_sample, benign_extra], ignore_index=True)
+
             kept_benign[year_tag] += len(benign_sample)
             first_write = write_rows(output_csv, benign_sample, first_write, ordered_columns)
 
@@ -151,10 +163,13 @@ def process_file(
         if not attack_work.empty:
             attack_work["raw_attack_label"] = raw_label.loc[attack_mask].replace({"": "UNKNOWN_ATTACK"}).to_numpy()
             for attack_label, group in attack_work.groupby("raw_attack_label", sort=False):
-                remaining = max(0, attack_cap - int(kept_attack[attack_label]))
-                if remaining <= 0:
-                    continue
-                picked = sample_subset(group, remaining, rng=rng).copy()
+                if attack_cap <= 0:
+                    picked = group.copy()
+                else:
+                    remaining = max(0, attack_cap - int(kept_attack[attack_label]))
+                    if remaining <= 0:
+                        continue
+                    picked = sample_subset(group, remaining, rng=rng).copy()
                 if picked.empty:
                     continue
                 picked["Label"] = attack_label
@@ -177,6 +192,12 @@ def main() -> None:
     parser.add_argument("--report-json", default="data/aligned_2017_2019_2026_sampled.report.json")
     parser.add_argument("--benign-per-year", type=int, default=100000)
     parser.add_argument("--attack-per-type", type=int, default=10000)
+    parser.add_argument(
+        "--benign-multiplier",
+        type=float,
+        default=1.0,
+        help="Multiplier for kept benign rows (e.g., 10 keeps attack unchanged and expands benign 10x).",
+    )
     parser.add_argument("--chunksize", type=int, default=200000)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
@@ -241,6 +262,7 @@ def main() -> None:
             first_write=first_write,
             chunksize=args.chunksize,
             rng=rng,
+            benign_multiplier=float(args.benign_multiplier),
         )
         print(
             f"  kept_benign={kept_benign} kept_attack_types={len(kept_attack)}",
@@ -257,6 +279,7 @@ def main() -> None:
         "sampling_rules": {
             "benign_per_year": args.benign_per_year,
             "attack_per_type": args.attack_per_type,
+            "benign_multiplier": float(args.benign_multiplier),
             "benign_label_mapping": BENIGN_BY_YEAR,
         },
         "totals_before_sampling": {

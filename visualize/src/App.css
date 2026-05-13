@@ -1,0 +1,64 @@
+.page {
+  padding: 20px;
+  min-height: 100vh;
+  background: #0b1220;
+  color: #e6edf7;
+}
+
+.page .ant-typography,
+.page .ant-typography-caption,
+.page .ant-typography-secondary {
+  color: #e6edf7 !important;
+}
+
+.page .ant-btn-default {
+  color: #e6edf7;
+  border-color: #334155;
+  background: #0f172a;
+}
+
+.page .ant-input,
+.page .ant-input-affix-wrapper,
+.page .ant-select .ant-select-selector {
+  color: #e6edf7 !important;
+  background: #0f172a !important;
+  border-color: #334155 !important;
+}
+
+.page .ant-input::placeholder {
+  color: #94a3b8;
+}
+
+.page .ant-select .ant-select-selection-item,
+.page .ant-select .ant-select-selection-placeholder,
+.page .ant-select .ant-select-arrow {
+  color: #e6edf7 !important;
+}
+
+.page .ant-slider-mark-text {
+  color: #b8c6e3 !important;
+}
+
+.page .ant-tag.ant-tag-default {
+  color: #dbe5f5;
+  background: #1f2937;
+  border-color: #334155;
+}
+
+.dark-card {
+  background: #111827 !important;
+  border-color: #1f2937 !important;
+}
+
+.dark-card .ant-card-head,
+.dark-card .ant-card-body {
+  color: #dbe5f5;
+}
+
+.dark-card .ant-statistic-title {
+  color: #9fb1d9;
+}
+
+.dark-card .ant-statistic-content {
+  color: #e6edf7;
+}

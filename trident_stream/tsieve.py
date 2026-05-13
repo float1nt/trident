@@ -1,10 +1,11 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -53,37 +54,73 @@ class AutoEncoder(nn.Module):
 class Learner:
     name: str
     scaler: StandardScaler
-    model: AutoEncoder
+    model: Any
     threshold: float
     device: torch.device
     batch_size: int
     lr: float
+    classifier_backend: str
 
     def reconstruction_loss(self, x: np.ndarray) -> np.ndarray:
         x_scaled = self.scaler.transform(x)
+        if self.classifier_backend == "iforest":
+            # IsolationForest score_samples: larger is more normal.
+            # Convert to loss-like value where smaller is more normal.
+            return (-self.model.score_samples(x_scaled)).astype(np.float64, copy=False)
         with torch.no_grad():
             t = torch.as_tensor(x_scaled, dtype=torch.float32, device=self.device)
             pred = self.model(t)
             return torch.mean((pred - t) ** 2, dim=1).detach().cpu().numpy()
 
-    def fit_incremental(self, x: np.ndarray, epochs: int) -> None:
+    def fit_incremental(self, x: np.ndarray, epochs: int) -> Dict[str, List[float]]:
         if len(x) == 0:
-            return
+            return {"train": [], "val": []}
+        if self.classifier_backend == "iforest":
+            x_scaled = self.scaler.fit_transform(x)
+            self.model.fit(x_scaled)
+            return {"train": [], "val": []}
         x_scaled = self.scaler.transform(x)
+        n = len(x_scaled)
+        val_count = int(max(0, round(n * 0.1)))
+        val_count = min(val_count, max(0, n - 32))
+        if n >= 512:
+            val_count = max(val_count, 64)
+        if val_count > 0:
+            val_idx = np.linspace(0, n - 1, num=val_count, dtype=int)
+            x_val = x_scaled[val_idx]
+        else:
+            x_val = np.empty((0, x_scaled.shape[1]), dtype=x_scaled.dtype)
         ds = TensorDataset(torch.as_tensor(x_scaled, dtype=torch.float32))
         dl = DataLoader(ds, batch_size=self.batch_size, shuffle=True, drop_last=False)
         self.model.train()
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
         criterion = nn.MSELoss()
+        epoch_losses: List[float] = []
+        epoch_val_losses: List[float] = []
         for _ in range(epochs):
+            batch_losses: List[float] = []
             for (batch,) in dl:
                 batch = batch.to(self.device)
                 out = self.model(batch)
                 loss = criterion(out, batch)
+                batch_losses.append(float(loss.item()))
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+            if batch_losses:
+                epoch_losses.append(float(np.mean(batch_losses)))
+            else:
+                epoch_losses.append(float("nan"))
+            if len(x_val) > 0:
+                with torch.no_grad():
+                    tv = torch.as_tensor(x_val, dtype=torch.float32, device=self.device)
+                    pv = self.model(tv)
+                    vloss = torch.mean((pv - tv) ** 2).detach().cpu().item()
+                epoch_val_losses.append(float(vloss))
+            else:
+                epoch_val_losses.append(float("nan"))
         self.model.eval()
+        return {"train": epoch_losses, "val": epoch_val_losses}
 
 
 class TSieve:
@@ -99,6 +136,11 @@ class TSieve:
         max_train_per_class: int,
         benign_accept_scale: float = 1.0,
         prefer_non_benign_first: bool = True,
+        classifier_backend: str = "ae",
+        iforest_n_estimators: int = 200,
+        seed: int = 42,
+        use_name_based_benign_logic: bool = True,
+        uniform_learner_treatment: bool = False,
     ):
         self.device = device
         self.tscissors = tscissors
@@ -108,7 +150,24 @@ class TSieve:
         self.max_train_per_class = max_train_per_class
         self.benign_accept_scale = max(0.0, min(float(benign_accept_scale), 1.0))
         self.prefer_non_benign_first = bool(prefer_non_benign_first)
+        self.use_name_based_benign_logic = bool(use_name_based_benign_logic)
+        self.uniform_learner_treatment = bool(uniform_learner_treatment)
+        self.classifier_backend = str(classifier_backend).strip().lower()
+        if self.classifier_backend not in {"ae", "iforest"}:
+            raise ValueError(f"Unsupported tsieve classifier_backend: {classifier_backend}")
+        self.iforest_n_estimators = int(iforest_n_estimators)
+        self.seed = int(seed)
         self.learners: Dict[str, Learner] = {}
+        self.benign_anchor_names: Set[str] = set()
+        self.last_add_train_trace: Dict[str, Any] = {}
+
+    def set_benign_anchor_names(self, names: List[str]) -> None:
+        self.benign_anchor_names = {str(x) for x in names}
+
+    def is_benign_learner(self, name: str) -> bool:
+        if self.use_name_based_benign_logic:
+            return is_benign_label(name)
+        return str(name) in self.benign_anchor_names
 
     def _batch_losses_and_thresholds(
         self, samples: np.ndarray
@@ -126,7 +185,7 @@ class TSieve:
         for name, learner in self.learners.items():
             losses = learner.reconstruction_loss(samples)
             threshold = learner.threshold
-            if is_benign_label(name):
+            if (not self.uniform_learner_treatment) and self.is_benign_learner(name):
                 threshold = threshold * self.benign_accept_scale
             names.append(name)
             losses_rows.append(losses.astype(np.float64, copy=False))
@@ -144,9 +203,9 @@ class TSieve:
         if len(accepted_idx) == 0:
             return None
 
-        if self.prefer_non_benign_first:
+        if self.prefer_non_benign_first and (not self.uniform_learner_treatment):
             non_benign = np.asarray(
-                [idx for idx in accepted_idx if not is_benign_label(names[int(idx)])],
+                [idx for idx in accepted_idx if not self.is_benign_learner(names[int(idx)])],
                 dtype=int,
             )
             if len(non_benign) > 0:
@@ -154,7 +213,7 @@ class TSieve:
                 return names[int(best)]
 
             benign_only = np.asarray(
-                [idx for idx in accepted_idx if is_benign_label(names[int(idx)])],
+                [idx for idx in accepted_idx if self.is_benign_learner(names[int(idx)])],
                 dtype=int,
             )
             if len(benign_only) == 0:
@@ -165,29 +224,55 @@ class TSieve:
         best = accepted_idx[np.argmin(losses_by_learner[accepted_idx])]
         return names[int(best)]
 
-    def _train_ae(self, x_train: np.ndarray, epochs: int) -> Learner:
+    def _train_ae(self, x_train: np.ndarray, epochs: int) -> Tuple[Learner, Dict[str, List[float]]]:
         scaler = StandardScaler()
         x_scaled = scaler.fit_transform(x_train)
+        n = len(x_scaled)
+        val_count = int(max(0, round(n * 0.1)))
+        val_count = min(val_count, max(0, n - 64))
+        if n >= 1024:
+            val_count = max(val_count, 128)
+        if val_count > 0:
+            val_idx = np.linspace(0, n - 1, num=val_count, dtype=int)
+            x_val = x_scaled[val_idx]
+        else:
+            x_val = np.empty((0, x_scaled.shape[1]), dtype=x_scaled.dtype)
         model = AutoEncoder(x_scaled.shape[1]).to(self.device)
         ds = TensorDataset(torch.as_tensor(x_scaled, dtype=torch.float32))
         dl = DataLoader(ds, batch_size=self.batch_size, shuffle=True, drop_last=False)
         optimizer = optim.Adam(model.parameters(), lr=self.lr)
         criterion = nn.MSELoss()
         model.train()
+        epoch_losses: List[float] = []
+        epoch_val_losses: List[float] = []
         for _ in range(epochs):
+            batch_losses: List[float] = []
             for (batch,) in dl:
                 batch = batch.to(self.device)
                 out = model(batch)
                 loss = criterion(out, batch)
+                batch_losses.append(float(loss.item()))
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+            if batch_losses:
+                epoch_losses.append(float(np.mean(batch_losses)))
+            else:
+                epoch_losses.append(float("nan"))
+            if len(x_val) > 0:
+                with torch.no_grad():
+                    tv = torch.as_tensor(x_val, dtype=torch.float32, device=self.device)
+                    pv = model(tv)
+                    vloss = torch.mean((pv - tv) ** 2).detach().cpu().item()
+                epoch_val_losses.append(float(vloss))
+            else:
+                epoch_val_losses.append(float("nan"))
         model.eval()
         with torch.no_grad():
             t = torch.as_tensor(x_scaled, dtype=torch.float32, device=self.device)
             losses = torch.mean((model(t) - t) ** 2, dim=1).cpu().numpy()
         threshold = self.tscissors.fit_threshold(losses)
-        return Learner(
+        learner = Learner(
             name="",
             scaler=scaler,
             model=model,
@@ -195,7 +280,33 @@ class TSieve:
             device=self.device,
             batch_size=self.batch_size,
             lr=self.lr,
+            classifier_backend="ae",
         )
+        return learner, {"train": epoch_losses, "val": epoch_val_losses}
+
+    def _train_iforest(self, x_train: np.ndarray) -> Tuple[Learner, Dict[str, List[float]]]:
+        scaler = StandardScaler()
+        x_scaled = scaler.fit_transform(x_train)
+        model = IsolationForest(
+            n_estimators=self.iforest_n_estimators,
+            contamination="auto",
+            random_state=self.seed,
+            n_jobs=-1,
+        )
+        model.fit(x_scaled)
+        losses = (-model.score_samples(x_scaled)).astype(np.float64, copy=False)
+        threshold = self.tscissors.fit_threshold(losses)
+        learner = Learner(
+            name="",
+            scaler=scaler,
+            model=model,
+            threshold=threshold,
+            device=self.device,
+            batch_size=self.batch_size,
+            lr=self.lr,
+            classifier_backend="iforest",
+        )
+        return learner, {"train": [], "val": []}
 
     def add_learner(self, name: str, x_train: np.ndarray, epochs: int) -> bool:
         if len(x_train) < self.min_class_samples:
@@ -203,9 +314,21 @@ class TSieve:
         if len(x_train) > self.max_train_per_class:
             idx = np.random.choice(len(x_train), size=self.max_train_per_class, replace=False)
             x_train = x_train[idx]
-        learner = self._train_ae(x_train, epochs)
+        if self.classifier_backend == "iforest":
+            learner, epoch_losses = self._train_iforest(x_train)
+        else:
+            learner, epoch_losses = self._train_ae(x_train, epochs)
         learner.name = name
         self.learners[name] = learner
+        self.last_add_train_trace = {
+            "learner_name": str(name),
+            "train_sample_count": int(len(x_train)),
+            "epochs": int(epochs),
+            "epoch_losses": [float(x) for x in epoch_losses.get("train", [])],
+            "epoch_val_losses": [float(x) for x in epoch_losses.get("val", [])],
+            "threshold": float(learner.threshold),
+            "backend": str(self.classifier_backend),
+        }
         return True
 
     def _classify_sample_with_details(self, sample: np.ndarray) -> Dict[str, object]:
@@ -217,7 +340,7 @@ class TSieve:
         for name, learner in self.learners.items():
             loss = float(learner.reconstruction_loss(sample)[0])
             threshold = learner.threshold
-            if is_benign_label(name):
+            if (not self.uniform_learner_treatment) and self.is_benign_learner(name):
                 threshold = threshold * self.benign_accept_scale
             names.append(name)
             losses.append(loss)
@@ -236,10 +359,10 @@ class TSieve:
                 "thresholds": thresholds_map,
             }
 
-        if self.prefer_non_benign_first:
+        if self.prefer_non_benign_first and (not self.uniform_learner_treatment):
             # Prefer non-BENIGN learners first to reduce attack leakage into benign learners.
             non_benign = np.asarray(
-                [idx for idx in accepted if not is_benign_label(names[int(idx)])],
+                [idx for idx in accepted if not self.is_benign_learner(names[int(idx)])],
                 dtype=int,
             )
             if len(non_benign) > 0:
@@ -252,7 +375,7 @@ class TSieve:
                 }
 
             benign_only = np.asarray(
-                [idx for idx in accepted if is_benign_label(names[int(idx)])],
+                [idx for idx in accepted if self.is_benign_learner(names[int(idx)])],
                 dtype=int,
             )
             if len(benign_only) == 0:

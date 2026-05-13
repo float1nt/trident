@@ -1,0 +1,89 @@
+title: CIC2017_to_2019_transfer_aligned_v1_subset
+description: 'fpr<1 anchor-s3: bscale=0.5, evt_risk=0.002, q=0.97'
+paths:
+  data_dir: data
+  input_files:
+  - aligned_2017_2019_2026_sampled_x5_yeartagged_for_main.csv
+  output_dir: outputs
+  log_file: run.log
+sampling:
+  data_dir: data
+  input_files:
+  - aligned_2017_2019/2017_monday.csv
+  - aligned_2017_2019/2017_tuesday.csv
+  - aligned_2017_2019/2017_wednesday.csv
+  - aligned_2017_2019/2017_thursday.csv
+  - aligned_2017_2019/2017_friday.csv
+  - aligned_2017_2019/2019_DrDoS_DNS.csv
+  - aligned_2017_2019/2019_DrDoS_LDAP.csv
+  - aligned_2017_2019/2019_DrDoS_MSSQL.csv
+  - aligned_2017_2019/2019_DrDoS_NetBIOS.csv
+  - aligned_2017_2019/2019_DrDoS_NTP.csv
+  - aligned_2017_2019/2019_DrDoS_SNMP.csv
+  - aligned_2017_2019/2019_DrDoS_SSDP.csv
+  - aligned_2017_2019/2019_DrDoS_UDP.csv
+  - aligned_2017_2019/2019_Syn.csv
+  - aligned_2017_2019/2019_TFTP.csv
+  - aligned_2017_2019/2019_UDPLag.csv
+  output_csv: data/aligned_2017_2019_sampled_year_tagged.csv
+  report_json: data/aligned_2017_2019_sampled_year_tagged.report.json
+  chunksize: 100000
+  seed: 42
+  attack_sample_per_type: 5000
+  benign_sample_max_rows: 0
+  benign_sample_per_day: 10000
+runtime:
+  seed: 42
+  cpu_only: false
+  max_rows: 0
+  attack_sample_per_type: 0
+  benign_sample_max_rows: 0
+  freeze_benign_incremental: false
+  benign_accept_scale: 0.5
+  feature_profile: compact_stats_no_env
+  debug_overlap_enabled: true
+  debug_overlap_min_jaccard: 0.15
+  debug_overlap_top_k_edges: 80
+  debug_overlap_max_edges: 80
+  aggregate_overlap_enabled: true
+  aggregate_min_jaccard: 0.15
+  aggregate_top_k_edges: 80
+  aggregate_max_edges: 80
+  run_id: auto
+  aggregate_graph_algo: connected_components
+  aggregate_mutual_top_k: 3
+  uniform_learner_treatment: false
+  use_name_based_benign_logic: false
+stream:
+  init_ratio: 0.01
+  init_known_mode: benign_only
+  init_benign_year: '2017'
+  window_size: 10000
+tsieve:
+  classifier_backend: ae
+  iforest_n_estimators: 200
+  init_epochs: 5
+  new_class_epochs: 4
+  increment_epochs: 1
+  batch_size: 256
+  lr: 0.001
+  max_train_per_class: 20000
+  increment_min_samples: 1000
+  max_increment_samples: 1000
+  min_class_samples: 300
+  historical_sample_rate: 0.0
+  max_history_samples_per_learner: 10000
+  history_samples_per_update: 0
+  benign_history_confidence_scale: 1.0
+  threshold_refresh_use_anchor: true
+  threshold_refresh_new_ratio: 0.2
+tscissors:
+  evt_quantile: 0.97
+  evt_risk: 0.002
+  fallback_quantile: 0.99
+tmagnifier:
+  cluster_trigger_size: 120
+  max_unknown_buffer: 30000
+  dbscan_eps: 1.3
+  dbscan_min_samples: 10
+  new_class_min_size: 500
