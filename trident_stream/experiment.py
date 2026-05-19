@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import json
 from datetime import datetime
@@ -99,6 +99,10 @@ STABLE_STATS_FEATURES = [
     "Subflow Bwd Bytes",
     "FWD Init Win Bytes",
     "Bwd Init Win Bytes",
+    "fwd_init_win_missing_flag",
+    "bwd_init_win_missing_flag",
+    "is_non_tcp",
+    "flow_bytes_s_missing_flag",
     "Fwd Act Data Pkts",
     "Fwd Seg Size Min",
     "Active Mean",
@@ -119,6 +123,8 @@ COMPACT_STATS_FEATURES = [
     "Total Length of Bwd Packet",
     "Fwd Packet Length Mean",
     "Fwd Packet Length Std",
+    "Bwd Packet Length Min",
+    "Bwd Packet Length Max",
     "Bwd Packet Length Mean",
     "Bwd Packet Length Std",
     "Flow Bytes/s",
@@ -133,12 +139,55 @@ COMPACT_STATS_FEATURES = [
     "Packet Length Std",
     "SYN Flag Count",
     "ACK Flag Count",
+    "PSH Flag Count",
     "Average Packet Size",
+    "FWD Init Win Bytes",
+    "Bwd Header Length",
+    "Fwd Bulk Rate Avg",
+    "Bwd Bulk Rate Avg",
+    "flow_bytes_s_missing_flag",
     "Active Mean",
     "Active Std",
+    "Active Max",
     "Idle Mean",
     "Idle Std",
 ]
+
+IMPORTANT_LEARNER_CLUSTER_FEATURES = [
+    "ACK Flag Count",
+    "PSH Flag Count",
+    "Fwd Packet Length Std",
+    "Bwd Header Length",
+    "Active Max",
+    "Idle Mean",
+    # 包/字节统计
+    "Total Fwd Packet",  # 前向包数
+    "Total Bwd packets", # 后向包数
+    "Total Length of Fwd Packet", # 前向总字节数
+    "Total Length of Bwd Packet", # 后向总字节数
+
+    # 包长分布
+    "Bwd Packet Length Min",
+    "FWD Init Win Bytes",
+    "Bwd Bulk Rate Avg",
+    "Fwd Bulk Rate Avg",
+    "Flow IAT Mean",
+    "Bwd Packet Length Mean",
+    "Bwd Packet Length Max",
+]
+
+LEARNER_CREATION_PREVIEW_FLOW_COUNT = 10
+
+TCP_PROTOCOL_NUMBER = 6
+UDP_PROTOCOL_NUMBER = 17
+MISSING_SENTINEL_TO_ZERO_COLUMNS = {
+    "FWD Init Win Bytes": "fwd_init_win_missing_flag",
+    "Bwd Init Win Bytes": "bwd_init_win_missing_flag",
+}
+FLOW_BYTES_PER_SEC_COLUMN = "Flow Bytes/s"
+FLOW_BYTES_PER_SEC_MISSING_FLAG = "flow_bytes_s_missing_flag"
+NON_TCP_FLAG_COLUMN = "is_non_tcp"
+BENIGN_TYPE_COLUMN = "benign_type"
 
 
 def preprocess_features(df: pd.DataFrame, feature_profile: str = "all_numeric_no_env") -> Tuple[pd.DataFrame, List[str]]:
@@ -301,6 +350,18 @@ class TridentStreamingExperiment:
         self.increment_use_last_train_gap = bool(
             cfg["tsieve"].get("increment_use_last_train_gap", False)
         )
+        # 0 means unlimited; >0 caps per-learner incremental retraining count.
+        self.max_retrain_per_learner = int(cfg["tsieve"].get("max_retrain_per_learner", 0))
+        # Retrain only when feature drift is detected between new samples and learner history.
+        self.increment_drift_gate_enabled = bool(
+            cfg["tsieve"].get("increment_drift_gate_enabled", False)
+        )
+        self.increment_drift_min_score = float(
+            cfg["tsieve"].get("increment_drift_min_score", 0.12)
+        )
+        self.increment_drift_min_history_samples = int(
+            cfg["tsieve"].get("increment_drift_min_history_samples", 500)
+        )
         # Incremental route-consistency gate (label-free) for anti-pollution updates.
         self.increment_route_gate_enabled = bool(cfg["tsieve"].get("increment_route_gate_enabled", False))
         self.increment_route_apply_to_new_only = bool(
@@ -350,13 +411,25 @@ class TridentStreamingExperiment:
         self.learner_history_pool: Dict[str, np.ndarray] = {}
         self.increment_iforest_guards: Dict[str, Dict[str, object]] = {}
         self.learner_last_trained_row_index: Dict[str, int] = {}
+        self.learner_retrain_counts: Dict[str, int] = {}
         self.learner_birth_window: Dict[str, int] = {}
         self.benign_anchor_learners: set[str] = set()
         self.uniform_learner_treatment = bool(cfg["runtime"].get("uniform_learner_treatment", False))
         self.sample_assignments: List[Dict[str, object]] = []
+        self._learner_creation_flow_previews: List[Dict[str, Any]] = []
+        # Row indices of samples used when each learner was created (init or NEW_*).
+        # Profile aggregates = these ∪ rows whose stream ``pred`` is that learner.
+        self._learner_creation_row_indices: Dict[str, Set[int]] = {}
         self.learner_accept_trace: List[Dict[str, object]] = []
         self.feature_profile = str(cfg.get("runtime", {}).get("feature_profile", "all_numeric_no_env"))
         self.pca_n_components = int(cfg.get("runtime", {}).get("pca_n_components", 0))
+        self.missing_value_strategy_enabled = bool(
+            cfg.get("runtime", {}).get("missing_value_strategy_enabled", True)
+        )
+        self.missing_value_report_enabled = bool(
+            cfg.get("runtime", {}).get("missing_value_report_enabled", True)
+        )
+        self.missing_value_report_path = self.output_dir / "missing_value_strategy_report.json"
         self.debug_overlap_enabled = bool(cfg["runtime"].get("debug_overlap_enabled", False))
         self.debug_overlap_accept_count: Dict[str, int] = {}
         self.debug_overlap_pair_intersections: Dict[Tuple[str, str], int] = {}
@@ -418,6 +491,197 @@ class TridentStreamingExperiment:
             yaml.safe_dump(self.cfg, f, allow_unicode=True, sort_keys=False)
         self.logger.info("[ConfigSnapshot] %s", config_snapshot_path)
 
+    def _apply_missing_value_strategy(self, data: pd.DataFrame) -> pd.DataFrame:
+        if data.empty or not self.missing_value_strategy_enabled:
+            return data
+
+        df = data.copy()
+        report: Dict[str, Any] = {
+            "enabled": True,
+            "rows": int(len(df)),
+            "columns": int(len(df.columns)),
+            "rules": {},
+        }
+
+        if "Protocol" in df.columns:
+            proto = pd.to_numeric(df["Protocol"], errors="coerce")
+            is_non_tcp = (proto != TCP_PROTOCOL_NUMBER) | proto.isna()
+            df[NON_TCP_FLAG_COLUMN] = is_non_tcp.astype(np.int8)
+            report["rules"][NON_TCP_FLAG_COLUMN] = {
+                "source_column": "Protocol",
+                "non_tcp_or_unknown_rows": int(is_non_tcp.sum()),
+                "ratio": float(is_non_tcp.mean()),
+            }
+
+        for col, flag_col in MISSING_SENTINEL_TO_ZERO_COLUMNS.items():
+            if col not in df.columns:
+                continue
+            s = pd.to_numeric(df[col], errors="coerce")
+            sentinel_mask = s == -1
+            nan_mask = s.isna()
+            missing_mask = sentinel_mask | nan_mask
+            cleaned = s.mask(sentinel_mask, 0.0).fillna(0.0)
+            df[col] = cleaned
+            df[flag_col] = missing_mask.astype(np.int8)
+            report["rules"][col] = {
+                "action": "-1->0 and NaN->0",
+                "missing_flag_column": flag_col,
+                "sentinel_neg1_rows": int(sentinel_mask.sum()),
+                "nan_rows": int(nan_mask.sum()),
+                "missing_rows": int(missing_mask.sum()),
+                "missing_ratio": float(missing_mask.mean()),
+            }
+
+        if FLOW_BYTES_PER_SEC_COLUMN in df.columns:
+            s = pd.to_numeric(df[FLOW_BYTES_PER_SEC_COLUMN], errors="coerce")
+            inf_mask = np.isinf(s.to_numpy(dtype=np.float64))
+            inf_series = pd.Series(inf_mask, index=s.index)
+            nan_mask = s.isna()
+            bad_mask = inf_series | nan_mask
+            df[FLOW_BYTES_PER_SEC_COLUMN] = s.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+            df[FLOW_BYTES_PER_SEC_MISSING_FLAG] = bad_mask.astype(np.int8)
+            report["rules"][FLOW_BYTES_PER_SEC_COLUMN] = {
+                "action": "inf/-inf/NaN->0",
+                "missing_flag_column": FLOW_BYTES_PER_SEC_MISSING_FLAG,
+                "inf_rows": int(inf_series.sum()),
+                "nan_rows": int(nan_mask.sum()),
+                "missing_rows": int(bad_mask.sum()),
+                "missing_ratio": float(bad_mask.mean()),
+            }
+
+        if BENIGN_TYPE_COLUMN in df.columns:
+            before_nan = int(df[BENIGN_TYPE_COLUMN].isna().sum())
+            df[BENIGN_TYPE_COLUMN] = df[BENIGN_TYPE_COLUMN].fillna("UNKNOWN").astype(str)
+            report["rules"][BENIGN_TYPE_COLUMN] = {
+                "action": "NaN->UNKNOWN",
+                "filled_rows": before_nan,
+                "filled_ratio": float(before_nan / max(1, len(df))),
+            }
+
+        if self.missing_value_report_enabled:
+            with open(self.missing_value_report_path, "w", encoding="utf-8") as f:
+                json.dump(report, f, ensure_ascii=False, indent=2)
+            self.logger.info("[MissingValueStrategy] report=%s", self.missing_value_report_path)
+
+        if MISSING_SENTINEL_TO_ZERO_COLUMNS["FWD Init Win Bytes"] in df.columns:
+            fwd_missing = float(df[MISSING_SENTINEL_TO_ZERO_COLUMNS["FWD Init Win Bytes"]].mean())
+            self.logger.info("[MissingValueStrategy] fwd_init_missing_ratio=%.4f", fwd_missing)
+        if MISSING_SENTINEL_TO_ZERO_COLUMNS["Bwd Init Win Bytes"] in df.columns:
+            bwd_missing = float(df[MISSING_SENTINEL_TO_ZERO_COLUMNS["Bwd Init Win Bytes"]].mean())
+            self.logger.info("[MissingValueStrategy] bwd_init_missing_ratio=%.4f", bwd_missing)
+        if FLOW_BYTES_PER_SEC_MISSING_FLAG in df.columns:
+            flow_bad = float(df[FLOW_BYTES_PER_SEC_MISSING_FLAG].mean())
+            self.logger.info("[MissingValueStrategy] flow_bytes_s_missing_ratio=%.4f", flow_bad)
+
+        return df
+
+    @staticmethod
+    def _normalize_drop_when_all_numeric_zero_rules(runtime_cfg: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Support ``drop_when_all_numeric_zero_rules`` list plus legacy single-object form."""
+        rules = runtime_cfg.get("drop_when_all_numeric_zero_rules")
+        if rules is None:
+            legacy = runtime_cfg.get("drop_when_all_numeric_zero")
+            if isinstance(legacy, dict):
+                rules = [legacy]
+            elif isinstance(legacy, list):
+                rules = legacy
+            else:
+                rules = []
+        elif isinstance(rules, dict):
+            rules = [rules]
+        if not isinstance(rules, list):
+            return []
+        out: List[Dict[str, Any]] = []
+        for raw in rules:
+            if raw is None or not isinstance(raw, dict):
+                continue
+            cols = raw.get("columns")
+            if isinstance(cols, (list, tuple, set)):
+                col_list = [str(c).strip() for c in cols if str(c).strip()]
+            elif isinstance(cols, str) and cols.strip():
+                col_list = [cols.strip()]
+            else:
+                col_list = []
+            entry = dict(raw)
+            entry["columns"] = col_list
+            out.append(entry)
+        return out
+
+    def _apply_drop_when_all_numeric_zero_rules(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        For each enabled rule: drop rows where ALL listed numeric columns read as zero.
+
+        If multiple rules are enabled, a row is dropped when it matches ANY rule (OR across rules).
+        Each rule is an AND over its ``columns``.
+
+        Per-rule keys: ``enabled`` (default True), ``columns``, ``eps`` (default 0.0),
+        ``treat_nan_as_zero`` (default True), optional ``name`` for logs.
+        """
+        if data.empty:
+            return data
+        runtime_cfg = self.cfg.get("runtime", {}) if isinstance(self.cfg.get("runtime"), dict) else {}
+        rules = self._normalize_drop_when_all_numeric_zero_rules(runtime_cfg)
+        if not rules:
+            return data
+
+        drop_mask = pd.Series(False, index=data.index)
+        applied = 0
+        for rule in rules:
+            if not bool(rule.get("enabled", True)):
+                continue
+            cols = [c for c in rule.get("columns", []) if c]
+            if not cols:
+                continue
+            missing = [c for c in cols if c not in data.columns]
+            if missing:
+                self.logger.warning(
+                    "[DropWhenAllNumericZero] skip rule name=%r (missing columns=%s) need=%s",
+                    rule.get("name", ""),
+                    missing,
+                    cols,
+                )
+                continue
+            eps = float(rule.get("eps", 0.0))
+            treat_nan_as_zero = bool(rule.get("treat_nan_as_zero", True))
+
+            mask_all = pd.Series(True, index=data.index)
+            for c in cols:
+                s = pd.to_numeric(data[c], errors="coerce").replace([np.inf, -np.inf], np.nan)
+                if treat_nan_as_zero:
+                    s = s.fillna(0.0)
+                    col_zero = s.abs() <= eps
+                else:
+                    col_zero = s.notna() & (s.abs() <= eps)
+                mask_all &= col_zero
+
+            n_hit = int(mask_all.sum())
+            drop_mask |= mask_all
+            applied += 1
+            self.logger.info(
+                "[DropWhenAllNumericZero] name=%r cols=%s matching_rows=%d eps=%.6f treat_nan_as_zero=%s",
+                rule.get("name", ""),
+                cols,
+                n_hit,
+                eps,
+                treat_nan_as_zero,
+            )
+
+        if not drop_mask.any():
+            if applied:
+                self.logger.info("[DropWhenAllNumericZero] no rows dropped (rules applied=%d)", applied)
+            return data
+
+        before = int(len(data))
+        kept = data.loc[~drop_mask].reset_index(drop=True)
+        after = int(len(kept))
+        self.logger.info(
+            "[DropWhenAllNumericZero] dropped=%d kept=%d (before=%d)",
+            before - after,
+            after,
+            before,
+        )
+        return kept
+
     def _label_distribution(self, labels: np.ndarray) -> Dict[str, int]:
         if len(labels) == 0:
             return {}
@@ -447,6 +711,155 @@ class TridentStreamingExperiment:
             )
         return rows
 
+    def _build_dataset_label_feature_stats_df(
+        self,
+        data: pd.DataFrame,
+        feature_names: List[str],
+    ) -> pd.DataFrame:
+        if data.empty or "LabelNorm" not in data.columns:
+            return pd.DataFrame(columns=["label"])
+        cols = [str(c) for c in feature_names if str(c) in data.columns]
+        if not cols:
+            return pd.DataFrame(columns=["label"])
+        df = data[["LabelNorm", *cols]].copy()
+        df["LabelNorm"] = df["LabelNorm"].astype(str)
+        for c in cols:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        df = df.replace([np.inf, -np.inf], np.nan)
+        agg_spec = {c: ["mean", "std"] for c in cols}
+        grouped = df.groupby("LabelNorm", dropna=False).agg(agg_spec)
+        grouped.columns = [f"{name}__{stat}" for name, stat in grouped.columns]
+        grouped = grouped.reset_index().rename(columns={"LabelNorm": "label"})
+        for c in cols:
+            mean_col = f"{c}__mean"
+            std_col = f"{c}__std"
+            cv_col = f"{c}__cv"
+            if mean_col not in grouped.columns or std_col not in grouped.columns:
+                continue
+            denom = pd.to_numeric(grouped[mean_col], errors="coerce").abs().replace(0.0, np.nan)
+            std_vals = pd.to_numeric(grouped[std_col], errors="coerce").abs()
+            grouped[cv_col] = (std_vals / denom).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        grouped = grouped.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        return grouped
+
+    def _build_dataset_label_protocol_stats_df(self, data: pd.DataFrame) -> pd.DataFrame:
+        if data.empty or "LabelNorm" not in data.columns or "Protocol" not in data.columns:
+            return pd.DataFrame(columns=["label"])
+        df = data[["LabelNorm", "Protocol"]].copy()
+        df["LabelNorm"] = df["LabelNorm"].astype(str)
+        df["Protocol"] = pd.to_numeric(df["Protocol"], errors="coerce")
+        rows: List[Dict[str, object]] = []
+        for label, g in df.groupby("LabelNorm", dropna=False):
+            proto = pd.to_numeric(g["Protocol"], errors="coerce").dropna()
+            total = int(len(proto))
+            if total <= 0:
+                rows.append(
+                    {
+                        "label": str(label),
+                        "protocol_tcp_ratio": 0.0,
+                        "protocol_udp_ratio": 0.0,
+                        "protocol_other_ratio": 0.0,
+                        "protocol_concentration": 0.0,
+                        "protocol_cluster_type": "UNKNOWN",
+                    }
+                )
+                continue
+            p_int = proto.round().astype(int)
+            tcp = int((p_int == TCP_PROTOCOL_NUMBER).sum())
+            udp = int((p_int == UDP_PROTOCOL_NUMBER).sum())
+            other = int(max(total - tcp - udp, 0))
+            tcp_ratio = float(tcp / total)
+            udp_ratio = float(udp / total)
+            other_ratio = float(other / total)
+            concentration = float(max(tcp_ratio, udp_ratio))
+            if tcp_ratio >= 0.8:
+                cluster_type = "TCP_CLUSTER"
+            elif udp_ratio >= 0.8:
+                cluster_type = "UDP_CLUSTER"
+            elif concentration >= 0.6:
+                cluster_type = "TCP_UDP_BIASED"
+            else:
+                cluster_type = "MIXED"
+            rows.append(
+                {
+                    "label": str(label),
+                    "protocol_tcp_ratio": tcp_ratio,
+                    "protocol_udp_ratio": udp_ratio,
+                    "protocol_other_ratio": other_ratio,
+                    "protocol_concentration": concentration,
+                    "protocol_cluster_type": cluster_type,
+                }
+            )
+        return pd.DataFrame(rows)
+
+    @staticmethod
+    def _build_dataset_label_feature_correlation_rows(
+        dataset_label_profile_df: pd.DataFrame,
+    ) -> List[Dict[str, float | str]]:
+        if dataset_label_profile_df.empty or "is_benign" not in dataset_label_profile_df.columns:
+            return []
+        y = (~dataset_label_profile_df["is_benign"].astype(bool)).astype(int)
+        rows: List[Dict[str, float | str]] = []
+        for col in dataset_label_profile_df.columns:
+            if col in {
+                "label",
+                "is_benign",
+                "year_tag",
+                "base_label",
+                "protocol_cluster_type",
+            }:
+                continue
+            x = pd.to_numeric(dataset_label_profile_df[col], errors="coerce")
+            if x.notna().sum() < 2:
+                continue
+            if float(x.max() - x.min()) == 0.0:
+                continue
+            pearson = x.corr(y, method="pearson")
+            spearman = x.corr(y, method="spearman")
+            if not np.isfinite(float(pearson)) and not np.isfinite(float(spearman)):
+                continue
+            rows.append(
+                {
+                    "feature": str(col),
+                    "pearson_corr": float(pearson) if np.isfinite(float(pearson)) else 0.0,
+                    "spearman_corr": float(spearman) if np.isfinite(float(spearman)) else 0.0,
+                    "abs_pearson_corr": abs(float(pearson)) if np.isfinite(float(pearson)) else 0.0,
+                    "abs_spearman_corr": abs(float(spearman)) if np.isfinite(float(spearman)) else 0.0,
+                }
+            )
+        rows = sorted(
+            rows,
+            key=lambda r: (
+                float(r.get("abs_pearson_corr", 0.0)),
+                float(r.get("abs_spearman_corr", 0.0)),
+            ),
+            reverse=True,
+        )
+        return rows
+
+    @staticmethod
+    def _save_dataset_label_feature_correlation_figure(
+        rows: List[Dict[str, float | str]],
+        out_path: Path,
+        top_k: int = 24,
+    ) -> None:
+        if not rows:
+            return
+        top = rows[: max(1, int(top_k))]
+        labels = [str(r["feature"]) for r in top][::-1]
+        values = [float(r["pearson_corr"]) for r in top][::-1]
+        colors = ["#dc2626" if v > 0 else "#16a34a" for v in values]
+        plt.figure(figsize=(12, 9))
+        plt.barh(labels, values, color=colors, alpha=0.9)
+        plt.axvline(0.0, color="#64748b", linewidth=1.0)
+        plt.xlim(-1.0, 1.0)
+        plt.xlabel("Pearson correlation with attack_label(1=attack)")
+        plt.ylabel("Label-level feature")
+        plt.title("Top label-level feature correlations")
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=180)
+        plt.close()
+
     def _log_learner_distribution(self, stage: str, learner_name: str, labels: np.ndarray) -> None:
         dist = self._label_distribution(labels)
         total = int(len(labels))
@@ -467,6 +880,152 @@ class TridentStreamingExperiment:
             learner_name,
             total,
             dist,
+        )
+
+    @staticmethod
+    def _json_scalar(value: Any) -> Any:
+        if value is None or isinstance(value, (bool, str)):
+            return value
+        if isinstance(value, pd.Timestamp):
+            return value.isoformat()
+        try:
+            if pd.isna(value):
+                return None
+        except TypeError:
+            pass
+        except ValueError:
+            pass
+        if isinstance(value, (np.integer,)):
+            return int(value)
+        if isinstance(value, (np.floating,)):
+            x = float(value)
+            if np.isnan(x) or np.isinf(x):
+                return None
+            return x
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            x = float(value)
+            if np.isnan(x) or np.isinf(x):
+                return None
+            if isinstance(value, int):
+                return int(value)
+            return float(value)
+        return value
+
+    def _flow_preview_record(self, data: pd.DataFrame, row_index: int) -> Dict[str, Any]:
+        row = data.iloc[int(row_index)]
+        rec: Dict[str, Any] = {"row_index": int(row_index)}
+        for col in ("Timestamp", "Protocol", "LabelNorm", "Flow Duration"):
+            if col in data.columns:
+                rec[str(col)] = self._json_scalar(row[col])
+        for col in IMPORTANT_LEARNER_CLUSTER_FEATURES:
+            if col in data.columns:
+                rec[str(col)] = self._json_scalar(row[col])
+        return rec
+
+    def _register_learner_creation_row_indices_from_metas(
+        self,
+        learner_name: str,
+        cluster_metas: List[Dict[str, Any]],
+        *,
+        data_len: int,
+    ) -> None:
+        if data_len <= 0:
+            return
+        bn = str(learner_name)
+        bucket = self._learner_creation_row_indices.setdefault(bn, set())
+        for meta in cluster_metas:
+            if not isinstance(meta, dict):
+                continue
+            ri = meta.get("row_index")
+            try:
+                row_i = int(ri) if ri is not None else -1
+            except (TypeError, ValueError):
+                row_i = -1
+            if 0 <= row_i < int(data_len):
+                bucket.add(row_i)
+
+    def _register_learner_creation_row_indices(
+        self, learner_name: str, row_indices: Any, *, data_len: int
+    ) -> None:
+        if data_len <= 0:
+            return
+        bn = str(learner_name)
+        bucket = self._learner_creation_row_indices.setdefault(bn, set())
+        flat = np.asarray(row_indices, dtype=np.int64).ravel()
+        for ri in flat:
+            row_i = int(ri)
+            if 0 <= row_i < int(data_len):
+                bucket.add(row_i)
+
+    def _record_learner_creation_flow_preview(
+        self,
+        *,
+        data: pd.DataFrame,
+        learner_name: str,
+        creation_source: str,
+        window_left: int,
+        window_right: int,
+        cluster_size: int,
+        cluster_metas: List[Dict[str, Any]],
+        cluster_labels: np.ndarray,
+        binding_metas: Optional[List[Dict[str, Any]]] = None,
+    ) -> None:
+        bind_src = binding_metas if binding_metas is not None else cluster_metas
+        self._register_learner_creation_row_indices_from_metas(
+            learner_name,
+            bind_src,
+            data_len=int(len(data)),
+        )
+        flows: List[Dict[str, Any]] = []
+        seen_rows: set = set()
+        max_n = int(LEARNER_CREATION_PREVIEW_FLOW_COUNT)
+        for i, meta in enumerate(cluster_metas):
+            if len(flows) >= max_n:
+                break
+            raw_ri = meta.get("row_index") if isinstance(meta, dict) else None
+            try:
+                ri = int(raw_ri) if raw_ri is not None else -1
+            except (TypeError, ValueError):
+                ri = -1
+            lbl = ""
+            try:
+                lbl = str(cluster_labels[i])
+            except Exception:
+                lbl = ""
+            if ri < 0:
+                flows.append(
+                    {
+                        "row_index": raw_ri,
+                        "cluster_position": int(i),
+                        "cluster_label_norm": lbl,
+                        "meta": meta,
+                        "note": "missing_row_binding",
+                    }
+                )
+                continue
+            if ri in seen_rows:
+                continue
+            if 0 <= ri < len(data):
+                flows.append(self._flow_preview_record(data, ri))
+                seen_rows.add(ri)
+            else:
+                flows.append(
+                    {
+                        "row_index": int(ri),
+                        "cluster_position": int(i),
+                        "cluster_label_norm": lbl,
+                        "error": "row_index_out_of_range",
+                    }
+                )
+        self._learner_creation_flow_previews.append(
+            {
+                "learner_name": str(learner_name),
+                "creation_source": str(creation_source),
+                "window_left": int(window_left),
+                "window_right": int(window_right),
+                "cluster_size": int(cluster_size),
+                "flows_preview": flows,
+            }
         )
 
     def _accumulate_learner_distribution(self, learner_name: str, labels: np.ndarray) -> None:
@@ -638,6 +1197,253 @@ class TridentStreamingExperiment:
                 }
             )
         return rows
+
+    def _build_assignment_index_df(self, data_len: int) -> pd.DataFrame:
+        if not self.sample_assignments:
+            return pd.DataFrame(columns=["row_index", "assigned_learner"])
+        assign_df = pd.DataFrame(self.sample_assignments)
+        if assign_df.empty or "row_index" not in assign_df.columns or "assigned_learner" not in assign_df.columns:
+            return pd.DataFrame(columns=["row_index", "assigned_learner"])
+        assign_df = assign_df[["row_index", "assigned_learner"]].copy()
+        assign_df["row_index"] = pd.to_numeric(assign_df["row_index"], errors="coerce")
+        assign_df = assign_df.dropna(subset=["row_index", "assigned_learner"])
+        assign_df["row_index"] = assign_df["row_index"].astype(int)
+        assign_df["assigned_learner"] = assign_df["assigned_learner"].astype(str)
+        valid_mask = (assign_df["row_index"] >= 0) & (assign_df["row_index"] < int(data_len))
+        assign_df = assign_df.loc[valid_mask]
+        return assign_df
+
+    def _build_extended_assignment_index_df(self, data_len: int) -> pd.DataFrame:
+        """
+        One row_index → one learner for feature/protocol aggregates.
+
+        Take stream ``pred`` from ``sample_assignments``. Union each learner's creation
+        row set (``_learner_creation_row_indices``): those indices count toward that
+        learner unless the stream already routed the row to another concrete learner.
+        """
+        base = self._build_assignment_index_df(data_len)
+        row_owner: Dict[int, str] = {}
+        if not base.empty:
+            for _, row in base.iterrows():
+                row_owner[int(row["row_index"])] = str(row["assigned_learner"])
+
+        for learner_name, creation_rows in self._learner_creation_row_indices.items():
+            ln = str(learner_name)
+            for ri in creation_rows:
+                row_i = int(ri)
+                if not (0 <= row_i < int(data_len)):
+                    continue
+                cur = row_owner.get(row_i)
+                if cur is None or cur == "UNKNOWN":
+                    row_owner[row_i] = ln
+
+        if not row_owner:
+            return pd.DataFrame(columns=["row_index", "assigned_learner"])
+        out_rows = [{"row_index": ri, "assigned_learner": row_owner[ri]} for ri in sorted(row_owner)]
+        return pd.DataFrame(out_rows)
+
+    def _build_learner_feature_stats_df(
+        self,
+        data: pd.DataFrame,
+        feature_names: List[str],
+    ) -> pd.DataFrame:
+        cols = [str(c) for c in feature_names if str(c) in data.columns]
+        if not cols:
+            return pd.DataFrame(columns=["learner_name"])
+        assign_df = self._build_extended_assignment_index_df(len(data))
+        if assign_df.empty:
+            return pd.DataFrame(columns=["learner_name"])
+
+        flow_df = data.loc[:, cols].copy()
+        flow_df = flow_df.replace([np.inf, -np.inf], np.nan)
+        for c in cols:
+            flow_df[c] = pd.to_numeric(flow_df[c], errors="coerce")
+        flow_df = flow_df.reset_index(drop=True)
+        flow_df["row_index"] = np.arange(len(flow_df), dtype=np.int64)
+
+        merged = assign_df.merge(flow_df, on="row_index", how="left")
+        if merged.empty:
+            return pd.DataFrame(columns=["learner_name"])
+
+        agg_spec = {c: ["mean", "std"] for c in cols}
+        grouped = merged.groupby("assigned_learner", dropna=False).agg(agg_spec)
+        grouped.columns = [f"{name}__{stat}" for name, stat in grouped.columns]
+        grouped = grouped.reset_index().rename(columns={"assigned_learner": "learner_name"})
+        for c in cols:
+            mean_col = f"{c}__mean"
+            std_col = f"{c}__std"
+            cv_col = f"{c}__cv"
+            if mean_col not in grouped.columns or std_col not in grouped.columns:
+                continue
+            denom = pd.to_numeric(grouped[mean_col], errors="coerce").abs().replace(0.0, np.nan)
+            std_vals = pd.to_numeric(grouped[std_col], errors="coerce").abs()
+            grouped[cv_col] = (std_vals / denom).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        grouped = grouped.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        return grouped
+
+    def _build_learner_protocol_stats_df(self, data: pd.DataFrame) -> pd.DataFrame:
+        if "Protocol" not in data.columns:
+            return pd.DataFrame(columns=["learner_name"])
+        assign_df = self._build_extended_assignment_index_df(len(data))
+        if assign_df.empty:
+            return pd.DataFrame(columns=["learner_name"])
+        proto_series = pd.to_numeric(data["Protocol"], errors="coerce").reset_index(drop=True)
+        proto_df = pd.DataFrame(
+            {
+                "row_index": np.arange(len(proto_series), dtype=np.int64),
+                "Protocol": proto_series,
+            }
+        )
+        merged = assign_df.merge(proto_df, on="row_index", how="left")
+        if merged.empty:
+            return pd.DataFrame(columns=["learner_name"])
+
+        rows: List[Dict[str, object]] = []
+        for learner_name, g in merged.groupby("assigned_learner"):
+            p = pd.to_numeric(g["Protocol"], errors="coerce").dropna()
+            total = int(len(p))
+            if total <= 0:
+                rows.append(
+                    {
+                        "learner_name": str(learner_name),
+                        "protocol_tcp_ratio": 0.0,
+                        "protocol_udp_ratio": 0.0,
+                        "protocol_other_ratio": 0.0,
+                        "protocol_concentration": 0.0,
+                        "protocol_cluster_type": "UNKNOWN",
+                    }
+                )
+                continue
+            p_int = p.round().astype(int)
+            tcp = int((p_int == TCP_PROTOCOL_NUMBER).sum())
+            udp = int((p_int == UDP_PROTOCOL_NUMBER).sum())
+            other = int(max(total - tcp - udp, 0))
+            tcp_ratio = float(tcp / total)
+            udp_ratio = float(udp / total)
+            other_ratio = float(other / total)
+            concentration = float(max(tcp_ratio, udp_ratio))
+            if tcp_ratio >= 0.8:
+                cluster_type = "TCP_CLUSTER"
+            elif udp_ratio >= 0.8:
+                cluster_type = "UDP_CLUSTER"
+            elif concentration >= 0.6:
+                cluster_type = "TCP_UDP_BIASED"
+            else:
+                cluster_type = "MIXED"
+            rows.append(
+                {
+                    "learner_name": str(learner_name),
+                    "protocol_tcp_ratio": tcp_ratio,
+                    "protocol_udp_ratio": udp_ratio,
+                    "protocol_other_ratio": other_ratio,
+                    "protocol_concentration": concentration,
+                    "protocol_cluster_type": cluster_type,
+                }
+            )
+        return pd.DataFrame(rows)
+
+    @staticmethod
+    def _build_attack_ratio_feature_correlation_rows(
+        profile_df: pd.DataFrame,
+    ) -> List[Dict[str, float | str]]:
+        if profile_df.empty or "attack_ratio" not in profile_df.columns:
+            return []
+        y = pd.to_numeric(profile_df["attack_ratio"], errors="coerce")
+        rows: List[Dict[str, float | str]] = []
+        for col in profile_df.columns:
+            if col in {
+                "learner_name",
+                "attack_ratio",
+                "dominant_label",
+                "label_distribution_json",
+                "is_attack_learner",
+                "protocol_cluster_type",
+            }:
+                continue
+            x = pd.to_numeric(profile_df[col], errors="coerce")
+            if x.notna().sum() < 2:
+                continue
+            if float(x.max() - x.min()) == 0.0:
+                continue
+            pearson = x.corr(y, method="pearson")
+            spearman = x.corr(y, method="spearman")
+            if not np.isfinite(float(pearson)) and not np.isfinite(float(spearman)):
+                continue
+            rows.append(
+                {
+                    "feature": str(col),
+                    "pearson_corr": float(pearson) if np.isfinite(float(pearson)) else 0.0,
+                    "spearman_corr": float(spearman) if np.isfinite(float(spearman)) else 0.0,
+                    "abs_pearson_corr": abs(float(pearson)) if np.isfinite(float(pearson)) else 0.0,
+                    "abs_spearman_corr": abs(float(spearman)) if np.isfinite(float(spearman)) else 0.0,
+                }
+            )
+        rows = sorted(
+            rows,
+            key=lambda r: (
+                float(r.get("abs_pearson_corr", 0.0)),
+                float(r.get("abs_spearman_corr", 0.0)),
+            ),
+            reverse=True,
+        )
+        return rows
+
+    @staticmethod
+    def _build_protocol_cluster_summary(profile_df: pd.DataFrame) -> Dict[str, object]:
+        if profile_df.empty or "protocol_cluster_type" not in profile_df.columns:
+            return {
+                "learner_count": 0,
+                "sample_total": 0,
+                "by_type": {},
+            }
+        df = profile_df.copy()
+        df["protocol_cluster_type"] = df["protocol_cluster_type"].fillna("UNKNOWN").astype(str)
+        if "total_assigned_samples" in df.columns:
+            df["total_assigned_samples"] = pd.to_numeric(
+                df["total_assigned_samples"], errors="coerce"
+            ).fillna(0.0)
+        else:
+            df["total_assigned_samples"] = 0.0
+        sample_total = float(df["total_assigned_samples"].sum())
+
+        by_type: Dict[str, object] = {}
+        for t, g in df.groupby("protocol_cluster_type"):
+            learner_count = int(len(g))
+            samples = float(g["total_assigned_samples"].sum())
+            by_type[str(t)] = {
+                "learner_count": learner_count,
+                "learner_ratio": float(learner_count / max(1, len(df))),
+                "sample_count": int(samples),
+                "sample_ratio": float(samples / max(1.0, sample_total)),
+            }
+        return {
+            "learner_count": int(len(df)),
+            "sample_total": int(sample_total),
+            "by_type": by_type,
+        }
+
+    @staticmethod
+    def _save_attack_ratio_correlation_figure(
+        rows: List[Dict[str, float | str]],
+        out_path: Path,
+        top_k: int = 24,
+    ) -> None:
+        if not rows:
+            return
+        top = rows[: max(1, int(top_k))]
+        labels = [str(r["feature"]) for r in top][::-1]
+        values = [float(r["pearson_corr"]) for r in top][::-1]
+        colors = ["#dc2626" if v > 0 else "#16a34a" for v in values]
+        plt.figure(figsize=(12, 9))
+        plt.barh(labels, values, color=colors, alpha=0.9)
+        plt.axvline(0.0, color="#64748b", linewidth=1.0)
+        plt.xlim(-1.0, 1.0)
+        plt.xlabel("Pearson correlation with attack_ratio")
+        plt.ylabel("Cluster feature")
+        plt.title("Top cluster-feature correlations with attack_ratio")
+        plt.tight_layout()
+        plt.savefig(out_path, dpi=180)
+        plt.close()
 
     def _learner_display_name(self, learner_name: str) -> str:
         """
@@ -1358,6 +2164,32 @@ class TridentStreamingExperiment:
         best_prob = np.max(prob_mat, axis=0)
         return float(np.mean(best_prob))
 
+    def _compute_feature_drift_score(self, learner_name: str, new_samples: np.ndarray) -> float:
+        """
+        Compare new samples against learner history distribution.
+        Returns a non-negative drift score. Larger means stronger drift.
+        """
+        if len(new_samples) == 0:
+            return float("nan")
+        hist = self.learner_history_pool.get(str(learner_name))
+        if hist is None or len(hist) < self.increment_drift_min_history_samples:
+            return float("nan")
+        hist_arr = np.asarray(hist, dtype=np.float32)
+        new_arr = np.asarray(new_samples, dtype=np.float32)
+        if hist_arr.ndim != 2 or new_arr.ndim != 2 or hist_arr.shape[1] != new_arr.shape[1]:
+            return float("nan")
+        eps = 1e-6
+        mu_hist = np.mean(hist_arr, axis=0)
+        mu_new = np.mean(new_arr, axis=0)
+        std_hist = np.std(hist_arr, axis=0)
+        std_new = np.std(new_arr, axis=0)
+        z_mean_shift = np.abs(mu_new - mu_hist) / (std_hist + eps)
+        z_std_shift = np.abs(std_new - std_hist) / (std_hist + eps)
+        score = 0.7 * float(np.mean(z_mean_shift)) + 0.3 * float(np.mean(z_std_shift))
+        if not np.isfinite(score):
+            return float("nan")
+        return float(max(0.0, score))
+
     def _evaluate_cluster_purity_gate(self, samples: np.ndarray) -> Dict[str, object]:
         """
         Evaluate whether a candidate new-class cluster is too BENIGN-like.
@@ -1510,7 +2342,8 @@ class TridentStreamingExperiment:
 
     def _create_new_learners_from_clusters(
         self,
-        clusters: List[Tuple[np.ndarray, np.ndarray]],
+        clusters: List[Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]],
+        data: pd.DataFrame,
         left: int,
         right: int,
         window_size: int,
@@ -1520,8 +2353,9 @@ class TridentStreamingExperiment:
         source: str,
     ) -> float:
         create_seconds = 0.0
-        for cluster_x, cluster_labels in clusters:
+        for cluster_x, cluster_labels, cluster_metas in clusters:
             cluster_labels_arr = np.asarray(cluster_labels, dtype=object)
+            meta_list_cast: List[Dict[str, Any]] = [dict(m) for m in cluster_metas]
             if self.cluster_purity_gate_enabled:
                 self.cluster_gate_stats["cluster_gate_checked_count"] += 1
                 gate = self._evaluate_cluster_purity_gate(cluster_x)
@@ -1537,7 +2371,12 @@ class TridentStreamingExperiment:
                     )
                     if self.cluster_gate_rejected_action == "reinject_unknown":
                         for i_rej in range(len(cluster_x)):
-                            self.tmagnifier.add_unknown(cluster_x[i_rej], str(cluster_labels_arr[i_rej]))
+                            reinj_meta = meta_list_cast[i_rej] if i_rej < len(meta_list_cast) else {}
+                            self.tmagnifier.add_unknown(
+                                cluster_x[i_rej],
+                                str(cluster_labels_arr[i_rej]),
+                                reinj_meta,
+                            )
                         self.cluster_gate_stats["cluster_gate_reinject_unknown_samples"] += float(
                             len(cluster_x)
                         )
@@ -1559,6 +2398,7 @@ class TridentStreamingExperiment:
             current_window_id = int(left // max(1, window_size))
             self.learner_birth_window[str(name)] = current_window_id
             self.learner_last_trained_row_index[str(name)] = int(max(0, right - 1))
+            self.learner_retrain_counts[str(name)] = 0
             self.perf_stats["new_learner_count"] += 1
             accepted_by_learner.setdefault(name, [])
             accepted_labels_by_learner.setdefault(name, [])
@@ -1587,6 +2427,16 @@ class TridentStreamingExperiment:
             )
             self._accumulate_learner_distribution(learner_name=name, labels=cluster_labels_arr)
             self._record_learner_samples(learner_name=name, samples=cluster_x)
+            self._record_learner_creation_flow_preview(
+                data=data,
+                learner_name=name,
+                creation_source=str(source),
+                window_left=int(left),
+                window_right=int(right),
+                cluster_size=int(len(cluster_labels_arr)),
+                cluster_metas=meta_list_cast,
+                cluster_labels=cluster_labels_arr,
+            )
             self._append_history_pool(name, cluster_x)
             if self.increment_iforest_guard_enabled:
                 self._fit_increment_iforest_guard(str(name), cluster_x)
@@ -1636,10 +2486,12 @@ class TridentStreamingExperiment:
         self.learner_history_pool.pop(name, None)
         self.increment_iforest_guards.pop(name, None)
         self.learner_last_trained_row_index.pop(name, None)
+        self.learner_retrain_counts.pop(name, None)
         self.learner_birth_window.pop(name, None)
         self.learner_creation_sample_count.pop(name, None)
         self.learner_cumulative_counts.pop(name, None)
         self.learner_assigned_feature_chunks.pop(name, None)
+        self._learner_creation_row_indices.pop(name, None)
         self.debug_overlap_accept_count.pop(name, None)
         if self.debug_overlap_pair_intersections:
             drop_keys = [k for k in self.debug_overlap_pair_intersections.keys() if name in k]
@@ -1648,6 +2500,7 @@ class TridentStreamingExperiment:
 
     def _maybe_recluster_small_learners(
         self,
+        data: pd.DataFrame,
         left: int,
         right: int,
         window_size: int,
@@ -1689,7 +2542,11 @@ class TridentStreamingExperiment:
             self._destroy_learner_for_recluster(learner_name)
 
         for i in range(len(payload_x)):
-            self.tmagnifier.add_unknown(payload_x[i], str(payload_labels[i]))
+            self.tmagnifier.add_unknown(
+                payload_x[i],
+                str(payload_labels[i]),
+                {"note": "small_learner_recluster_payload"},
+            )
 
         self.logger.info(
             (
@@ -1708,6 +2565,7 @@ class TridentStreamingExperiment:
             return 0.0
         return self._create_new_learners_from_clusters(
             clusters=recluster_clusters,
+            data=data,
             left=left,
             right=right,
             window_size=window_size,
@@ -2055,6 +2913,162 @@ class TridentStreamingExperiment:
         )
         return sampled
 
+    @staticmethod
+    def _normalize_runtime_list(raw: Any) -> List[str]:
+        if raw is None:
+            return []
+        if isinstance(raw, (list, tuple, set)):
+            values = list(raw)
+        else:
+            values = [raw]
+        normalized: List[str] = []
+        for v in values:
+            s = str(v).strip()
+            if s:
+                normalized.append(s)
+        return normalized
+
+    @staticmethod
+    def _normalize_protocol_filter_tokens(values: List[str]) -> tuple[set[int], set[str]]:
+        numeric: set[int] = set()
+        symbolic: set[str] = set()
+        for raw in values:
+            token = str(raw).strip().lower()
+            if not token:
+                continue
+            try:
+                numeric.add(int(token))
+                continue
+            except ValueError:
+                pass
+            if token == "tcp":
+                numeric.add(TCP_PROTOCOL_NUMBER)
+                symbolic.add("tcp")
+            elif token == "udp":
+                numeric.add(UDP_PROTOCOL_NUMBER)
+                symbolic.add("udp")
+            elif token in {"other", "non_tcp", "non-tcp"}:
+                symbolic.add("other")
+            elif token in {"non_udp", "non-udp"}:
+                symbolic.add("non_udp")
+            else:
+                symbolic.add(token)
+        return numeric, symbolic
+
+    def _apply_runtime_filters(self, data: pd.DataFrame) -> pd.DataFrame:
+        if data.empty:
+            return data
+
+        filtered = data
+        runtime_cfg = self.cfg.get("runtime", {})
+
+        year_include_cfg = self._normalize_runtime_list(runtime_cfg.get("year_include"))
+        if year_include_cfg:
+            year_include = {str(y).strip() for y in year_include_cfg if str(y).strip()}
+            if year_include:
+                before_rows = int(len(filtered))
+                year_series = filtered["LabelNorm"].map(lambda x: split_year_label(str(x))[0])
+                filtered = filtered.loc[year_series.isin(year_include)].reset_index(drop=True)
+                self.logger.info(
+                    "[YearFilter] include=%s kept=%d/%d",
+                    sorted(year_include),
+                    int(len(filtered)),
+                    before_rows,
+                )
+
+        attack_include_cfg = self._normalize_runtime_list(runtime_cfg.get("attack_type_include"))
+        if attack_include_cfg:
+            include_set = {
+                normalize_base_label(v)
+                for v in attack_include_cfg
+                if str(v).strip()
+            }
+            if include_set:
+                before_rows = int(len(filtered))
+                base_series = filtered["LabelNorm"].map(lambda x: normalize_base_label(str(x)))
+                benign_mask = base_series == "BENIGN"
+                # Keep BENIGN by default; include list only gates attack classes.
+                if "BENIGN" in include_set:
+                    keep_mask = base_series.isin(include_set)
+                else:
+                    keep_mask = benign_mask | base_series.isin(include_set)
+                filtered = filtered.loc[keep_mask].reset_index(drop=True)
+                self.logger.info(
+                    "[AttackTypeFilterInclude] include=%s kept=%d/%d",
+                    sorted(include_set),
+                    int(len(filtered)),
+                    before_rows,
+                )
+
+        attack_exclude_cfg = self._normalize_runtime_list(runtime_cfg.get("attack_type_exclude"))
+        if attack_exclude_cfg:
+            exclude_set = {
+                normalize_base_label(v)
+                for v in attack_exclude_cfg
+                if str(v).strip()
+            }
+            if exclude_set:
+                before_rows = int(len(filtered))
+                base_series = filtered["LabelNorm"].map(lambda x: normalize_base_label(str(x)))
+                if "BENIGN" in exclude_set:
+                    keep_mask = ~base_series.isin(exclude_set)
+                else:
+                    keep_mask = (base_series == "BENIGN") | (~base_series.isin(exclude_set))
+                filtered = filtered.loc[keep_mask].reset_index(drop=True)
+                self.logger.info(
+                    "[AttackTypeFilterExclude] exclude=%s kept=%d/%d",
+                    sorted(exclude_set),
+                    int(len(filtered)),
+                    before_rows,
+                )
+
+        protocol_include_cfg = self._normalize_runtime_list(runtime_cfg.get("protocol_include"))
+        if protocol_include_cfg:
+            if "Protocol" not in filtered.columns:
+                self.logger.warning(
+                    "[ProtocolFilterSkip] protocol_include configured but Protocol column missing"
+                )
+            else:
+                proto_numeric, proto_symbolic = self._normalize_protocol_filter_tokens(protocol_include_cfg)
+                known_symbolic = {"tcp", "udp", "other", "non_udp"}
+                unknown_symbolic = sorted(proto_symbolic - known_symbolic)
+                if unknown_symbolic:
+                    self.logger.warning(
+                        "[ProtocolFilterWarn] ignore unsupported symbolic tokens=%s",
+                        unknown_symbolic,
+                    )
+                if proto_numeric or (proto_symbolic & {"other", "non_udp"}):
+                    before_rows = int(len(filtered))
+                    proto = pd.to_numeric(filtered["Protocol"], errors="coerce")
+                    proto_round = proto.round()
+                    keep_mask = pd.Series(False, index=filtered.index)
+                    if proto_numeric:
+                        keep_mask = keep_mask | proto_round.isin(proto_numeric)
+                    if "other" in proto_symbolic:
+                        keep_mask = keep_mask | (
+                            proto_round.notna()
+                            & (~proto_round.isin([TCP_PROTOCOL_NUMBER, UDP_PROTOCOL_NUMBER]))
+                        )
+                    if "non_udp" in proto_symbolic:
+                        keep_mask = keep_mask | (
+                            proto_round.notna()
+                            & (proto_round != UDP_PROTOCOL_NUMBER)
+                        )
+                    filtered = filtered.loc[keep_mask].reset_index(drop=True)
+                    self.logger.info(
+                        "[ProtocolFilterInclude] include=%s kept=%d/%d",
+                        protocol_include_cfg,
+                        int(len(filtered)),
+                        before_rows,
+                    )
+                else:
+                    self.logger.warning(
+                        "[ProtocolFilterSkip] no valid protocol_include tokens=%s",
+                        protocol_include_cfg,
+                    )
+
+        return filtered
+
     def _load_dataset(self) -> Tuple[pd.DataFrame, np.ndarray, List[str]]:
         data_dir = Path(self.cfg["paths"]["data_dir"])
         input_files = self.cfg["paths"].get("input_files")
@@ -2108,7 +3122,10 @@ class TridentStreamingExperiment:
             )
         data = data.dropna(subset=["Timestamp"]).sort_values("Timestamp").reset_index(drop=True)
         data["LabelNorm"] = data["Label"].map(normalize_label)
+        data = self._apply_runtime_filters(data)
         data = self._apply_attack_sampling(data)
+        data = self._apply_missing_value_strategy(data)
+        data = self._apply_drop_when_all_numeric_zero_rules(data)
 
         max_rows = self.cfg["runtime"]["max_rows"]
         if max_rows > 0 and len(data) > max_rows:
@@ -2134,12 +3151,29 @@ class TridentStreamingExperiment:
         return data, x_all, feature_cols
 
     def _build_initial_learners(self, data: pd.DataFrame, x_all: np.ndarray) -> int:
-        init_ratio = self.cfg["stream"]["init_ratio"]
+        init_ratio = float(self.cfg["stream"]["init_ratio"])
         init_end = int(len(data) * init_ratio)
         init_end = max(init_end, 5000)
-        init_end = min(init_end, len(data) - 1000)
+        init_end = min(init_end, len(data) - 1)
+        init_benign_count_cfg = int(self.cfg["stream"].get("init_benign_count", 0) or 0)
 
-        df_init = data.iloc[:init_end]
+        if self.cfg["stream"]["init_known_mode"] == "benign_only" and init_benign_count_cfg > 0:
+            full_mask = data["LabelNorm"].map(is_benign_label).values
+            init_benign_year = str(self.cfg["stream"].get("init_benign_year", "")).strip()
+            if init_benign_year:
+                year_mask = data["LabelNorm"].map(
+                    lambda x: split_year_label(str(x))[0] == init_benign_year
+                ).values
+                full_mask = full_mask & year_mask
+            eligible_idx = np.flatnonzero(full_mask)
+            if len(eligible_idx) > 0:
+                target_n = min(init_benign_count_cfg, int(len(eligible_idx)))
+                required_end = int(eligible_idx[target_n - 1] + 1)
+                init_end = max(init_end, required_end)
+                init_end = min(init_end, len(data) - 1)
+
+        df_init = data.iloc[:init_end].copy()
+        df_init["_creation_row_index"] = np.arange(init_end, dtype=np.int64)
         x_init = x_all[:init_end]
 
         if self.cfg["stream"]["init_known_mode"] == "benign_only":
@@ -2158,6 +3192,15 @@ class TridentStreamingExperiment:
                 )
             df_init = df_init[mask].reset_index(drop=True)
             x_init = x_init[mask]
+            if init_benign_count_cfg > 0:
+                keep_n = min(init_benign_count_cfg, len(df_init))
+                df_init = df_init.iloc[:keep_n].reset_index(drop=True)
+                x_init = x_init[:keep_n]
+                self.logger.info(
+                    "[InitBenignCount] requested=%d used=%d",
+                    init_benign_count_cfg,
+                    keep_n,
+                )
 
         init_epochs = self.cfg["tsieve"]["init_epochs"]
         for label in df_init["LabelNorm"].unique().tolist():
@@ -2201,6 +3244,22 @@ class TridentStreamingExperiment:
                     ],
                 )
                 self._accumulate_learner_distribution(learner_name=label, labels=learner_labels)
+                preview_k = min(int(len(idx)), int(LEARNER_CREATION_PREVIEW_FLOW_COUNT))
+                sub_positions = idx[:preview_k]
+                metas_preview = [{"row_index": int(df_init["_creation_row_index"].iloc[int(j)])} for j in sub_positions]
+                labels_preview = df_init["LabelNorm"].values[sub_positions]
+                metas_full_binding = [{"row_index": int(df_init["_creation_row_index"].iloc[int(j)])} for j in idx]
+                self._record_learner_creation_flow_preview(
+                    data=data,
+                    learner_name=str(label),
+                    creation_source="init",
+                    window_left=0,
+                    window_right=int(init_end),
+                    cluster_size=int(len(idx)),
+                    cluster_metas=metas_preview,
+                    cluster_labels=np.asarray(labels_preview, dtype=object),
+                    binding_metas=metas_full_binding,
+                )
                 self._record_learner_samples(learner_name=label, samples=x_init[idx])
                 self._append_history_pool(label, x_init[idx])
                 self.learner_last_trained_row_index[str(label)] = int(max(0, init_end - 1))
@@ -2219,11 +3278,81 @@ class TridentStreamingExperiment:
 
     def run(self) -> None:
         self._log_hyperparameters()
+        self._learner_creation_flow_previews.clear()
+        self._learner_creation_row_indices.clear()
         data, x_all, feature_cols = self._load_dataset()
         dataset_label_rows = self._build_dataset_label_distribution_rows(data)
         dataset_label_csv_path = self.output_dir / "dataset_label_distribution.csv"
         dataset_label_summary_path = self.output_dir / "dataset_label_distribution_summary.json"
-        pd.DataFrame(dataset_label_rows).to_csv(dataset_label_csv_path, index=False)
+        dataset_label_profile_df = pd.DataFrame(dataset_label_rows)
+        dataset_label_feature_stats_df = self._build_dataset_label_feature_stats_df(
+            data=data,
+            feature_names=IMPORTANT_LEARNER_CLUSTER_FEATURES,
+        )
+        dataset_label_protocol_df = self._build_dataset_label_protocol_stats_df(data=data)
+        if not dataset_label_feature_stats_df.empty:
+            dataset_label_profile_df = dataset_label_profile_df.merge(
+                dataset_label_feature_stats_df,
+                on="label",
+                how="left",
+            )
+        if not dataset_label_protocol_df.empty:
+            dataset_label_profile_df = dataset_label_profile_df.merge(
+                dataset_label_protocol_df,
+                on="label",
+                how="left",
+            )
+        if not dataset_label_profile_df.empty:
+            numeric_cols = [
+                c
+                for c in dataset_label_profile_df.columns
+                if c
+                not in {
+                    "label",
+                    "is_benign",
+                    "year_tag",
+                    "base_label",
+                    "protocol_cluster_type",
+                }
+            ]
+            if numeric_cols:
+                dataset_label_profile_df[numeric_cols] = (
+                    dataset_label_profile_df[numeric_cols]
+                    .replace([np.inf, -np.inf], np.nan)
+                    .fillna(0.0)
+                )
+            if "protocol_cluster_type" in dataset_label_profile_df.columns:
+                dataset_label_profile_df["protocol_cluster_type"] = (
+                    dataset_label_profile_df["protocol_cluster_type"].fillna("UNKNOWN").astype(str)
+                )
+        dataset_label_profile_df.to_csv(dataset_label_csv_path, index=False)
+        dataset_label_rows = dataset_label_profile_df.to_dict(orient="records")
+        dataset_label_corr_rows = self._build_dataset_label_feature_correlation_rows(
+            dataset_label_profile_df
+        )
+        dataset_label_corr_json_path = (
+            self.output_dir / "dataset_label_feature_attack_correlation.json"
+        )
+        dataset_label_corr_fig_path = (
+            self.output_dir / "dataset_label_feature_attack_correlation.png"
+        )
+        with open(dataset_label_corr_json_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "feature_family": "important_label_features",
+                    "feature_count": int(len(dataset_label_corr_rows)),
+                    "top_k_default": 24,
+                    "rows": dataset_label_corr_rows,
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        self._save_dataset_label_feature_correlation_figure(
+            rows=dataset_label_corr_rows,
+            out_path=dataset_label_corr_fig_path,
+            top_k=24,
+        )
         benign_rows = int(sum(int(r["count"]) for r in dataset_label_rows if bool(r["is_benign"])))
         attack_rows = int(max(len(data) - benign_rows, 0))
         dataset_label_summary = {
@@ -2238,9 +3367,11 @@ class TridentStreamingExperiment:
         with open(dataset_label_summary_path, "w", encoding="utf-8") as f:
             json.dump(dataset_label_summary, f, ensure_ascii=False, indent=2)
         self.logger.info(
-            "Done. DATASET_LABEL_DISTRIBUTION=%s | SUMMARY=%s | labels=%d",
+            "Done. DATASET_LABEL_DISTRIBUTION=%s | SUMMARY=%s | LABEL_CORR_JSON=%s | LABEL_CORR_FIG=%s | labels=%d",
             dataset_label_csv_path,
             dataset_label_summary_path,
+            dataset_label_corr_json_path,
+            dataset_label_corr_fig_path,
             len(dataset_label_rows),
         )
         start_idx = self._build_initial_learners(data, x_all)
@@ -2300,7 +3431,14 @@ class TridentStreamingExperiment:
                 )
                 if pred is None:
                     self._record_learner_samples(learner_name="UNKNOWN", samples=sample)
-                    self.tmagnifier.add_unknown(sample[0], str(chunk_labels[i]))
+                    self.tmagnifier.add_unknown(
+                        sample[0],
+                        str(chunk_labels[i]),
+                        {
+                            "row_index": int(left + i),
+                            "timestamp": str(chunk_df["Timestamp"].iloc[i]),
+                        },
+                    )
                 else:
                     accepted_by_learner.setdefault(pred, []).append(sample[0])
                     accepted_labels_by_learner.setdefault(pred, []).append(str(chunk_labels[i]))
@@ -2324,6 +3462,7 @@ class TridentStreamingExperiment:
             retrain_seconds_window = 0.0
             create_seconds += self._create_new_learners_from_clusters(
                 clusters=clusters,
+                data=data,
                 left=int(left),
                 right=int(right),
                 window_size=int(window_size),
@@ -2333,6 +3472,7 @@ class TridentStreamingExperiment:
                 source="unknown_cluster",
             )
             create_seconds += self._maybe_recluster_small_learners(
+                data=data,
                 left=int(left),
                 right=int(right),
                 window_size=int(window_size),
@@ -2470,6 +3610,49 @@ class TridentStreamingExperiment:
                                     "passed_benign_conf_filter": bool(keep_mask[i_meta]),
                                     "used_for_increment_train": False,
                                     "drop_reason": "increment_min_samples",
+                                }
+                            )
+                        continue
+                retrain_count_now = int(self.learner_retrain_counts.get(str(name), 0))
+                if self.max_retrain_per_learner > 0 and retrain_count_now >= self.max_retrain_per_learner:
+                    for i_meta, meta in enumerate(meta_rows):
+                        self.learner_accept_trace.append(
+                            {
+                                "learner_name": str(name),
+                                "row_index": int(meta["row_index"]),
+                                "timestamp": str(meta["timestamp"]),
+                                "label_norm": str(meta["label_norm"]),
+                                "window_left": int(meta["window_left"]),
+                                "window_right": int(meta["window_right"]),
+                                "accepted_by_learner": True,
+                                "passed_benign_conf_filter": bool(keep_mask[i_meta]),
+                                "used_for_increment_train": False,
+                                "drop_reason": "max_retrain_per_learner",
+                            }
+                        )
+                    continue
+                if self.increment_drift_gate_enabled:
+                    drift_score = self._compute_feature_drift_score(str(name), arr_all_new)
+                    if np.isfinite(drift_score) and drift_score < self.increment_drift_min_score:
+                        self.logger.info(
+                            "[IncrementDriftGate] learner=%s drift_score=%.6f < min=%.6f, skip retrain",
+                            str(name),
+                            float(drift_score),
+                            float(self.increment_drift_min_score),
+                        )
+                        for i_meta, meta in enumerate(meta_rows):
+                            self.learner_accept_trace.append(
+                                {
+                                    "learner_name": str(name),
+                                    "row_index": int(meta["row_index"]),
+                                    "timestamp": str(meta["timestamp"]),
+                                    "label_norm": str(meta["label_norm"]),
+                                    "window_left": int(meta["window_left"]),
+                                    "window_right": int(meta["window_right"]),
+                                    "accepted_by_learner": True,
+                                    "passed_benign_conf_filter": bool(keep_mask[i_meta]),
+                                    "used_for_increment_train": False,
+                                    "drop_reason": "increment_no_feature_drift",
                                 }
                             )
                         continue
@@ -2686,6 +3869,9 @@ class TridentStreamingExperiment:
                 self.perf_stats["retrain_seconds_total"] += retrain_seconds
                 self.perf_stats["incremental_update_count"] += 1
                 self.learner_last_trained_row_index[str(name)] = int(latest_row_index)
+                self.learner_retrain_counts[str(name)] = int(
+                    self.learner_retrain_counts.get(str(name), 0) + 1
+                )
                 self.learner_update_loss_profiles.append(
                     {
                         "learner_name": str(name),
@@ -2866,6 +4052,32 @@ class TridentStreamingExperiment:
         profile_path = self.output_dir / "learner_label_distribution.csv"
         cumulative_rows = self._build_cumulative_profile_rows()
         profile_df = pd.DataFrame(cumulative_rows)
+        learner_feature_stats_df = self._build_learner_feature_stats_df(
+            data=data,
+            feature_names=IMPORTANT_LEARNER_CLUSTER_FEATURES,
+        )
+        learner_protocol_stats_df = self._build_learner_protocol_stats_df(data=data)
+        if not learner_feature_stats_df.empty:
+            profile_df = profile_df.merge(learner_feature_stats_df, on="learner_name", how="left")
+            stats_feature_cols = [c for c in learner_feature_stats_df.columns if c != "learner_name"]
+            if stats_feature_cols:
+                profile_df[stats_feature_cols] = (
+                    profile_df[stats_feature_cols].replace([np.inf, -np.inf], np.nan).fillna(0.0)
+                )
+        if not learner_protocol_stats_df.empty:
+            profile_df = profile_df.merge(learner_protocol_stats_df, on="learner_name", how="left")
+            for c in [
+                "protocol_tcp_ratio",
+                "protocol_udp_ratio",
+                "protocol_other_ratio",
+                "protocol_concentration",
+            ]:
+                if c in profile_df.columns:
+                    profile_df[c] = pd.to_numeric(profile_df[c], errors="coerce").fillna(0.0)
+            if "protocol_cluster_type" in profile_df.columns:
+                profile_df["protocol_cluster_type"] = (
+                    profile_df["protocol_cluster_type"].fillna("UNKNOWN").astype(str)
+                )
         if not profile_df.empty and "attack_ratio" in profile_df.columns:
             profile_df = profile_df.sort_values(
                 by="attack_ratio",
@@ -2873,12 +4085,228 @@ class TridentStreamingExperiment:
                 kind="mergesort",
             )
         profile_df.to_csv(profile_path, index=False)
+        creation_preview_path = self.output_dir / "learner_creation_flow_previews.json"
+        with open(creation_preview_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "preview_flow_count": int(LEARNER_CREATION_PREVIEW_FLOW_COUNT),
+                    "entries": list(self._learner_creation_flow_previews),
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        self.logger.info("Done. LEARNER_CREATION_FLOW_PREVIEWS=%s", creation_preview_path)
+        feature_corr_rows = self._build_attack_ratio_feature_correlation_rows(profile_df)
+        feature_corr_json_path = self.output_dir / "learner_feature_attack_ratio_correlation.json"
+        feature_corr_fig_path = self.output_dir / "learner_feature_attack_ratio_correlation.png"
+        with open(feature_corr_json_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "feature_family": "important_cluster_features",
+                    "feature_count": int(len(feature_corr_rows)),
+                    "top_k_default": 24,
+                    "rows": feature_corr_rows,
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        self._save_attack_ratio_correlation_figure(
+            rows=feature_corr_rows,
+            out_path=feature_corr_fig_path,
+            top_k=24,
+        )
         learner_risk_path = self.output_dir / "learner_risk_scores.csv"
         risk_rows = self._build_unsupervised_learner_risk_rows()
         pd.DataFrame(risk_rows).to_csv(learner_risk_path, index=False)
         self.logger.info("Done. LEARNER_RISK=%s", learner_risk_path)
         metrics_path = self.output_dir / "metrics.json"
         metrics = self._compute_run_metrics(cumulative_rows)
+        metrics["protocol_cluster_summary"] = self._build_protocol_cluster_summary(profile_df)
+        metric_catalog_items: List[Dict[str, str]] = [
+            {
+                "name": "risk_false_positive_rate",
+                "formula": "FP / (FP + TN)",
+                "safety": "误报率，越低越好。高FPR会导致告警噪声过大，影响研判效率。",
+            },
+            {
+                "name": "risk_false_negative_rate",
+                "formula": "FN / (FN + TP)",
+                "safety": "漏报率，越低越好。高FNR意味着真实攻击漏检，带来直接风险。",
+            },
+            {
+                "name": "protocol_cluster_summary.by_type.*.learner_ratio",
+                "formula": "type_learner_count / total_learner_count",
+                "safety": "协议簇类型在学习器层面的占比，可判断系统当前偏向TCP/UDP/混合场景。",
+            },
+            {
+                "name": "protocol_cluster_summary.by_type.*.sample_ratio",
+                "formula": "type_sample_count / sample_total",
+                "safety": "协议簇类型在样本层面的占比，可识别是否出现大体量单协议攻击流量。",
+            },
+        ]
+        known_names = {x["name"] for x in metric_catalog_items}
+
+        # 1) 自动覆盖 learner 画像表中的所有字段
+        for col in profile_df.columns:
+            col_s = str(col)
+            if col_s in known_names:
+                continue
+            if col_s.endswith("__mean"):
+                base = col_s[: -len("__mean")]
+                formula = f"mean({base}) over samples assigned to one learner"
+                safety = f"{base} 的学习器级均值画像，用于判断该学习器的行为中心。"
+            elif col_s.endswith("__std"):
+                base = col_s[: -len("__std")]
+                formula = f"std({base}) over samples assigned to one learner"
+                safety = f"{base} 的学习器级波动画像。值越大表示簇内异质性越强，稳定性越低。"
+            elif col_s.endswith("__cv"):
+                base = col_s[: -len("__cv")]
+                formula = f"abs(std({base}) / mean({base})) over samples assigned to one learner"
+                safety = f"{base} 的学习器级相对波动率。比 std 更可比，能弱化量纲影响。"
+            elif col_s.endswith("__min"):
+                base = col_s[: -len("__min")]
+                formula = f"min({base}) over samples assigned to one learner"
+                safety = f"{base} 的学习器级下界画像，可辅助识别异常低值与哨兵值影响。"
+            elif col_s.endswith("__max"):
+                base = col_s[: -len("__max")]
+                formula = f"max({base}) over samples assigned to one learner"
+                safety = f"{base} 的学习器级上界画像，可辅助识别峰值突发与放大行为。"
+            elif col_s == "attack_ratio":
+                formula = "attack_count / total_assigned_samples"
+                safety = "学习器攻击占比。高值学习器优先排查，低值学习器偏基线。"
+            elif col_s == "dominant_ratio":
+                formula = "dominant_count / total_assigned_samples"
+                safety = "主导标签纯度。低纯度表示簇混杂，建议结合协议与拓扑继续细分。"
+            elif col_s == "creation_sample_count":
+                formula = "samples used when learner was first created"
+                safety = "创建样本量。过小会导致初始模型不稳，后续重训更敏感。"
+            elif col_s == "post_creation_added_samples":
+                formula = "total_assigned_samples - creation_sample_count"
+                safety = "增量吸收量。高值表示该学习器持续吸收新流量，需关注概念漂移。"
+            elif col_s == "protocol_tcp_ratio":
+                formula = "count(Protocol==6) / total_protocol_samples"
+                safety = "TCP占比。高值常见于TCP主导行为（Web/扫描/慢速攻击等）。"
+            elif col_s == "protocol_udp_ratio":
+                formula = "count(Protocol==17) / total_protocol_samples"
+                safety = "UDP占比。高值常见于UDP主导行为（反射/放大类攻击等）。"
+            elif col_s == "protocol_other_ratio":
+                formula = "count(Protocol not in {6,17}) / total_protocol_samples"
+                safety = "其他协议占比。异常升高需检查非常规协议或特征解析质量。"
+            elif col_s == "protocol_concentration":
+                formula = "max(protocol_tcp_ratio, protocol_udp_ratio)"
+                safety = "协议聚集性。越接近1表示协议越单一，越低表示混合流量更强。"
+            elif col_s == "protocol_cluster_type":
+                formula = "if tcp>=0.8 then TCP_CLUSTER; elif udp>=0.8 then UDP_CLUSTER; elif concentration>=0.6 then TCP_UDP_BIASED; else MIXED/UNKNOWN"
+                safety = "协议簇标签。用于快速分流研判路径（TCP行为侧/UDP放大型/混合异常）。"
+            elif col_s in {"learner_name", "dominant_label", "label_distribution_json"}:
+                formula = "metadata"
+                safety = "描述性元信息，用于定位学习器与标签结构。"
+            elif col_s in {"total_assigned_samples", "dominant_count"}:
+                formula = "count(*) in learner scope"
+                safety = "样本计数类指标，用于评估规模与主导性。"
+            else:
+                formula = "derived in run pipeline"
+                safety = "运行期派生指标，用于补充学习器行为画像。"
+            metric_catalog_items.append(
+                {
+                    "name": col_s,
+                    "formula": formula,
+                    "safety": safety,
+                }
+            )
+            known_names.add(col_s)
+
+        # 2) 自动覆盖 label 画像表中的所有字段（你提到的 dataset_label_distribution 全量字段）
+        for col in dataset_label_profile_df.columns:
+            col_s = str(col)
+            key = f"dataset_label_distribution.{col_s}"
+            if key in known_names:
+                continue
+            if col_s.endswith("__mean"):
+                base = col_s[: -len("__mean")]
+                formula = f"mean({base}) over samples with same label"
+                safety = f"标签级均值画像。用于刻画该攻击/良性标签的中心行为特征。"
+            elif col_s.endswith("__std"):
+                base = col_s[: -len("__std")]
+                formula = f"std({base}) over samples with same label"
+                safety = f"标签级波动画像。用于刻画该标签内部稳定性与异质性。"
+            elif col_s.endswith("__cv"):
+                base = col_s[: -len("__cv")]
+                formula = f"abs(std({base}) / mean({base})) over samples with same label"
+                safety = f"标签级相对波动率。可跨特征比较波动强弱，降低量纲影响。"
+            elif col_s.endswith("__min"):
+                base = col_s[: -len("__min")]
+                formula = f"min({base}) over samples with same label"
+                safety = f"标签级下界画像。用于发现该攻击标签的极端低值模式。"
+            elif col_s.endswith("__max"):
+                base = col_s[: -len("__max")]
+                formula = f"max({base}) over samples with same label"
+                safety = f"标签级上界画像。用于发现该攻击标签的峰值与突发模式。"
+            elif col_s == "ratio":
+                formula = "label_count / total_rows"
+                safety = "标签基线占比。用于评估类别偏斜并指导阈值与采样策略。"
+            elif col_s == "is_benign":
+                formula = "boolean(is_benign_label(label))"
+                safety = "标签安全属性。用于区分攻击标签与良性标签。"
+            elif col_s == "protocol_cluster_type":
+                formula = "same as learner protocol_cluster_type, computed on label scope"
+                safety = "标签协议簇类型。用于区分该标签偏TCP、偏UDP或混合。"
+            elif col_s in {"protocol_tcp_ratio", "protocol_udp_ratio", "protocol_other_ratio", "protocol_concentration"}:
+                formula = "same as learner protocol ratios, computed on label scope"
+                safety = "标签协议分布与聚集性，可直观看到每种攻击的协议特征。"
+            elif col_s in {"label", "year_tag", "base_label"}:
+                formula = "metadata"
+                safety = "标签元信息，用于按年份/基础类别组织安全研判。"
+            elif col_s == "count":
+                formula = "count(*) with this label"
+                safety = "标签样本量。用于判断攻击族规模与优先级。"
+            else:
+                formula = "derived in run pipeline (label scope)"
+                safety = "标签级派生指标，用于补充攻击画像。"
+            metric_catalog_items.append(
+                {
+                    "name": key,
+                    "formula": formula,
+                    "safety": safety,
+                }
+            )
+            known_names.add(key)
+
+        # 3) 相关性输出字段说明
+        corr_metric_defs = [
+            (
+                "learner_feature_attack_ratio_correlation.pearson_corr",
+                "cov(X,Y)/(std(X)*std(Y))",
+                "学习器特征与attack_ratio线性相关强度，便于定位高影响指标。",
+            ),
+            (
+                "learner_feature_attack_ratio_correlation.spearman_corr",
+                "Pearson(rank(X), rank(Y))",
+                "学习器特征与attack_ratio单调相关强度，对非线性更稳健。",
+            ),
+            (
+                "dataset_label_feature_attack_correlation.pearson_corr",
+                "cov(X,Y)/(std(X)*std(Y)), Y=attack_label(1=attack)",
+                "标签级特征对攻击属性的线性相关强度，用于识别攻击共性特征。",
+            ),
+            (
+                "dataset_label_feature_attack_correlation.spearman_corr",
+                "Pearson(rank(X), rank(Y)), Y=attack_label(1=attack)",
+                "标签级特征对攻击属性的单调相关强度，用于稳健排序特征筛选。",
+            ),
+        ]
+        for name, formula, safety in corr_metric_defs:
+            if name not in known_names:
+                metric_catalog_items.append({"name": name, "formula": formula, "safety": safety})
+                known_names.add(name)
+
+        metric_catalog = {"metric": metric_catalog_items}
+        metrics["metric_catalog"] = metric_catalog
+        metric_catalog_path = self.output_dir / "metric_catalog.json"
+        with open(metric_catalog_path, "w", encoding="utf-8") as f:
+            json.dump(metric_catalog, f, ensure_ascii=False, indent=2)
         with open(metrics_path, "w", encoding="utf-8") as f:
             json.dump(metrics, f, ensure_ascii=False, indent=2)
         overlap_pairs_path = self.output_dir / "debug_true_overlap_pairs.csv"
@@ -3018,6 +4446,8 @@ class TridentStreamingExperiment:
         self.logger.info("Done. LEARNER_INCREMENT_LOSS_TRACE=%s", update_loss_profile_path)
         self.logger.info("Done. LEARNER_FIT_LOSS_TRACE=%s", fit_loss_profile_path)
         self.logger.info("Done. LEARNER_PROFILE=%s", profile_path)
+        self.logger.info("Done. LEARNER_FEATURE_CORR_JSON=%s", feature_corr_json_path)
+        self.logger.info("Done. LEARNER_FEATURE_CORR_FIG=%s", feature_corr_fig_path)
         self.logger.info("Done. SAMPLE_ASSIGNMENTS=%s", assignment_path)
         self.logger.info("Done. LEARNER_ACCEPT_TRACE=%s", accept_trace_path)
         self.logger.info(
@@ -3043,6 +4473,7 @@ class TridentStreamingExperiment:
             metrics["risk_false_positive_rate"] * 100.0,
             metrics["risk_false_negative_rate"] * 100.0,
         )
+        self.logger.info("Done. METRIC_CATALOG_JSON=%s", metric_catalog_path)
         self.logger.info("Done. FIG=%s", fig_path)
         self.logger.info("Done. SUMMARY=%s", summary_path)
 

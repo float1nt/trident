@@ -17,11 +17,17 @@ function runDataApiPlugin(): Plugin {
         res.end(JSON.stringify(data))
       }
 
+      const isCompleteRun = (runId: string) => {
+        const summary = path.resolve(runsRoot, runId, 'run_summary.txt')
+        const overlap = path.resolve(runsRoot, runId, 'debug_true_overlap_pairs.csv')
+        return summary.startsWith(runsRoot) && overlap.startsWith(runsRoot) && fs.existsSync(summary) && fs.existsSync(overlap)
+      }
+
       const getRunDirs = () => {
         if (!fs.existsSync(runsRoot)) return []
         return fs
           .readdirSync(runsRoot, { withFileTypes: true })
-          .filter((d) => d.isDirectory())
+          .filter((d) => d.isDirectory() && isCompleteRun(d.name))
           .map((d) => d.name)
       }
 
@@ -45,27 +51,39 @@ function runDataApiPlugin(): Plugin {
         })
       })
 
-      server.middlewares.use('/api/run-data', (req: IncomingMessage, res: ServerResponse) => {
-        const url = req.url || ''
+      const parseRunDataPath = (url: string): { runId: string; fileName: string } | null => {
         const parts = url.split('?')[0].split('/').filter(Boolean)
-        // Expected under this mount: /:runId/:fileName
-        if (parts.length < 2) {
+        const idx = parts.indexOf('run-data')
+        const slice = idx >= 0 ? parts.slice(idx + 1) : parts
+        if (slice.length < 2) return null
+        return {
+          runId: decodeURIComponent(slice[0] || ''),
+          fileName: decodeURIComponent(slice[1] || ''),
+        }
+      }
+
+      server.middlewares.use('/api/run-data', (req: IncomingMessage, res: ServerResponse) => {
+        const parsed = parseRunDataPath(req.url || '')
+        if (!parsed) {
           sendJson(res, 400, { error: 'Invalid run-data path.' })
           return
         }
-        const runId = decodeURIComponent(parts[0] || '')
-        const fileName = decodeURIComponent(parts[1] || '')
+        const { runId, fileName } = parsed
         const allowed = new Set([
           'debug_true_overlap_pairs.csv',
           'learner_aggregated_distribution.csv',
           'learner_label_distribution.csv',
           'learner_count_over_time.csv',
+          'learner_train_batch_label_distribution.csv',
           'learner_creation_distribution.csv',
           'dataset_label_distribution.csv',
           'dataset_label_distribution_summary.json',
+          'dataset_label_feature_attack_correlation.json',
           'metrics.json',
           'performance_metrics.json',
           'learner_aggregation_summary.json',
+          'learner_feature_attack_ratio_correlation.json',
+          'learner_creation_flow_previews.json',
         ])
         if (!allowed.has(fileName)) {
           sendJson(res, 400, { error: `Unsupported file: ${fileName}` })
@@ -98,7 +116,8 @@ export default defineConfig({
   plugins: [react(), runDataApiPlugin()],
   server: {
     host: '0.0.0.0',
-    port: 5173,
+    port: 5174,
+    strictPort: true,
     fs: {
       // Allow reading run outputs from project root.
       allow: ['..'],

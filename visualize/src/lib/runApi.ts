@@ -10,45 +10,70 @@ export type RunsResponse = {
   latestRunId: string | null
 }
 
+export function runDataUrl(runId: string, fileName: string): string {
+  return `/api/run-data/${encodeURIComponent(runId)}/${encodeURIComponent(fileName)}`
+}
+
+async function readHttpErrorDetail(resp: Response): Promise<string> {
+  try {
+    const body = (await resp.json()) as { error?: string }
+    if (body?.error) return body.error
+  } catch {
+    /* not json */
+  }
+  try {
+    const text = (await resp.text()).trim()
+    if (text) return text.slice(0, 200)
+  } catch {
+    /* ignore */
+  }
+  return resp.statusText || 'Unknown error'
+}
+
 export async function fetchRuns(): Promise<RunsResponse> {
   const resp = await fetch('/api/runs')
   if (!resp.ok) {
-    throw new Error(`获取 runs 列表失败: HTTP ${resp.status}`)
+    const detail = await readHttpErrorDetail(resp)
+    throw new Error(`获取 runs 列表失败: HTTP ${resp.status} (${detail})`)
   }
   return resp.json()
 }
 
-export function parseCsv<T>(url: string): Promise<T[]> {
-  return new Promise((resolve, reject) => {
-    Papa.parse<T>(url, {
-      download: true,
-      header: true,
-      skipEmptyLines: true,
-      complete: (result) => resolve(result.data),
-      error: (err) => reject(err),
-    })
+export async function parseCsv<T>(url: string): Promise<T[]> {
+  const resp = await fetch(url)
+  if (!resp.ok) {
+    const detail = await readHttpErrorDetail(resp)
+    throw new Error(`加载 CSV 失败: HTTP ${resp.status} — ${detail}`)
+  }
+  const text = await resp.text()
+  const parsed = Papa.parse<T>(text, {
+    header: true,
+    skipEmptyLines: true,
   })
+  if (parsed.errors?.length) {
+    const first = parsed.errors[0]
+    throw new Error(`CSV 解析失败: ${first.message ?? 'unknown'}`)
+  }
+  return parsed.data
 }
 
 export async function fetchRunJson<T>(runId: string, fileName: string): Promise<T> {
-  const run = encodeURIComponent(runId)
-  const file = encodeURIComponent(fileName)
-  const resp = await fetch(`/api/run-data/${run}/${file}`)
+  const resp = await fetch(runDataUrl(runId, fileName))
   if (!resp.ok) {
-    throw new Error(`加载 ${fileName} 失败: HTTP ${resp.status}`)
+    const detail = await readHttpErrorDetail(resp)
+    throw new Error(`加载 ${fileName} 失败: HTTP ${resp.status} (${detail})`)
   }
   return resp.json()
 }
 
 export async function fetchRunJsonOptional<T>(runId: string, fileName: string): Promise<T | null> {
-  const run = encodeURIComponent(runId)
-  const file = encodeURIComponent(fileName)
-  const resp = await fetch(`/api/run-data/${run}/${file}`)
+  const resp = await fetch(runDataUrl(runId, fileName))
   if (resp.status === 404) {
     return null
   }
   if (!resp.ok) {
-    throw new Error(`加载 ${fileName} 失败: HTTP ${resp.status}`)
+    const detail = await readHttpErrorDetail(resp)
+    throw new Error(`加载 ${fileName} 失败: HTTP ${resp.status} (${detail})`)
   }
   return resp.json()
 }

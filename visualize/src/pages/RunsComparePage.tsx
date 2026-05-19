@@ -24,22 +24,83 @@ type RunRow = {
   avgWindowSeconds: number | null
 }
 
-function pct(v: number | null): string {
-  if (v == null || Number.isNaN(v)) return '-'
-  return `${(v * 100).toFixed(2)}%`
+function extractTimeFromRunId(runId: string): string {
+  const match = runId.match(/(\d{8})_(\d{6})/)
+  if (!match) return '-'
+  const [, ymd, hms] = match
+  const year = ymd.slice(0, 4)
+  const month = ymd.slice(4, 6)
+  const day = ymd.slice(6, 8)
+  const hour = hms.slice(0, 2)
+  const minute = hms.slice(2, 4)
+  const second = hms.slice(4, 6)
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`
 }
 
-function num(v: number | null, digits = 2): string {
+function pct(v: number | null): string {
   if (v == null || Number.isNaN(v)) return '-'
-  return v.toFixed(digits)
+  return `${(v * 100).toFixed(4)}%`
+}
+
+function num(v: number | null, digits = 4): string {
+  if (v == null || Number.isNaN(v)) return '-'
+  return digits === 0 ? Math.round(v).toLocaleString() : v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
+}
+
+const RUN_SORT_DEFAULT_KEY: keyof RunRow = 'timestamp'
+const RUN_SORT_DEFAULT_DIR: 'asc' | 'desc' = 'desc'
+
+const RUN_SORT_LABELS: Record<keyof RunRow, string> = {
+  id: 'Run',
+  timestamp: '时间',
+  fpr: 'FPR',
+  fnr: 'FNR',
+  tpr: 'TPR',
+  windows: 'Windows',
+  learners: 'New Learners',
+  avgWindowSeconds: 'Avg Window(s)',
+}
+
+const RUNS_COMPARE_STICKY_FIRST_TH =
+  'sticky left-0 z-30 border-r border-slate-200 bg-white py-2 pr-4 shadow-[2px_0_10px_-4px_rgba(15,23,42,0.12)]'
+const RUNS_COMPARE_STICKY_FIRST_TD =
+  'sticky left-0 z-10 border-r border-slate-200 bg-white py-2 pr-4 shadow-[2px_0_8px_-4px_rgba(15,23,42,0.08)] group-hover:bg-slate-50'
+
+function RunsCompareSortTag({
+  columnLabel,
+  dir,
+  onClear,
+  clearDisabled,
+}: {
+  columnLabel: string
+  dir: 'asc' | 'desc'
+  onClear: () => void
+  clearDisabled?: boolean
+}) {
+  return (
+    <span className="inline-flex max-w-[min(100%,380px)] items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-800 shadow-sm">
+      <span className="shrink-0 text-slate-500">排序</span>
+      <span className="min-w-0 truncate font-medium text-slate-900">{columnLabel}</span>
+      <span className="shrink-0 tabular-nums text-slate-600">{dir === 'asc' ? '↑' : '↓'}</span>
+      <button
+        type="button"
+        disabled={clearDisabled}
+        className="ml-0.5 shrink-0 rounded px-1 leading-none text-slate-500 hover:bg-slate-200 hover:text-slate-900 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+        aria-label="恢复默认排序"
+        onClick={onClear}
+      >
+        ×
+      </button>
+    </span>
+  )
 }
 
 export default function RunsComparePage() {
   const [rows, setRows] = useState<RunRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [sortBy, setSortBy] = useState<keyof RunRow>('timestamp')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [sortBy, setSortBy] = useState<keyof RunRow>(RUN_SORT_DEFAULT_KEY)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(RUN_SORT_DEFAULT_DIR)
   const [query, setQuery] = useState('')
 
   useEffect(() => {
@@ -60,7 +121,7 @@ export default function RunsComparePage() {
             const fnr = typeof metrics?.risk_false_negative_rate === 'number' ? metrics.risk_false_negative_rate : null
             return {
               id: run.id,
-              timestamp: run.timestamp,
+              timestamp: extractTimeFromRunId(run.id),
               fpr,
               fnr,
               tpr: fnr == null ? null : 1 - fnr,
@@ -161,14 +222,25 @@ export default function RunsComparePage() {
       </section>
 
       <section className="panel">
-        <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <RunsCompareSortTag
+              columnLabel={RUN_SORT_LABELS[sortBy]}
+              dir={sortDir}
+              clearDisabled={sortBy === RUN_SORT_DEFAULT_KEY && sortDir === RUN_SORT_DEFAULT_DIR}
+              onClear={() => {
+                setSortBy(RUN_SORT_DEFAULT_KEY)
+                setSortDir(RUN_SORT_DEFAULT_DIR)
+              }}
+            />
+            <span className="text-xs text-slate-500">点击表头切换排序</span>
+          </div>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索 run_id..."
             className="input-base w-72"
           />
-          <p className="text-xs text-slate-500">点击表头可排序（当前：{String(sortBy)} {sortDir}）</p>
         </div>
 
         {error ? <p className="text-sm text-rose-600">{error}</p> : null}
@@ -177,9 +249,14 @@ export default function RunsComparePage() {
           <table className="w-full min-w-[980px] text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-slate-600">
-                <th className="py-2 pr-4">
+                <th className={RUNS_COMPARE_STICKY_FIRST_TH}>
                   <button type="button" onClick={() => switchSort('id')} className="sortable-head">
                     Run {sortIndicator('id')}
+                  </button>
+                </th>
+                <th className="py-2 pr-4">
+                  <button type="button" onClick={() => switchSort('timestamp')} className="sortable-head">
+                    时间 {sortIndicator('timestamp')}
                   </button>
                 </th>
                 <th className="py-2 pr-4">
@@ -216,18 +293,25 @@ export default function RunsComparePage() {
             </thead>
             <tbody>
               {filteredRows.map((row) => (
-                <tr key={row.id} className="border-b border-slate-100 text-slate-800 hover:bg-slate-50">
-                  <td className="max-w-[480px] py-2 pr-4 font-mono text-xs">
+                <tr key={row.id} className="group border-b border-slate-100 text-slate-800 hover:bg-slate-50">
+                  <td className={`max-w-[480px] font-mono text-xs ${RUNS_COMPARE_STICKY_FIRST_TD}`}>
                     <Link to={`/run/${encodeURIComponent(row.id)}`} className="text-slate-700 hover:text-black hover:underline">
                       {row.id}
                     </Link>
                   </td>
-                  <td className="py-2 pr-4">{pct(row.fpr)}</td>
-                  <td className="py-2 pr-4">{pct(row.fnr)}</td>
-                  <td className="py-2 pr-4">{pct(row.tpr)}</td>
+                  <td className="py-2 pr-4 font-mono text-xs text-slate-600">{row.timestamp}</td>
+                  <td className="py-2 pr-4">
+                    <span className="rounded-md bg-rose-50 px-2 py-1 text-rose-700">{pct(row.fpr)}</span>
+                  </td>
+                  <td className="py-2 pr-4">
+                    <span className="rounded-md bg-amber-50 px-2 py-1 text-amber-700">{pct(row.fnr)}</span>
+                  </td>
+                  <td className="py-2 pr-4">
+                    <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700">{pct(row.tpr)}</span>
+                  </td>
                   <td className="py-2 pr-4">{num(row.windows, 0)}</td>
                   <td className="py-2 pr-4">{num(row.learners, 0)}</td>
-                  <td className="py-2 pr-4">{num(row.avgWindowSeconds, 3)}</td>
+                  <td className="py-2 pr-4">{row.avgWindowSeconds == null ? '-' : `${num(row.avgWindowSeconds)} s`}</td>
                 </tr>
               ))}
             </tbody>

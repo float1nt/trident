@@ -1,0 +1,98 @@
+[
+  {
+    "config": "hpo2_b0p34_q0p95_d0p12.yaml",
+    "run_id": "20260513_184238_hpo2_b0p34_q0p95_d0p12.yaml",
+    "b": 0.34,
+    "evt_q": 0.95,
+    "drift_min_score": 0.12,
+    "fpr": 0.02616269678557672,
+    "fnr": 0.07134122368535264,
+    "learners": 36,
+    "hit_target": false,
+    "ok": true
+  },
+  {
+    "config": "hpo2_b0p34_q0p97_d0p12.yaml",
+    "run_id": "20260513_184327_hpo2_b0p34_q0p97_d0p12.yaml",
+    "b": 0.34,
+    "evt_q": 0.97,
+    "drift_min_score": 0.12,
+    "fpr": 0.028180293193430815,
+    "fnr": 0.087511679797397,
+    "learners": 43,
+    "hit_target": false,
+    "ok": true
+  },
+  {
+    "config": "hpo2_b0p36_q0p95_d0p12.yaml",
+    "run_id": "20260513_184418_hpo2_b0p36_q0p95_d0p12.yaml",
+    "b": 0.36,
+    "evt_q": 0.95,
+    "drift_min_score": 0.12,
+    "fpr": 0.02598535097452841,
+    "fnr": 0.07757300192493273,
+    "learners": 48,
+    "hit_target": false,
+    "ok": true
+  },
+  {
+    "config": "hpo2_b0p36_q0p97_d0p12.yaml",
+    "run_id": "20260513_184510_hpo2_b0p36_q0p97_d0p12.yaml",
+    "b": 0.36,
+    "evt_q": 0.97,
+    "drift_min_score": 0.12,
+    "fpr": 0.04299821135787748,
+    "fnr": 0.05929379987847905,
+    "learners": 34,
+    "hit_target": false,
+    "ok": true
+  },
+  {
+    "config": "hpo2_b0p38_q0p95_d0p12.yaml",
+    "run_id": "20260513_184559_hpo2_b0p38_q0p95_d0p12.yaml",
+    "b": 0.38,
+    "evt_q": 0.95,
+    "drift_min_score": 0.12,
+    "fpr": 0.036896465129925185,
+    "fnr": 0.060389020224558464,
+    "learners": 43,
+    "hit_target": false,
+    "ok": true
+  },
+  {
+    "config": "hpo2_b0p38_q0p97_d0p12.yaml",
+    "run_id": "20260513_184651_hpo2_b0p38_q0p97_d0p12.yaml",
+    "b": 0.38,
+    "evt_q": 0.97,
+    "drift_min_score": 0.12,
+    "fpr": 0.025051890892946196,
+    "fnr": 0.055067372645531555,
+    "learners": 40,
+    "hit_target": false,
+    "ok": true
+  },
+  {
+    "config": "hpo2_b0p4_q0p95_d0p12.yaml",
+    "run_id": "20260513_184741_hpo2_b0p4_q0p95_d0p12.yaml",
+    "b": 0.4,
+    "evt_q": 0.95,
+    "drift_min_score": 0.12,
+    "fpr": 0.07052813402758001,
+    "fnr": 0.01526543137385053,
+    "learners": 34,
+    "hit_target": false,
+    "ok": true
+  },
+  {
+    "config": "hpo2_b0p4_q0p97_d0p12.yaml",
+    "run_id": "20260513_184832_hpo2_b0p4_q0p97_d0p12.yaml",
+    "b": 0.4,
+    "evt_q": 0.97,
+    "drift_min_score": 0.12,
+    "fpr": 0.016827443437844456,
+    "fnr": 0.1267264399977534,
+    "learners": 37,
+    "hit_target": true,
+    "ok": true
+  }
+]

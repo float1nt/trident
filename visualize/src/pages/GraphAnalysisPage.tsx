@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Select, Slider } from 'antd'
+import { Checkbox, Popover, Select, Slider } from 'antd'
 import * as echarts from 'echarts'
 import ReactECharts from 'echarts-for-react'
-import { fetchRunJsonOptional, fetchRuns, parseCsv, type RunInfo } from '../lib/runApi'
+import { fetchRunJsonOptional, fetchRuns, parseCsv, runDataUrl, type RunInfo } from '../lib/runApi'
+import { useTablePreferencesStore } from '../stores/tablePreferencesStore'
 
 type PairRow = {
   learner_a_raw: string
@@ -36,6 +37,7 @@ type LearnerDistRow = {
   dominant_label: string
   dominant_ratio: string
   label_distribution_json: string
+  [key: string]: string
 }
 
 type CountRow = {
@@ -46,6 +48,11 @@ type CountRow = {
   unknown_buffer_size: string
 }
 
+type TrainBatchRow = {
+  stage: string
+  learner_name: string
+}
+
 type DatasetLabelRow = {
   label: string
   count: string
@@ -53,6 +60,7 @@ type DatasetLabelRow = {
   is_benign: string | boolean
   year_tag: string
   base_label: string
+  [key: string]: string | boolean
 }
 
 type MetricsJson = {
@@ -83,6 +91,79 @@ type DatasetLabelSummaryJson = {
   attack_rows?: number
   benign_ratio?: number
   attack_ratio?: number
+}
+
+type FeatureCorrRow = {
+  feature: string
+  pearson_corr: number
+  spearman_corr: number
+  abs_pearson_corr: number
+  abs_spearman_corr: number
+}
+
+type FeatureCorrJson = {
+  feature_family?: string
+  feature_count?: number
+  top_k_default?: number
+  rows?: FeatureCorrRow[]
+}
+
+type CreationFlowPreviewEntry = {
+  learner_name: string
+  creation_source: string
+  window_left: number
+  window_right: number
+  cluster_size: number
+  flows_preview: Array<Record<string, unknown>>
+}
+
+type CreationFlowPreviewJson = {
+  preview_flow_count?: number
+  entries?: CreationFlowPreviewEntry[]
+}
+
+const CREATION_PREVIEW_COL_PRIORITY = [
+  'row_index',
+  'Timestamp',
+  'LabelNorm',
+  'Protocol',
+  'Flow Duration',
+  'Total Fwd Packet',
+  'Total Bwd packets',
+  'Total Length of Fwd Packet',
+  'Total Length of Bwd Packet',
+]
+
+function orderedCreationPreviewColumns(rows: Record<string, unknown>[]): string[] {
+  const keys = new Set<string>()
+  rows.forEach((r) => {
+    Object.keys(r).forEach((k) => keys.add(k))
+  })
+  const out: string[] = []
+  CREATION_PREVIEW_COL_PRIORITY.forEach((k) => {
+    if (keys.has(k)) out.push(k)
+  })
+  const rest = [...keys].filter((k) => !out.includes(k)).sort((a, b) => a.localeCompare(b))
+  return [...out, ...rest]
+}
+
+function formatCreationPreviewCell(value: unknown): string {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return '—'
+    if (Math.abs(value) >= 1e9 || (Math.abs(value) < 1e-4 && value !== 0)) return value.toExponential(4)
+    return Number.isInteger(value) ? String(value) : value.toFixed(METRIC_DECIMAL_PLACES)
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value)
+    } catch {
+      return String(value)
+    }
+  }
+  const s = String(value)
+  return s.length > 56 ? `${s.slice(0, 53)}…` : s
 }
 
 type NodeData = {
@@ -125,6 +206,311 @@ type LearnerDetail = {
   topLabels: Array<[string, number]>
 }
 
+const CHART_TEXT_PRIMARY = '#e2e8f0'
+const CHART_TEXT_SECONDARY = '#94a3b8'
+const CHART_AXIS_LINE = '#475569'
+const CHART_SPLIT_LINE = '#334155'
+const CHART_EDGE = '#64748b'
+const CHART_GREEN = '#4ade80'
+const CHART_GREEN_BORDER = '#22c55e'
+const CHART_RED = '#fb7185'
+const CHART_RED_BORDER = '#f43f5e'
+
+/** 雷达无可绘内容时保持空白面板，不占位文案 */
+const EMPTY_RADAR_CHART_OPTION = { animation: false, backgroundColor: 'transparent' as const }
+
+const FEATURE_BASE_ZH_MAP: Record<string, string> = {
+  'FWD Init Win Bytes': '前向初始窗口字节',
+  'Bwd Init Win Bytes': '后向初始窗口字节',
+  'ACK Flag Count': 'ACK 标志计数',
+  'PSH Flag Count': 'PSH 标志计数',
+  'Flow IAT Mean': '流间隔均值',
+  'Bwd Packet Length Mean': '后向包长均值',
+  'Total Fwd Packet': '前向包数',
+  'Total Bwd packets': '后向包数',
+  'Total Length of Fwd Packet': '前向总字节数',
+  'Total Length of Bwd Packet': '后向总字节长度',
+  'Bwd Packet Length Min': '后向包长最小值',
+  'Bwd Bulk Rate Avg': '后向批量速率均值',
+  'Fwd Bulk Rate Avg': '前向批量速率均值',
+  'Active Max': '活跃时长最大值',
+  'Idle Mean': '空闲时长均值',
+  'Bwd Header Length': '后向包头长度',
+  'Bwd Packet Length Max': '后向包长最大值',
+  count: '样本数',
+  ratio: '占比',
+}
+
+const FEATURE_SUFFIX_ZH_MAP: Record<string, string> = {
+  mean: '均值',
+  cv: '变异系数',
+  max: '最大值',
+  min: '最小值',
+}
+
+const metricDisplayName = (rawKey: string): string => {
+  const key = String(rawKey || '').trim()
+  if (!key) return '-'
+  const direct = FEATURE_BASE_ZH_MAP[key]
+  if (direct) return direct
+
+  const marker = key.indexOf('__')
+  if (marker >= 0) {
+    const base = key.slice(0, marker)
+    const suffix = key.slice(marker + 2)
+    const baseZh = FEATURE_BASE_ZH_MAP[base] || base
+    const suffixZh = FEATURE_SUFFIX_ZH_MAP[suffix] || suffix
+    return `${baseZh}（${suffixZh}）`
+  }
+
+  return FEATURE_BASE_ZH_MAP[key] || key
+}
+
+type MetricAggSuffix = 'mean' | 'cv' | 'max' | 'min'
+
+function metricStatSuffix(col: string): MetricAggSuffix | null {
+  const i = col.lastIndexOf('__')
+  if (i < 0) return null
+  const s = col.slice(i + 2)
+  if (s === 'mean' || s === 'cv' || s === 'max' || s === 'min') return s
+  return null
+}
+
+function metricStatBaseZh(col: string): string {
+  const i = col.lastIndexOf('__')
+  const base = i >= 0 ? col.slice(0, i) : col
+  return FEATURE_BASE_ZH_MAP[base] || base
+}
+
+/** 表头：均值 μ / 变异系数 CV 分图标，便于扫列 */
+function MetricStatColumnHeader({ col }: { col: string }) {
+  const suf = metricStatSuffix(col)
+  const baseZh = metricStatBaseZh(col)
+  if (suf === 'mean') {
+    return (
+      <span className="inline-flex max-w-[14rem] items-center gap-1.5 font-sans">
+        <span
+          className="inline-flex h-[18px] shrink-0 items-center justify-center rounded-sm bg-indigo-100 px-1 font-serif text-[13px] font-semibold leading-none text-indigo-800"
+          title="均值（mean）"
+          aria-label="均值"
+        >
+          μ
+        </span>
+        <span className="min-w-0 truncate">{baseZh}</span>
+      </span>
+    )
+  }
+  if (suf === 'cv') {
+    return (
+      <span className="inline-flex max-w-[14rem] items-center gap-1.5 font-sans">
+        <span
+          className="inline-flex h-[18px] shrink-0 items-center justify-center rounded-sm bg-amber-100 px-1 text-[10px] font-bold leading-none tracking-tight text-amber-900"
+          title="变异系数（CV）"
+          aria-label="变异系数"
+        >
+          CV
+        </span>
+        <span className="min-w-0 truncate">{baseZh}</span>
+      </span>
+    )
+  }
+  return <span className="font-sans">{metricDisplayName(col)}</span>
+}
+
+/** 不展示标准差画像：后缀 __std，或底层特征名为 *Std（再聚合的均值/CV等亦隐藏） */
+function isDroppedStdVarianceColumn(csvColName: string): boolean {
+  if (!csvColName) return false
+  if (csvColName.endsWith('__std')) return true
+  const i = csvColName.lastIndexOf('__')
+  const base = i >= 0 ? csvColName.slice(0, i) : csvColName
+  return /\bStd\b|\bstd\b|\bSTD\b/i.test(base)
+}
+
+const LEARNER_LABEL_CSV_PRIMARY_KEYS = new Set([
+  'learner_name',
+  'attack_ratio',
+  'total_assigned_samples',
+  'creation_sample_count',
+  'dominant_label',
+  'dominant_ratio',
+  'protocol_tcp_ratio',
+  'protocol_udp_ratio',
+  'protocol_concentration',
+  'protocol_cluster_type',
+])
+
+/** 界面浮点指标统一保留的小数位数 */
+const METRIC_DECIMAL_PLACES = 4
+
+/** 表格等指标：整数按整数展示；一般浮点固定小数位；极大/极小用科学计数法 */
+function formatMetricNumber(n: number): string {
+  const abs = Math.abs(n)
+  const d = METRIC_DECIMAL_PLACES
+  if (abs >= 1e12 || (abs > 0 && abs < 10 ** -(d + 6))) return n.toExponential(d)
+  if (Math.abs(n - Math.round(n)) < 1e-9) return Math.round(n).toLocaleString()
+  return n.toFixed(d)
+}
+
+function compactLearnerJsonForDisplay(raw: string): string {
+  const s = raw.trim()
+  if (!s) return '—'
+  try {
+    return JSON.stringify(JSON.parse(s))
+  } catch {
+    return s.replace(/\r?\n/g, ' ')
+  }
+}
+
+function formatLearnerResidualCsvCell(col: string, raw: string | undefined): string {
+  const s = raw === undefined ? '' : String(raw).trim()
+  if (!s) return '—'
+  if (/_json$/i.test(col) || col === 'label_distribution_json') {
+    const oneLine = compactLearnerJsonForDisplay(s)
+    if (oneLine === '—') return '—'
+    return oneLine.length <= 480 ? oneLine : `${oneLine.slice(0, 477)}…`
+  }
+  const n = Number(s)
+  if (Number.isFinite(n)) {
+    return formatMetricNumber(n)
+  }
+  return s.length > 140 ? `${s.slice(0, 137)}…` : s
+}
+
+function formatDatasetDistributionMetricCell(raw: string | boolean | undefined): string {
+  if (typeof raw === 'boolean') return raw ? 'true' : 'false'
+  const s = String(raw ?? '').trim()
+  if (!s) return '—'
+  const n = Number(s)
+  if (Number.isFinite(n)) {
+    return formatMetricNumber(n)
+  }
+  return s.length > 140 ? `${s.slice(0, 137)}…` : s
+}
+
+/** 数值列底部汇总：总和 / 均值 / 最值 / 总体标准差（σ，单样本时 0） */
+type ColumnStatAggregate = {
+  sum: number
+  mean: number
+  max: number
+  min: number
+  std: number
+  n: number
+}
+
+function computeNumericColumnStats(values: number[]): ColumnStatAggregate | null {
+  const nums = values.filter((x) => Number.isFinite(x))
+  const n = nums.length
+  if (n === 0) return null
+  const sum = nums.reduce((a, b) => a + b, 0)
+  const mean = sum / n
+  const max = Math.max(...nums)
+  const min = Math.min(...nums)
+  const variance = n === 1 ? 0 : nums.reduce((acc, x) => acc + (x - mean) ** 2, 0) / n
+  const std = Math.sqrt(variance)
+  return { sum, mean, max, min, std, n }
+}
+
+function formatColumnStatField(stats: ColumnStatAggregate | null, field: keyof Omit<ColumnStatAggregate, 'n'>): string {
+  if (!stats) return '—'
+  return formatMetricNumber(stats[field])
+}
+
+const TABLE_COLUMN_STAT_ROWS: Array<{ field: keyof Omit<ColumnStatAggregate, 'n'>; label: string }> = [
+  { field: 'sum', label: '总和' },
+  { field: 'mean', label: '均值' },
+  { field: 'max', label: '最大值' },
+  { field: 'min', label: '最小值' },
+  { field: 'std', label: '标准差' },
+]
+
+/** 可排序表头：悬浮仅用浅底，不改变字色（避免 hover 变黑） */
+const TABLE_SORT_HEAD_BTN_CLASS =
+  'inline-flex max-w-full min-w-0 items-center gap-1 rounded-sm px-0.5 py-0.5 text-inherit transition-colors hover:bg-slate-200/55'
+
+/** 横向滚动时冻结首列表头（需与 thead 顶固定叠加 left；纯色底避免叠字） */
+const STICKY_FIRST_COL_TH =
+  'sticky left-0 top-0 z-[31] border-r border-slate-200 bg-slate-50 bg-clip-padding shadow-[2px_0_10px_-4px_rgba(15,23,42,0.14)]'
+/** 冻结首列数据格：仅布局与阴影，背景由 stickyFirstColTdBg* 单独指定不透明色 */
+const STICKY_FIRST_COL_TD_FRAME =
+  'sticky left-0 z-10 border-r border-slate-200 bg-clip-padding shadow-[2px_0_8px_-4px_rgba(15,23,42,0.08)]'
+
+/** 使用 index.css 的 sticky-table-bg-*，避免 notion-dark 把 Tailwind bg-*-50 改成半透明 */
+function stickyFirstColTdBgDataset(isBenign: boolean): string {
+  return isBenign ? 'sticky-table-bg-emerald' : 'sticky-table-bg-rose'
+}
+
+function stickyFirstColTdBgLearner(attackRatio: number): string {
+  const r = Number(attackRatio)
+  if (!Number.isFinite(r)) return 'sticky-table-bg-slate'
+  if (r > 0.7) return 'sticky-table-bg-rose'
+  if (r < 0.3) return 'sticky-table-bg-emerald'
+  return 'sticky-table-bg-amber'
+}
+
+const TABLE_ROW_NEUTRAL =
+  'border-b border-slate-100 bg-slate-50 text-slate-800 hover:bg-slate-100'
+const TABLE_ROW_BENIGN_BAND =
+  'border-b border-emerald-200/80 bg-emerald-50 text-slate-900 hover:bg-emerald-100/90'
+const TABLE_ROW_ATTACK_BAND =
+  'border-b border-rose-200/80 bg-rose-50 text-slate-900 hover:bg-rose-100/90'
+const TABLE_ROW_MIXED_BAND =
+  'border-b border-amber-200/80 bg-amber-50 text-slate-900 hover:bg-amber-100/90'
+
+function learnerTableRowClassFromAttackRatio(attackRatio: number): string {
+  const r = Number(attackRatio)
+  if (!Number.isFinite(r)) {
+    return TABLE_ROW_NEUTRAL
+  }
+  if (r > 0.7) {
+    return TABLE_ROW_ATTACK_BAND
+  }
+  if (r < 0.3) {
+    return TABLE_ROW_BENIGN_BAND
+  }
+  return TABLE_ROW_MIXED_BAND
+}
+
+/** Label 表：良性 / 攻击两类行底与学习器表绿、红带一致（无 per-label attack_ratio 时不强制黄带） */
+function datasetLabelTableRowClassName(isBenign: boolean): string {
+  return isBenign ? TABLE_ROW_BENIGN_BAND : TABLE_ROW_ATTACK_BAND
+}
+
+const DATASET_DEFAULT_SORT_KEY = 'count'
+const DATASET_DEFAULT_SORT_DIR: 'asc' | 'desc' = 'desc'
+const LEARNER_DEFAULT_SORT_KEY = 'samples'
+const LEARNER_DEFAULT_SORT_DIR: 'asc' | 'desc' = 'desc'
+
+function TableSortTag({
+  scopeLabel,
+  columnLabel,
+  dir,
+  onClear,
+  clearDisabled,
+}: {
+  scopeLabel: string
+  columnLabel: string
+  dir: 'asc' | 'desc'
+  onClear: () => void
+  clearDisabled?: boolean
+}) {
+  return (
+    <span className="inline-flex max-w-[min(100%,420px)] items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-800 shadow-sm">
+      <span className="shrink-0 text-slate-500">{scopeLabel}</span>
+      <span className="min-w-0 truncate font-medium text-slate-900">{columnLabel}</span>
+      <span className="shrink-0 tabular-nums text-slate-600">{dir === 'asc' ? '↑' : '↓'}</span>
+      <button
+        type="button"
+        disabled={clearDisabled}
+        className="ml-0.5 shrink-0 rounded px-1 leading-none text-slate-500 hover:bg-slate-200 hover:text-slate-900 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+        aria-label="恢复默认排序"
+        onClick={onClear}
+      >
+        ×
+      </button>
+    </span>
+  )
+}
+
 export default function GraphAnalysisPage() {
   const params = useParams<{ runId?: string }>()
   const routeRunId = params.runId ? decodeURIComponent(params.runId) : ''
@@ -142,29 +528,60 @@ export default function GraphAnalysisPage() {
   const [learnerRows, setLearnerRows] = useState<LearnerDistRow[]>([])
   const [countRows, setCountRows] = useState<CountRow[]>([])
   const [datasetLabelRows, setDatasetLabelRows] = useState<DatasetLabelRow[]>([])
+  const [trainBatchRows, setTrainBatchRows] = useState<TrainBatchRow[]>([])
   const [datasetLabelSummary, setDatasetLabelSummary] = useState<DatasetLabelSummaryJson | null>(null)
   const [metrics, setMetrics] = useState<MetricsJson | null>(null)
   const [perf, setPerf] = useState<PerfJson | null>(null)
   const [aggSummary, setAggSummary] = useState<AggSummaryJson | null>(null)
+  const [featureCorr, setFeatureCorr] = useState<FeatureCorrJson | null>(null)
+  const [datasetLabelFeatureCorr, setDatasetLabelFeatureCorr] = useState<FeatureCorrJson | null>(null)
+  const [creationFlowPreview, setCreationFlowPreview] = useState<CreationFlowPreviewJson | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<LinkData | null>(null)
-  const [learnerQuery, setLearnerQuery] = useState('')
-  const [learnerSortBy, setLearnerSortBy] = useState<'attackRatio' | 'samples' | 'creationSamples' | 'dominantRatio' | 'name'>('attackRatio')
-  const [learnerSortDir, setLearnerSortDir] = useState<'asc' | 'desc'>('desc')
+  const [learnerSortBy, setLearnerSortBy] = useState<string>(LEARNER_DEFAULT_SORT_KEY)
+  const [learnerSortDir, setLearnerSortDir] = useState<'asc' | 'desc'>(LEARNER_DEFAULT_SORT_DIR)
+  const [datasetSortBy, setDatasetSortBy] = useState<string>(DATASET_DEFAULT_SORT_KEY)
+  const [datasetSortDir, setDatasetSortDir] = useState<'asc' | 'desc'>(DATASET_DEFAULT_SORT_DIR)
+  /** null = 默认展示当前 run 的全部标签（与数据同步，无时序上的“空白一帧”） */
+  const [radarFilterOpen, setRadarFilterOpen] = useState(false)
+  const [radarLabelSelection, setRadarLabelSelection] = useState<string[] | null>(null)
+  const [learnerRadarFilterOpen, setLearnerRadarFilterOpen] = useState(false)
+  /** null = 默认展示全部学习器 */
+  const [learnerRadarNameSelection, setLearnerRadarNameSelection] = useState<string[] | null>(null)
+  const datasetQuery = useTablePreferencesStore((s) => s.datasetQuery)
+  const setDatasetQuery = useTablePreferencesStore((s) => s.setDatasetQuery)
+  const learnerQuery = useTablePreferencesStore((s) => s.learnerQuery)
+  const setLearnerQuery = useTablePreferencesStore((s) => s.setLearnerQuery)
+  const datasetVisibleColumns = useTablePreferencesStore((s) => s.datasetVisibleColumns)
+  const setDatasetVisibleColumns = useTablePreferencesStore((s) => s.setDatasetVisibleColumns)
+  const learnerVisibleColumns = useTablePreferencesStore((s) => s.learnerVisibleColumns)
+  const setLearnerVisibleColumns = useTablePreferencesStore((s) => s.setLearnerVisibleColumns)
+  const datasetColumnsCustomized = useTablePreferencesStore((s) => s.datasetColumnsCustomized)
+  const learnerColumnsCustomized = useTablePreferencesStore((s) => s.learnerColumnsCustomized)
 
   useEffect(() => {
     const loadRuns = async () => {
       try {
         const result = await fetchRuns()
-        setRuns(result.runs || [])
+        const available = result.runs || []
+        setRuns(available)
         if (routeRunId) {
-          setSelectedRunId(routeRunId)
+          const exists = available.some((r) => r.id === routeRunId)
+          if (exists) {
+            setSelectedRunId(routeRunId)
+          } else {
+            const fallback = result.latestRunId || available[0]?.id || ''
+            setSelectedRunId(fallback)
+            if (fallback) {
+              setError(`Run「${routeRunId}」未完成或不存在，已切换到 ${fallback}`)
+            }
+          }
         } else if (result.latestRunId) {
           setSelectedRunId(result.latestRunId)
-        } else if (result.runs.length > 0) {
-          setSelectedRunId(result.runs[0].id)
+        } else if (available.length > 0) {
+          setSelectedRunId(available[0].id)
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
@@ -180,27 +597,34 @@ export default function GraphAnalysisPage() {
       setLoading(true)
       setError('')
       try {
-        const run = encodeURIComponent(selectedRunId)
-        const [pairs, aggs, learners, counts, labelDistRows, labelDistSummary, metricJson, perfJson, aggSummaryJson] = await Promise.all([
-          parseCsv<PairRow>(`/api/run-data/${run}/debug_true_overlap_pairs.csv`),
-          parseCsv<AggRow>(`/api/run-data/${run}/learner_aggregated_distribution.csv`),
-          parseCsv<LearnerDistRow>(`/api/run-data/${run}/learner_label_distribution.csv`),
-          parseCsv<CountRow>(`/api/run-data/${run}/learner_count_over_time.csv`).catch(() => []),
-          parseCsv<DatasetLabelRow>(`/api/run-data/${run}/dataset_label_distribution.csv`).catch(() => []),
+        const [pairs, aggs, learners, counts, trainBatches, labelDistRows, labelDistSummary, metricJson, perfJson, aggSummaryJson, featureCorrJson, datasetLabelFeatureCorrJson, creationPreviewJson] = await Promise.all([
+          parseCsv<PairRow>(runDataUrl(selectedRunId, 'debug_true_overlap_pairs.csv')),
+          parseCsv<AggRow>(runDataUrl(selectedRunId, 'learner_aggregated_distribution.csv')),
+          parseCsv<LearnerDistRow>(runDataUrl(selectedRunId, 'learner_label_distribution.csv')),
+          parseCsv<CountRow>(runDataUrl(selectedRunId, 'learner_count_over_time.csv')).catch(() => []),
+          parseCsv<TrainBatchRow>(runDataUrl(selectedRunId, 'learner_train_batch_label_distribution.csv')).catch(() => []),
+          parseCsv<DatasetLabelRow>(runDataUrl(selectedRunId, 'dataset_label_distribution.csv')).catch(() => []),
           fetchRunJsonOptional<DatasetLabelSummaryJson>(selectedRunId, 'dataset_label_distribution_summary.json'),
           fetchRunJsonOptional<MetricsJson>(selectedRunId, 'metrics.json'),
           fetchRunJsonOptional<PerfJson>(selectedRunId, 'performance_metrics.json'),
           fetchRunJsonOptional<AggSummaryJson>(selectedRunId, 'learner_aggregation_summary.json'),
+          fetchRunJsonOptional<FeatureCorrJson>(selectedRunId, 'learner_feature_attack_ratio_correlation.json'),
+          fetchRunJsonOptional<FeatureCorrJson>(selectedRunId, 'dataset_label_feature_attack_correlation.json'),
+          fetchRunJsonOptional<CreationFlowPreviewJson>(selectedRunId, 'learner_creation_flow_previews.json'),
         ])
         setPairRows(pairs)
         setAggRows(aggs)
         setLearnerRows(learners)
         setCountRows(counts)
+        setTrainBatchRows(trainBatches)
         setDatasetLabelRows(labelDistRows)
         setDatasetLabelSummary(labelDistSummary)
         setMetrics(metricJson)
         setPerf(perfJson)
         setAggSummary(aggSummaryJson)
+        setFeatureCorr(featureCorrJson)
+        setDatasetLabelFeatureCorr(datasetLabelFeatureCorrJson)
+        setCreationFlowPreview(creationPreviewJson)
         setSelectedNodeId(null)
         setSelectedEdge(null)
       } catch (err) {
@@ -211,6 +635,14 @@ export default function GraphAnalysisPage() {
       }
     }
     load()
+  }, [selectedRunId])
+
+  useEffect(() => {
+    if (!selectedRunId) return
+    setRadarLabelSelection(null)
+    setLearnerRadarNameSelection(null)
+    setRadarFilterOpen(false)
+    setLearnerRadarFilterOpen(false)
   }, [selectedRunId])
 
   const kpi = useMemo(() => {
@@ -256,8 +688,23 @@ export default function GraphAnalysisPage() {
   const learnerMeta = useMemo(() => {
     const ratioMap = new Map<string, number>()
     const sampleMap = new Map<string, number>()
-    aggRows.forEach((row) => {
+
+    // attack_ratio 与表格保持同源：统一来自 learner_label_distribution.csv
+    learnerRows.forEach((row) => {
+      const learnerName = String(row.learner_name || '')
+      if (!learnerName) return
       const ratio = Number(row.attack_ratio)
+      if (Number.isFinite(ratio)) {
+        ratioMap.set(learnerName, ratio)
+      }
+      const totalSamples = Number(row.total_assigned_samples || 0)
+      if (Number.isFinite(totalSamples) && totalSamples >= 0) {
+        sampleMap.set(learnerName, totalSamples)
+      }
+    })
+
+    // aggRows 仅用于样本量兜底，不再覆盖 attack_ratio
+    aggRows.forEach((row) => {
       const total = Number(row.total_assigned_samples || 0)
       let members: string[]
       try {
@@ -268,12 +715,31 @@ export default function GraphAnalysisPage() {
       if (!Array.isArray(members) || members.length === 0) return
       const perLearnerSample = total / members.length
       members.forEach((member) => {
-        ratioMap.set(member, ratio)
-        sampleMap.set(member, perLearnerSample)
+        if (!sampleMap.has(member)) {
+          sampleMap.set(member, perLearnerSample)
+        }
       })
     })
     return { ratioMap, sampleMap }
-  }, [aggRows])
+  }, [learnerRows, aggRows])
+
+  const learnerDistRowByName = useMemo(() => {
+    const m = new Map<string, LearnerDistRow>()
+    learnerRows.forEach((row) => {
+      const name = row.learner_name
+      if (name) m.set(name, row)
+    })
+    return m
+  }, [learnerRows])
+
+  const creationPreviewByLearner = useMemo(() => {
+    const m = new Map<string, CreationFlowPreviewEntry>()
+    ;(creationFlowPreview?.entries ?? []).forEach((e) => {
+      const name = String(e?.learner_name ?? '').trim()
+      if (name) m.set(name, e)
+    })
+    return m
+  }, [creationFlowPreview])
 
   const graphData = useMemo(() => {
     const nodeSet = new Set<string>()
@@ -320,12 +786,12 @@ export default function GraphAnalysisPage() {
           borderColor = '#ca8a04'
           borderWidth = 2.4
         } else if (ratio < 0.3) {
-          color = '#16a34a'
-          borderColor = '#166534'
+          color = CHART_GREEN
+          borderColor = CHART_GREEN_BORDER
           borderWidth = 1.2
         } else {
-          color = '#e11d48'
-          borderColor = '#9f1239'
+          color = CHART_RED
+          borderColor = CHART_RED_BORDER
           borderWidth = 1.2
         }
       }
@@ -390,28 +856,31 @@ export default function GraphAnalysisPage() {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'item',
+        backgroundColor: '#202020',
+        borderColor: CHART_AXIS_LINE,
+        textStyle: { color: CHART_TEXT_PRIMARY },
         formatter: (params: { dataType?: string; data: NodeData | LinkData }) => {
           if (params.dataType === 'edge') {
             const edge = params.data as LinkData
             return [
               `<b>${edge.source} ↔ ${edge.target}</b>`,
-              `jaccard=${edge.value.toFixed(4)}`,
+              `jaccard=${edge.value.toFixed(METRIC_DECIMAL_PLACES)}`,
               `intersection=${edge.intersectionCount}`,
               `union=${edge.unionCount}`,
-              `A→B=${edge.acceptRateAToB.toFixed(4)}`,
-              `B→A=${edge.acceptRateBToA.toFixed(4)}`,
+              `A→B=${edge.acceptRateAToB.toFixed(METRIC_DECIMAL_PLACES)}`,
+              `B→A=${edge.acceptRateBToA.toFixed(METRIC_DECIMAL_PLACES)}`,
             ].join('<br/>')
           }
           const node = params.data as NodeData
-          const ratioText = node.ratio == null ? 'N/A' : node.ratio.toFixed(4)
+          const ratioText = node.ratio == null ? 'N/A' : node.ratio.toFixed(METRIC_DECIMAL_PLACES)
           const detail = learnerDetailMap.get(node.id)
           return [
             `<b>${node.id}</b>`,
             `attack_ratio=${ratioText}`,
             `samples=${Math.round(node.samples)}`,
-            `degree=${node.degree.toFixed(4)}`,
+            `degree=${node.degree.toFixed(METRIC_DECIMAL_PLACES)}`,
             `dominant=${detail?.dominantLabel ?? '-'}`,
-            `dominant_ratio=${detail?.dominantRatio == null ? 'N/A' : detail.dominantRatio.toFixed(4)}`,
+            `dominant_ratio=${detail?.dominantRatio == null ? 'N/A' : detail.dominantRatio.toFixed(METRIC_DECIMAL_PLACES)}`,
           ].join('<br/>')
         },
       },
@@ -423,9 +892,9 @@ export default function GraphAnalysisPage() {
           draggable: true,
           data: graphData.nodes,
           links: graphData.links,
-          lineStyle: { color: '#64748b', opacity: 0.95, width: 1.6 },
+          lineStyle: { color: CHART_EDGE, opacity: 0.95, width: 1.6 },
           force: { repulsion, gravity: 0.08, edgeLength: [40, 180], layoutAnimation: true },
-          label: { show: true, position: 'right', color: '#334155', fontSize: 10 },
+          label: { show: true, position: 'right', color: CHART_TEXT_PRIMARY, fontSize: 10 },
           emphasis: { focus: 'adjacency', lineStyle: { opacity: 0.9, width: 2.2 } },
         },
       ],
@@ -438,8 +907,8 @@ export default function GraphAnalysisPage() {
     return {
       backgroundColor: 'transparent',
       tooltip: { trigger: 'axis' },
-      xAxis: { type: 'category', data: x, axisLabel: { color: '#64748b' } },
-      yAxis: { type: 'value', axisLabel: { color: '#64748b' } },
+      xAxis: { type: 'category', data: x, axisLabel: { color: CHART_TEXT_SECONDARY } },
+      yAxis: { type: 'value', axisLabel: { color: CHART_TEXT_SECONDARY } },
       series: [
         { name: 'Learner Count', type: 'line', data: learner, smooth: true, lineStyle: { color: '#2563eb' } },
       ],
@@ -452,8 +921,8 @@ export default function GraphAnalysisPage() {
     return {
       backgroundColor: 'transparent',
       tooltip: { trigger: 'axis' },
-      xAxis: { type: 'category', data: x, axisLabel: { color: '#64748b' } },
-      yAxis: { type: 'value', axisLabel: { color: '#64748b' } },
+      xAxis: { type: 'category', data: x, axisLabel: { color: CHART_TEXT_SECONDARY } },
+      yAxis: { type: 'value', axisLabel: { color: CHART_TEXT_SECONDARY } },
       series: [
         { name: 'Unknown Buffer', type: 'line', data: unknown, smooth: true, lineStyle: { color: '#d97706' } },
       ],
@@ -475,30 +944,69 @@ export default function GraphAnalysisPage() {
     return {
       backgroundColor: 'transparent',
       tooltip: { trigger: 'axis' },
-      legend: { data: ['创建样本量', '增量匹配量'], textStyle: { color: '#475569' } },
-      xAxis: { type: 'value', axisLabel: { color: '#64748b' } },
-      yAxis: { type: 'category', data: top.map((x) => x.name), axisLabel: { color: '#64748b' } },
+      legend: { data: ['创建样本量', '增量匹配量'], textStyle: { color: CHART_TEXT_SECONDARY } },
+      xAxis: { type: 'value', axisLabel: { color: CHART_TEXT_SECONDARY } },
+      yAxis: { type: 'category', data: top.map((x) => x.name), axisLabel: { color: CHART_TEXT_SECONDARY } },
       series: [
         {
           name: '创建样本量',
           type: 'bar',
           stack: 'samples',
           data: top.map((x) => x.creation),
-          itemStyle: { color: '#64748b' },
+          itemStyle: { color: '#2563eb' },
         },
         {
           name: '增量匹配量',
           type: 'bar',
           stack: 'samples',
           data: top.map((x) => x.incremental),
-          itemStyle: { color: '#2563eb' },
+          itemStyle: { color: '#06b6d4' },
         },
       ],
     }
   }, [learnerRows])
 
+  const retrainCountMap = useMemo(() => {
+    const m = new Map<string, number>()
+    trainBatchRows.forEach((row) => {
+      const name = String(row.learner_name || '')
+      if (!name) return
+      if (String(row.stage || '').toLowerCase() !== 'increment') return
+      m.set(name, (m.get(name) || 0) + 1)
+    })
+    return m
+  }, [trainBatchRows])
+
+  const learnerResidualCsvColumns = useMemo(() => {
+    const cols = new Set<string>()
+    learnerRows.forEach((row) => {
+      Object.keys(row).forEach((k) => {
+        if (!k || LEARNER_LABEL_CSV_PRIMARY_KEYS.has(k) || isDroppedStdVarianceColumn(k)) return
+        cols.add(k)
+      })
+    })
+    return [...cols].sort((a, b) => a.localeCompare(b))
+  }, [learnerRows])
+
+  const learnerResidualColSet = useMemo(() => new Set(learnerResidualCsvColumns), [learnerResidualCsvColumns])
+
+  const retrainTopOption = useMemo(() => {
+    const top = Array.from(retrainCountMap.entries())
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10)
+      .reverse()
+    return {
+      backgroundColor: 'transparent',
+      tooltip: { trigger: 'axis' },
+      xAxis: { type: 'value', axisLabel: { color: CHART_TEXT_SECONDARY } },
+      yAxis: { type: 'category', data: top.map((x) => x.name), axisLabel: { color: CHART_TEXT_SECONDARY } },
+      series: [{ type: 'bar', data: top.map((x) => x.value), itemStyle: { color: '#0ea5e9' } }],
+    }
+  }, [retrainCountMap])
+
   const datasetLabelAll = useMemo(() => {
-    return [...datasetLabelRows]
+    const mappedRows = [...datasetLabelRows]
       .map((r) => ({
         label: String(r.label),
         count: Number(r.count || 0),
@@ -506,9 +1014,148 @@ export default function GraphAnalysisPage() {
         isBenign: String(r.is_benign).toLowerCase() === 'true',
         yearTag: String(r.year_tag || ''),
         baseLabel: String(r.base_label || ''),
+        protocolType: String(r.protocol_cluster_type || 'UNKNOWN'),
+        protocolConcentration: Number(r.protocol_concentration || 0),
+        protocolTcpRatio: Number(r.protocol_tcp_ratio || 0),
+        protocolUdpRatio: Number(r.protocol_udp_ratio || 0),
+        raw: r,
       }))
-      .sort((a, b) => b.count - a.count)
+    const toSortableNumber = (v: unknown, missing: number): number => {
+      const n = Number(v)
+      return Number.isFinite(n) ? n : missing
+    }
+    const getSortValue = (row: typeof mappedRows[number], key: string): string | number => {
+      switch (key) {
+        case 'label':
+          return row.label
+        case 'count':
+          return row.count
+        case 'ratio':
+          return row.ratio
+        case 'type':
+          return row.isBenign ? 1 : 0
+        case 'yearTag':
+          return Number(row.yearTag) || 0
+        case 'baseLabel':
+          return row.baseLabel
+        case 'protocolType':
+          return row.protocolType
+        case 'protocolConcentration':
+          return row.protocolConcentration
+        case 'protocolTcpRatio':
+          return row.protocolTcpRatio
+        case 'protocolUdpRatio':
+          return row.protocolUdpRatio
+        default: {
+          const rawVal = row.raw[key] as string | boolean | undefined
+          const asNum = Number(rawVal ?? NaN)
+          if (Number.isFinite(asNum)) return asNum
+          return String(rawVal ?? '')
+        }
+      }
+    }
+    return mappedRows.sort((a, b) => {
+      const av = getSortValue(a, datasetSortBy)
+      const bv = getSortValue(b, datasetSortBy)
+      if (typeof av === 'string' || typeof bv === 'string') {
+        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true })
+        return datasetSortDir === 'asc' ? cmp : -cmp
+      }
+      const na = toSortableNumber(av, datasetSortDir === 'asc' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY)
+      const nb = toSortableNumber(bv, datasetSortDir === 'asc' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY)
+      if (na === nb) return b.count - a.count
+      return datasetSortDir === 'asc' ? na - nb : nb - na
+    })
+  }, [datasetLabelRows, datasetSortBy, datasetSortDir])
+
+  const allRadarLabels = useMemo(() => datasetLabelAll.map((r) => r.label), [datasetLabelAll])
+
+  const effectiveRadarLabels = useMemo(() => {
+    if (radarLabelSelection === null) return allRadarLabels
+    const ok = new Set(allRadarLabels)
+    return radarLabelSelection.filter((l) => ok.has(l))
+  }, [allRadarLabels, radarLabelSelection])
+
+  const datasetMetricColumns = useMemo(() => {
+    const excluded = new Set([
+      'label',
+      'count',
+      'ratio',
+      'is_benign',
+      'year_tag',
+      'base_label',
+      'protocol_cluster_type',
+      'protocol_concentration',
+      'protocol_tcp_ratio',
+      'protocol_udp_ratio',
+    ])
+    const seen = new Set<string>()
+    const columns: string[] = []
+    datasetLabelRows.forEach((row) => {
+      Object.keys(row).forEach((key) => {
+        if (
+          !key ||
+          excluded.has(key) ||
+          seen.has(key) ||
+          isDroppedStdVarianceColumn(key)
+        ) return
+        seen.add(key)
+        columns.push(key)
+      })
+    })
+    return columns
   }, [datasetLabelRows])
+
+  const datasetColumnOptions = useMemo(() => {
+    const fixed = [
+      { value: 'label', label: 'Label' },
+      { value: 'count', label: 'Count' },
+      { value: 'ratio', label: 'Ratio' },
+      { value: 'type', label: 'Type' },
+      { value: 'yearTag', label: 'Year' },
+      { value: 'baseLabel', label: 'Base Label' },
+      { value: 'protocolType', label: '协议簇类型' },
+      { value: 'protocolConcentration', label: '协议聚集性' },
+      { value: 'protocolTcpRatio', label: 'TCP占比' },
+      { value: 'protocolUdpRatio', label: 'UDP占比' },
+    ]
+    return [
+      ...fixed,
+      ...datasetMetricColumns.map((col) => ({ value: col, label: metricDisplayName(col) })),
+    ]
+  }, [datasetMetricColumns])
+
+  const datasetSortColumnLabel = useMemo(() => {
+    const opt = datasetColumnOptions.find((o) => o.value === datasetSortBy)
+    return opt?.label ?? datasetSortBy
+  }, [datasetColumnOptions, datasetSortBy])
+
+  const effectiveDatasetVisibleColumns = useMemo(() => {
+    const all = datasetColumnOptions.map((x) => x.value)
+    const valid = datasetVisibleColumns.filter((x) => all.includes(x))
+    // First load defaults to all columns; once user customizes, honor exact selection (including empty).
+    if (!datasetColumnsCustomized && valid.length === 0) return all
+    return valid
+  }, [datasetColumnOptions, datasetVisibleColumns, datasetColumnsCustomized])
+
+  const datasetVisibleColumnSet = useMemo(() => new Set(effectiveDatasetVisibleColumns), [effectiveDatasetVisibleColumns])
+
+  const filteredDatasetLabelRows = useMemo(() => {
+    const q = datasetQuery.trim().toLowerCase()
+    if (!q) return datasetLabelAll
+    return datasetLabelAll.filter((row) => {
+      return [
+        row.label,
+        row.baseLabel,
+        row.yearTag,
+        row.protocolType,
+        row.isBenign ? 'benign' : 'attack',
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(q)
+    })
+  }, [datasetLabelAll, datasetQuery])
 
   const datasetBenignAttackStats = useMemo(() => {
     let benign = 0
@@ -558,22 +1205,22 @@ export default function GraphAnalysisPage() {
           const name = params.name || '-'
           const value = Number(params.value || 0)
           const ratio = total > 0 ? (value / total) * 100 : 0
-          return `${name}<br/>数量: ${value.toLocaleString()}<br/>占比: ${ratio.toFixed(2)}%`
+          return `${name}<br/>数量: ${value.toLocaleString()}<br/>占比: ${ratio.toFixed(METRIC_DECIMAL_PLACES)}%`
         },
       },
       legend: {
         bottom: 0,
-        textStyle: { color: '#64748b' },
+        textStyle: { color: CHART_TEXT_SECONDARY },
       },
       series: [
         {
           type: 'pie',
           radius: ['48%', '74%'],
           center: ['50%', '45%'],
-          label: { color: '#334155', formatter: '{b}: {d}%' },
+          label: { color: CHART_TEXT_PRIMARY, formatter: '{b}: {d}%' },
           data: [
-            { name: '正常(BENIGN)', value: benign, itemStyle: { color: '#10b981' } },
-            { name: '异常(ATTACK)', value: attack, itemStyle: { color: '#e11d48' } },
+            { name: '正常(BENIGN)', value: benign, itemStyle: { color: CHART_GREEN } },
+            { name: '异常(ATTACK)', value: attack, itemStyle: { color: CHART_RED } },
           ],
         },
       ],
@@ -600,29 +1247,29 @@ export default function GraphAnalysisPage() {
           const attackPct = row.total > 0 ? (row.attack / row.total) * 100 : 0
           return [
             `${params[0].axisValue || '-'}`,
-            `正常: ${row.benign.toLocaleString()} (${benignPct.toFixed(2)}%)`,
-            `异常: ${row.attack.toLocaleString()} (${attackPct.toFixed(2)}%)`,
+            `正常: ${row.benign.toLocaleString()} (${benignPct.toFixed(METRIC_DECIMAL_PLACES)}%)`,
+            `异常: ${row.attack.toLocaleString()} (${attackPct.toFixed(METRIC_DECIMAL_PLACES)}%)`,
             `总量: ${row.total.toLocaleString()}`,
           ].join('<br/>')
         },
       },
       legend: {
         top: 0,
-        textStyle: { color: '#64748b' },
+        textStyle: { color: CHART_TEXT_SECONDARY },
       },
       grid: { left: 48, right: 24, top: 36, bottom: 32 },
       xAxis: {
         type: 'category',
         data: yearLabels,
-        axisLabel: { color: '#64748b' },
-        axisLine: { lineStyle: { color: '#cbd5e1' } },
+        axisLabel: { color: CHART_TEXT_SECONDARY },
+        axisLine: { lineStyle: { color: CHART_AXIS_LINE } },
       },
       yAxis: {
         type: 'value',
         min: 0,
         max: 100,
-        axisLabel: { color: '#64748b', formatter: '{value}%' },
-        splitLine: { lineStyle: { color: '#e2e8f0' } },
+        axisLabel: { color: CHART_TEXT_SECONDARY, formatter: '{value}%' },
+        splitLine: { lineStyle: { color: CHART_SPLIT_LINE } },
       },
       series: [
         {
@@ -630,18 +1277,158 @@ export default function GraphAnalysisPage() {
           type: 'bar',
           stack: 'ratio',
           data: benignRatio,
-          itemStyle: { color: '#10b981' },
+          itemStyle: { color: CHART_GREEN },
         },
         {
           name: '异常占比',
           type: 'bar',
           stack: 'ratio',
           data: attackRatio,
-          itemStyle: { color: '#e11d48' },
+          itemStyle: { color: CHART_RED },
         },
       ],
     }
   }, [datasetBenignAttackStats])
+
+  const datasetLabelFilteredCorrRows = useMemo(() => {
+    return [...(datasetLabelFeatureCorr?.rows || [])].filter((row) => {
+      const feature = String(row.feature || '').trim()
+      const lowered = feature.toLowerCase()
+      if (!feature) return false
+      if (lowered === 'count' || lowered === 'ratio') return false
+      if (isDroppedStdVarianceColumn(feature)) return false
+      return true
+    })
+  }, [datasetLabelFeatureCorr])
+
+  const datasetLabelTopCorrRows = useMemo(() => {
+    return [...datasetLabelFilteredCorrRows]
+      .sort((a, b) => Number(b.abs_pearson_corr || 0) - Number(a.abs_pearson_corr || 0))
+      .slice(0, 24)
+  }, [datasetLabelFilteredCorrRows])
+
+  const datasetLabelFeatureCorrOption = useMemo(() => {
+    const labels = datasetLabelTopCorrRows.map((r) => metricDisplayName(r.feature)).reverse()
+    const values = datasetLabelTopCorrRows.map((r) => Number(r.pearson_corr || 0)).reverse()
+    const colors = values.map((v) => (v >= 0 ? CHART_RED : CHART_GREEN))
+    return {
+      backgroundColor: 'transparent',
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      grid: { left: 240, right: 28, top: 24, bottom: 24 },
+      xAxis: {
+        type: 'value',
+        min: -1,
+        max: 1,
+        axisLabel: { color: CHART_TEXT_SECONDARY },
+        splitLine: { lineStyle: { color: CHART_SPLIT_LINE } },
+      },
+      yAxis: {
+        type: 'category',
+        data: labels,
+        axisLabel: { color: CHART_TEXT_SECONDARY, fontSize: 10 },
+      },
+      series: [
+        {
+          type: 'bar',
+          data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i] } })),
+        },
+      ],
+    }
+  }, [datasetLabelTopCorrRows])
+
+  const datasetLabelTopFeatureRadarOption = useMemo(() => {
+    const topFeatures = datasetLabelTopCorrRows.slice(0, 5)
+    if (!topFeatures.length) {
+      return EMPTY_RADAR_CHART_OPTION
+    }
+
+    const visibleSet = new Set(effectiveRadarLabels)
+    const labels = [...datasetLabelAll]
+      .filter((row) => visibleSet.has(row.label))
+      .sort((a, b) => b.count - a.count)
+    if (!labels.length) {
+      return EMPTY_RADAR_CHART_OPTION
+    }
+    const featureRows = topFeatures.map((featureRow) => {
+      const feature = String(featureRow.feature || '')
+      let maxAbs = 0
+      labels.forEach((row) => {
+        const rawVal = row.raw[feature] as string | boolean | undefined
+        const featureValue = Number(rawVal ?? NaN)
+        if (!Number.isFinite(featureValue)) return
+        maxAbs = Math.max(maxAbs, Math.abs(featureValue))
+      })
+      return { feature, scaleBase: Math.max(maxAbs, 1e-6) }
+    })
+
+    const radarIndicator = featureRows.map((row) => ({
+      name: metricDisplayName(row.feature),
+      max: 100,
+      min: 0,
+    }))
+
+    const seriesData = labels.map((row) => {
+      const values = featureRows.map((featureRow) => {
+        const rawVal = row.raw[featureRow.feature] as string | boolean | undefined
+        const featureValue = Number(rawVal ?? NaN)
+        if (!Number.isFinite(featureValue)) return 0
+        return (Math.abs(featureValue) / featureRow.scaleBase) * 100
+      })
+      const color = row.isBenign ? CHART_GREEN : CHART_RED
+      const areaColor = row.isBenign ? 'rgba(74, 222, 128, 0.08)' : 'rgba(251, 113, 133, 0.08)'
+      return {
+        value: values,
+        name: row.label,
+        lineStyle: { color, width: 1 },
+        itemStyle: { color },
+        areaStyle: { color: areaColor },
+      }
+    })
+
+    return {
+      animation: false,
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'item',
+        formatter: (params: { seriesName?: string; value?: number[] }) => {
+          const values = Array.isArray(params.value) ? params.value : []
+          const target = labels.find((x) => x.label === params.seriesName)
+          const flowType = target ? (target.isBenign ? '良性流量' : '恶意流量') : '未知'
+          const header = `${params.seriesName || '-'}<br/>流量类型: ${flowType}`
+          const lines = featureRows.map((row, idx) => {
+            const normalized = Number(values[idx] ?? 0)
+            const rawVal = target ? Number((target.raw[row.feature] as string | boolean | undefined) ?? NaN) : NaN
+            const raw = Number.isFinite(rawVal) ? rawVal : 0
+            return `${metricDisplayName(row.feature)}: ${normalized.toFixed(METRIC_DECIMAL_PLACES)} (原值 ${raw.toFixed(METRIC_DECIMAL_PLACES)})`
+          })
+          return [header, ...lines].join('<br/>')
+        },
+      },
+      radar: {
+        center: ['50%', '56%'],
+        radius: '66%',
+        indicator: radarIndicator,
+        axisName: {
+          color: CHART_TEXT_SECONDARY,
+          fontSize: 10,
+        },
+        splitArea: {
+          areaStyle: {
+            color: ['rgba(148, 163, 184, 0.02)', 'rgba(148, 163, 184, 0.05)'],
+          },
+        },
+        splitLine: { lineStyle: { color: CHART_SPLIT_LINE } },
+        axisLine: { lineStyle: { color: CHART_AXIS_LINE } },
+      },
+      series: [
+        {
+          type: 'radar',
+          symbol: 'none',
+          data: seriesData,
+        },
+      ],
+    }
+  }, [datasetLabelAll, datasetLabelTopCorrRows, effectiveRadarLabels])
 
   useEffect(() => {
     if (!chartRef.current) return
@@ -672,31 +1459,376 @@ export default function GraphAnalysisPage() {
   }, [])
 
   const allLearnerRows = useMemo(() => {
-    const list = learnerRows.map((row) => ({
+    const list = learnerRows.map((row) => {
+      const residualCsv = Object.fromEntries(
+        learnerResidualCsvColumns.map((col) => [col, String(row[col as keyof typeof row] ?? '')]),
+      ) as Record<string, string>
+      return {
       name: row.learner_name,
       attackRatio: Number(row.attack_ratio || 0),
       samples: Number(row.total_assigned_samples || 0),
       creationSamples: Number(row.creation_sample_count || 0),
+      retrainCount: retrainCountMap.get(row.learner_name) || 0,
+      protocolType: String(row.protocol_cluster_type || 'UNKNOWN'),
+      protocolConcentration: Number(row.protocol_concentration || 0),
+      tcpRatio: Number(row.protocol_tcp_ratio || 0),
+      udpRatio: Number(row.protocol_udp_ratio || 0),
       dominantLabel: row.dominant_label || '-',
       dominantRatio: Number(row.dominant_ratio || 0),
-    }))
+      residualCsv,
+    }})
     const q = learnerQuery.trim().toLowerCase()
     const filtered = q
       ? list.filter((r) => r.name.toLowerCase().includes(q) || r.dominantLabel.toLowerCase().includes(q))
       : list
     const sorted = [...filtered].sort((a, b) => {
-      if (learnerSortBy === 'name') {
-        const cmp = a.name.localeCompare(b.name)
+      if (learnerSortBy === 'name' || learnerSortBy === 'dominantLabel' || learnerSortBy === 'protocolType') {
+        const va = String((a as Record<string, unknown>)[learnerSortBy] ?? '')
+        const vb = String((b as Record<string, unknown>)[learnerSortBy] ?? '')
+        const cmp = va.localeCompare(vb)
         return learnerSortDir === 'asc' ? cmp : -cmp
       }
-      const va = a[learnerSortBy]
-      const vb = b[learnerSortBy]
+      if (learnerResidualColSet.has(learnerSortBy)) {
+        const sa = (a.residualCsv[learnerSortBy] ?? '').trim()
+        const sb = (b.residualCsv[learnerSortBy] ?? '').trim()
+        const na = Number(sa)
+        const nb = Number(sb)
+        const aNum = sa !== '' && Number.isFinite(na)
+        const bNum = sb !== '' && Number.isFinite(nb)
+        if (aNum && bNum) return learnerSortDir === 'asc' ? na - nb : nb - na
+        const cmp = sa.localeCompare(sb, undefined, { numeric: true, sensitivity: 'base' })
+        return learnerSortDir === 'asc' ? cmp : -cmp
+      }
+      const vaRaw = (a as Record<string, unknown>)[learnerSortBy]
+      const vbRaw = (b as Record<string, unknown>)[learnerSortBy]
+      const va = Number.isFinite(Number(vaRaw)) ? Number(vaRaw) : (learnerSortDir === 'asc' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY)
+      const vb = Number.isFinite(Number(vbRaw)) ? Number(vbRaw) : (learnerSortDir === 'asc' ? Number.POSITIVE_INFINITY : Number.NEGATIVE_INFINITY)
       return learnerSortDir === 'asc' ? va - vb : vb - va
     })
     return sorted
-  }, [learnerRows, learnerQuery, learnerSortBy, learnerSortDir])
+  }, [learnerRows, retrainCountMap, learnerQuery, learnerSortBy, learnerSortDir, learnerResidualCsvColumns, learnerResidualColSet])
+
+  const allLearnerRadarNames = useMemo(() => allLearnerRows.map((r) => r.name), [allLearnerRows])
+
+  const effectiveLearnerRadarNames = useMemo(() => {
+    if (learnerRadarNameSelection === null) return allLearnerRadarNames
+    const ok = new Set(allLearnerRadarNames)
+    return learnerRadarNameSelection.filter((n) => ok.has(n))
+  }, [allLearnerRadarNames, learnerRadarNameSelection])
+
+  const learnerColumnOptions = useMemo(() => {
+    const fixed = [
+      { value: 'name', label: 'Learner' },
+      { value: 'attackRatio', label: 'Attack Ratio' },
+      { value: 'samples', label: '总样本' },
+      { value: 'creationSamples', label: '创建样本' },
+      { value: 'retrainCount', label: '重训次数' },
+      { value: 'protocolType', label: '协议簇类型' },
+      { value: 'protocolConcentration', label: '协议聚集性' },
+      { value: 'tcpRatio', label: 'TCP占比' },
+      { value: 'udpRatio', label: 'UDP占比' },
+      { value: 'dominantLabel', label: '主导标签' },
+      { value: 'dominantRatio', label: '主导占比' },
+    ]
+    return [
+      ...fixed,
+      ...learnerResidualCsvColumns.map((col) => ({ value: col, label: metricDisplayName(col) })),
+    ]
+  }, [learnerResidualCsvColumns])
+
+  const learnerSortColumnLabel = useMemo(() => {
+    const opt = learnerColumnOptions.find((o) => o.value === learnerSortBy)
+    return opt?.label ?? learnerSortBy
+  }, [learnerColumnOptions, learnerSortBy])
+
+  const effectiveLearnerVisibleColumns = useMemo(() => {
+    const all = learnerColumnOptions.map((x) => x.value)
+    const valid = learnerVisibleColumns.filter((x) => all.includes(x))
+    // First load defaults to all columns; once user customizes, honor exact selection (including empty).
+    if (!learnerColumnsCustomized && valid.length === 0) return all
+    return valid
+  }, [learnerColumnOptions, learnerVisibleColumns, learnerColumnsCustomized])
+
+  const learnerVisibleColumnSet = useMemo(() => new Set(effectiveLearnerVisibleColumns), [effectiveLearnerVisibleColumns])
+
+  const datasetColumnPickerContent = useMemo(() => (
+    <div className="max-h-72 w-72 overflow-auto pr-1">
+      <Checkbox.Group
+        value={effectiveDatasetVisibleColumns}
+        onChange={(checkedValues) => setDatasetVisibleColumns((checkedValues as Array<string | number>).map((v) => String(v)))}
+        className="flex flex-col gap-2"
+      >
+        {datasetColumnOptions.map((opt) => (
+          <Checkbox key={opt.value} value={opt.value}>
+            {opt.label}
+          </Checkbox>
+        ))}
+      </Checkbox.Group>
+    </div>
+  ), [datasetColumnOptions, effectiveDatasetVisibleColumns, setDatasetVisibleColumns])
+
+  const learnerColumnPickerContent = useMemo(() => (
+    <div className="max-h-72 w-72 overflow-auto pr-1">
+      <Checkbox.Group
+        value={effectiveLearnerVisibleColumns}
+        onChange={(checkedValues) => setLearnerVisibleColumns((checkedValues as Array<string | number>).map((v) => String(v)))}
+        className="flex flex-col gap-2"
+      >
+        {learnerColumnOptions.map((opt) => (
+          <Checkbox key={opt.value} value={opt.value}>
+            {opt.label}
+          </Checkbox>
+        ))}
+      </Checkbox.Group>
+    </div>
+  ), [learnerColumnOptions, effectiveLearnerVisibleColumns, setLearnerVisibleColumns])
+
+  const sortIndicator = (active: boolean, dir: 'asc' | 'desc'): string => {
+    if (!active) return '↕'
+    return dir === 'asc' ? '↑' : '↓'
+  }
+
+  const toggleDatasetSort = (key: string) => {
+    if (datasetSortBy === key) {
+      setDatasetSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setDatasetSortBy(key)
+    setDatasetSortDir('desc')
+  }
+
+  const toggleLearnerSort = (key: string) => {
+    if (learnerSortBy === key) {
+      setLearnerSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+      return
+    }
+    setLearnerSortBy(key)
+    setLearnerSortDir('desc')
+  }
+
+  const datasetColumnStyle = (key: string) => (
+    datasetVisibleColumnSet.has(key) ? undefined : { display: 'none' }
+  )
+
+  const learnerColumnStyle = (key: string) => (
+    learnerVisibleColumnSet.has(key) ? undefined : { display: 'none' }
+  )
+
+  const learnerFilteredCorrRows = useMemo(() => {
+    return [...(featureCorr?.rows || [])].filter((row) => {
+      const feature = String(row.feature || '').trim()
+      const lowered = feature.toLowerCase()
+      if (!feature) return false
+      if (lowered === 'count' || lowered === 'ratio') return false
+      if (isDroppedStdVarianceColumn(feature)) return false
+      return true
+    })
+  }, [featureCorr])
+
+  const learnerTopCorrRows = useMemo(() => {
+    return [...learnerFilteredCorrRows]
+      .sort((a, b) => Number(b.abs_pearson_corr || 0) - Number(a.abs_pearson_corr || 0))
+      .slice(0, 24)
+  }, [learnerFilteredCorrRows])
+
+  const featureCorrOption = useMemo(() => {
+    const labels = learnerTopCorrRows.map((r) => metricDisplayName(r.feature)).reverse()
+    const values = learnerTopCorrRows.map((r) => Number(r.pearson_corr || 0)).reverse()
+    const colors = values.map((v) => (v >= 0 ? CHART_RED : CHART_GREEN))
+    return {
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' },
+      },
+      grid: { left: 240, right: 28, top: 24, bottom: 24 },
+      xAxis: {
+        type: 'value',
+        min: -1,
+        max: 1,
+        axisLabel: { color: CHART_TEXT_SECONDARY },
+        splitLine: { lineStyle: { color: CHART_SPLIT_LINE } },
+      },
+      yAxis: {
+        type: 'category',
+        data: labels,
+        axisLabel: { color: CHART_TEXT_SECONDARY, fontSize: 10 },
+      },
+      series: [
+        {
+          type: 'bar',
+          data: values.map((v, i) => ({
+            value: v,
+            itemStyle: { color: colors[i] },
+          })),
+        },
+      ],
+    }
+  }, [learnerTopCorrRows])
+
+  const learnerTopFeatureRadarOption = useMemo(() => {
+    const topFeatures = learnerTopCorrRows.slice(0, 5)
+    if (!topFeatures.length) {
+      return EMPTY_RADAR_CHART_OPTION
+    }
+
+    const visibleSet = new Set(effectiveLearnerRadarNames)
+    const learners = [...allLearnerRows]
+      .filter((row) => visibleSet.has(row.name))
+      .sort((a, b) => b.samples - a.samples)
+    if (!learners.length) {
+      return EMPTY_RADAR_CHART_OPTION
+    }
+
+    const featureRows = topFeatures.map((featureRow) => {
+      const feature = String(featureRow.feature || '')
+      let maxAbs = 0
+      learners.forEach((row) => {
+        const rawVal = Number((learnerDistRowByName.get(row.name)?.[feature] as string | undefined) ?? NaN)
+        if (!Number.isFinite(rawVal)) return
+        maxAbs = Math.max(maxAbs, Math.abs(rawVal))
+      })
+      return { feature, scaleBase: Math.max(maxAbs, 1e-6) }
+    })
+
+    const radarIndicator = featureRows.map((row) => ({
+      name: metricDisplayName(row.feature),
+      max: 100,
+      min: 0,
+    }))
+
+    const seriesData = learners.map((row) => {
+      const rawLearner = learnerDistRowByName.get(row.name)
+      const values = featureRows.map((featureRow) => {
+        const rawVal = Number((rawLearner?.[featureRow.feature] as string | undefined) ?? NaN)
+        if (!Number.isFinite(rawVal)) return 0
+        return (Math.abs(rawVal) / featureRow.scaleBase) * 100
+      })
+      const isAttackLike = row.attackRatio >= 0.5
+      const color = isAttackLike ? CHART_RED : CHART_GREEN
+      const areaColor = isAttackLike ? 'rgba(251, 113, 133, 0.08)' : 'rgba(74, 222, 128, 0.08)'
+      return {
+        value: values,
+        name: row.name,
+        lineStyle: { color, width: 1 },
+        itemStyle: { color },
+        areaStyle: { color: areaColor },
+      }
+    })
+
+    return {
+      animation: false,
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'item',
+        formatter: (params: { seriesName?: string; value?: number[] }) => {
+          const values = Array.isArray(params.value) ? params.value : []
+          const target = learners.find((x) => x.name === params.seriesName)
+          const rawTarget = params.seriesName ? learnerDistRowByName.get(params.seriesName) : undefined
+          const flowType = target && target.attackRatio >= 0.5 ? '恶意倾向流量' : '良性倾向流量'
+          const header = `${params.seriesName || '-'}<br/>流量类型: ${flowType}${
+            target ? `<br/>attack_ratio: ${(target.attackRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%` : ''
+          }`
+          const lines = featureRows.map((row, idx) => {
+            const normalized = Number(values[idx] ?? 0)
+            const rawVal = Number((rawTarget?.[row.feature] as string | undefined) ?? NaN)
+            const raw = Number.isFinite(rawVal) ? rawVal : 0
+            return `${metricDisplayName(row.feature)}: ${normalized.toFixed(METRIC_DECIMAL_PLACES)} (原值 ${raw.toFixed(METRIC_DECIMAL_PLACES)})`
+          })
+          return [header, ...lines].join('<br/>')
+        },
+      },
+      radar: {
+        center: ['50%', '56%'],
+        radius: '66%',
+        indicator: radarIndicator,
+        axisName: { color: CHART_TEXT_SECONDARY, fontSize: 10 },
+        splitArea: { areaStyle: { color: ['rgba(148, 163, 184, 0.02)', 'rgba(148, 163, 184, 0.05)'] } },
+        splitLine: { lineStyle: { color: CHART_SPLIT_LINE } },
+        axisLine: { lineStyle: { color: CHART_AXIS_LINE } },
+      },
+      series: [{ type: 'radar', symbol: 'none', data: seriesData }],
+    }
+  }, [allLearnerRows, learnerDistRowByName, learnerTopCorrRows, effectiveLearnerRadarNames])
+
+  const datasetTableColumnStats = useMemo(() => {
+    const rows = filteredDatasetLabelRows
+    const agg = (getter: (r: (typeof rows)[0]) => number): ColumnStatAggregate | null => {
+      const vals: number[] = []
+      for (const row of rows) {
+        const x = getter(row)
+        if (Number.isFinite(x)) vals.push(x)
+      }
+      return computeNumericColumnStats(vals)
+    }
+    const out: Record<string, ColumnStatAggregate | null> = {
+      label: null,
+      type: null,
+      baseLabel: null,
+      protocolType: null,
+      count: agg((r) => r.count),
+      ratio: agg((r) => r.ratio),
+      yearTag: agg((r) => {
+        const n = Number(r.yearTag)
+        return Number.isFinite(n) ? n : Number.NaN
+      }),
+      protocolConcentration: agg((r) => r.protocolConcentration),
+      protocolTcpRatio: agg((r) => r.protocolTcpRatio),
+      protocolUdpRatio: agg((r) => r.protocolUdpRatio),
+    }
+    for (const col of datasetMetricColumns) {
+      out[col] = agg((r) => {
+        const raw = r.raw[col] as string | boolean | undefined
+        if (typeof raw === 'boolean') return raw ? 1 : 0
+        const s = String(raw ?? '').trim()
+        if (!s) return Number.NaN
+        return Number(s)
+      })
+    }
+    return out
+  }, [filteredDatasetLabelRows, datasetMetricColumns])
+
+  const learnerTableColumnStats = useMemo(() => {
+    const rows = allLearnerRows
+    const agg = (getter: (r: (typeof rows)[0]) => number): ColumnStatAggregate | null => {
+      const vals: number[] = []
+      for (const row of rows) {
+        const x = getter(row)
+        if (Number.isFinite(x)) vals.push(x)
+      }
+      return computeNumericColumnStats(vals)
+    }
+    const out: Record<string, ColumnStatAggregate | null> = {
+      name: null,
+      protocolType: null,
+      dominantLabel: null,
+      attackRatio: agg((r) => r.attackRatio),
+      samples: agg((r) => r.samples),
+      creationSamples: agg((r) => r.creationSamples),
+      retrainCount: agg((r) => r.retrainCount),
+      protocolConcentration: agg((r) => r.protocolConcentration),
+      tcpRatio: agg((r) => r.tcpRatio),
+      udpRatio: agg((r) => r.udpRatio),
+      dominantRatio: agg((r) => r.dominantRatio),
+    }
+    for (const col of learnerResidualCsvColumns) {
+      if (/_json$/i.test(col) || col === 'label_distribution_json') {
+        out[col] = null
+        continue
+      }
+      out[col] = agg((r) => {
+        const s = String(r.residualCsv[col] ?? '').trim()
+        if (!s) return Number.NaN
+        return Number(s)
+      })
+    }
+    return out
+  }, [allLearnerRows, learnerResidualCsvColumns])
 
   const selectedDetail = selectedNodeId ? learnerDetailMap.get(selectedNodeId) : null
+
+  const selectedCreationPreview =
+    selectedNodeId && !selectedEdge ? creationPreviewByLearner.get(selectedNodeId) ?? null : null
 
   return (
     <div className="space-y-5">
@@ -741,9 +1873,9 @@ export default function GraphAnalysisPage() {
       </section>
 
       <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <article className="metric-card"><p className="metric-label">Risk FPR</p><p className="metric-value">{kpi.fpr == null ? '-' : `${(kpi.fpr * 100).toFixed(2)}%`}</p></article>
-        <article className="metric-card"><p className="metric-label">Risk FNR</p><p className="metric-value">{kpi.fnr == null ? '-' : `${(kpi.fnr * 100).toFixed(2)}%`}</p></article>
-        <article className="metric-card"><p className="metric-label">Risk TPR</p><p className="metric-value">{kpi.tpr == null ? '-' : `${(kpi.tpr * 100).toFixed(2)}%`}</p></article>
+        <article className="metric-card"><p className="metric-label">Risk FPR</p><p className="metric-value">{kpi.fpr == null ? '-' : `${(kpi.fpr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article>
+        <article className="metric-card"><p className="metric-label">Risk FNR</p><p className="metric-value">{kpi.fnr == null ? '-' : `${(kpi.fnr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article>
+        <article className="metric-card"><p className="metric-label">Risk TPR</p><p className="metric-value">{kpi.tpr == null ? '-' : `${(kpi.tpr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article>
         <article className="metric-card"><p className="metric-label">Windows</p><p className="metric-value">{kpi.windows ?? '-'}</p></article>
         <article className="metric-card"><p className="metric-label">New Learners</p><p className="metric-value">{kpi.newLearners ?? '-'}</p></article>
         <article className="metric-card"><p className="metric-label">Aggregates</p><p className="metric-value">{kpi.aggregateCount ?? '-'}</p></article>
@@ -765,30 +1897,165 @@ export default function GraphAnalysisPage() {
             <ReactECharts option={datasetYearlyRatioOption} style={{ height: 250 }} />
           </article>
         </div>
-        <div className="max-h-[520px] overflow-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[860px] text-sm">
-            <thead className="sticky top-0 bg-slate-50/95">
+        <div className="mb-4 grid gap-4 xl:grid-cols-2">
+          <article className="rounded-lg border border-slate-200 bg-white p-3">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+              标签级特征相关性 Top24（attack=1）
+            </h3>
+            <p className="mb-2 text-xs text-slate-500">
+              红色正相关，绿色负相关；已过滤 `count` / `ratio`，并排除一切标准差与 Std 画像相关指标列。来源{' '}
+              <span className="font-mono">dataset_label_feature_attack_correlation.json</span>
+            </p>
+            <ReactECharts option={datasetLabelFeatureCorrOption} style={{ height: 560 }} />
+          </article>
+          <article className="rounded-lg border border-slate-200 bg-white p-3">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Top5 相关特征：恶意 vs 良性（雷达）
+              </h3>
+              <Popover
+                trigger="click"
+                open={radarFilterOpen}
+                onOpenChange={(open) => {
+                  setRadarFilterOpen(open)
+                }}
+                placement="leftTop"
+                content={(
+                  <div className="w-[320px] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-600">
+                        已选 {effectiveRadarLabels.length} / {datasetLabelAll.length}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                          onClick={() => setRadarLabelSelection(null)}
+                        >
+                          全选
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                          onClick={() => setRadarLabelSelection([])}
+                        >
+                          清空
+                        </button>
+                      </div>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto rounded border border-slate-200 p-2">
+                      <Checkbox.Group
+                        value={effectiveRadarLabels}
+                        onChange={(vals) => setRadarLabelSelection((vals as string[]).map((v) => String(v)))}
+                        className="flex w-full flex-col gap-1"
+                      >
+                        {datasetLabelAll
+                          .slice()
+                          .sort((a, b) => b.count - a.count)
+                          .map((row) => (
+                            <Checkbox key={`radar-label-${row.label}`} value={row.label}>
+                              <span className={row.isBenign ? 'text-emerald-700' : 'text-rose-700'}>
+                                {row.label}
+                              </span>
+                              <span className="ml-1 text-[11px] text-slate-500">({row.count.toLocaleString()})</span>
+                            </Checkbox>
+                          ))}
+                      </Checkbox.Group>
+                    </div>
+                  </div>
+                )}
+              >
+                <button type="button" className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
+                  选择展示标签
+                </button>
+              </Popover>
+            </div>
+            <p className="mb-2 text-xs text-slate-500">
+              取相关性绝对值最大的5个特征；通过右上角按钮控制显示哪些标签（恶意红色、良性绿色）
+            </p>
+            <ReactECharts option={datasetLabelTopFeatureRadarOption} style={{ height: 560 }} />
+          </article>
+        </div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Label 表格筛选与展示列</h3>
+          <div className="text-xs text-slate-500">
+            当前显示 {filteredDatasetLabelRows.length} / {datasetLabelAll.length} 条
+          </div>
+        </div>
+        <p className="mb-3 text-[11px] leading-relaxed text-slate-600">
+          固定列之外的指标列默认全部展示：<span className="font-mono">dataset_label_distribution.csv</span> 中出现的特征统计字段（如{' '}
+          <span className="font-mono">__mean/__cv/__max/__min</span>
+          ，不含标准差与 Std 画像相关列）；可在「⚙ 设置列」中隐藏不需看的列。
+        </p>
+        <div className="mb-2 flex flex-wrap items-center justify-end gap-3">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <TableSortTag
+              scopeLabel="Label表"
+              columnLabel={datasetSortColumnLabel}
+              dir={datasetSortDir}
+              clearDisabled={
+                datasetSortBy === DATASET_DEFAULT_SORT_KEY && datasetSortDir === DATASET_DEFAULT_SORT_DIR
+              }
+              onClear={() => {
+                setDatasetSortBy(DATASET_DEFAULT_SORT_KEY)
+                setDatasetSortDir(DATASET_DEFAULT_SORT_DIR)
+              }}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              className="input-base w-72"
+              placeholder="搜索 label / base label / year / protocol..."
+              value={datasetQuery}
+              onChange={(e) => setDatasetQuery(e.target.value)}
+            />
+            <Popover
+              content={datasetColumnPickerContent}
+              trigger="click"
+              placement="bottomRight"
+            >
+              <button type="button" className="btn-primary">
+                ⚙ 设置列
+              </button>
+            </Popover>
+          </div>
+        </div>
+        <div className="max-h-[520px] overflow-x-auto overflow-y-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[1380px] whitespace-nowrap text-sm">
+            <thead className="sticky top-0 bg-slate-50">
               <tr className="border-b border-slate-200 text-left text-slate-600">
-                <th className="px-3 py-2">Label</th>
-                <th className="px-3 py-2">Count</th>
-                <th className="px-3 py-2">Ratio</th>
-                <th className="px-3 py-2">Type</th>
-                <th className="px-3 py-2">Year</th>
-                <th className="px-3 py-2">Base Label</th>
+                <th style={datasetColumnStyle('label')} className={`whitespace-nowrap px-3 py-2 ${STICKY_FIRST_COL_TH}`}><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('label')}>Label <span className="text-xs">{sortIndicator(datasetSortBy === 'label', datasetSortDir)}</span></button></th>
+                <th style={datasetColumnStyle('count')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('count')}>Count <span className="text-xs">{sortIndicator(datasetSortBy === 'count', datasetSortDir)}</span></button></th>
+                <th style={datasetColumnStyle('ratio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('ratio')}>Ratio <span className="text-xs">{sortIndicator(datasetSortBy === 'ratio', datasetSortDir)}</span></button></th>
+                <th style={datasetColumnStyle('type')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('type')}>Type <span className="text-xs">{sortIndicator(datasetSortBy === 'type', datasetSortDir)}</span></button></th>
+                <th style={datasetColumnStyle('yearTag')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('yearTag')}>Year <span className="text-xs">{sortIndicator(datasetSortBy === 'yearTag', datasetSortDir)}</span></button></th>
+                <th style={datasetColumnStyle('baseLabel')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('baseLabel')}>Base Label <span className="text-xs">{sortIndicator(datasetSortBy === 'baseLabel', datasetSortDir)}</span></button></th>
+                <th style={datasetColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('protocolType')}>协议簇类型 <span className="text-xs">{sortIndicator(datasetSortBy === 'protocolType', datasetSortDir)}</span></button></th>
+                <th style={datasetColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('protocolConcentration')}>协议聚集性 <span className="text-xs">{sortIndicator(datasetSortBy === 'protocolConcentration', datasetSortDir)}</span></button></th>
+                <th style={datasetColumnStyle('protocolTcpRatio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('protocolTcpRatio')}>TCP占比 <span className="text-xs">{sortIndicator(datasetSortBy === 'protocolTcpRatio', datasetSortDir)}</span></button></th>
+                <th style={datasetColumnStyle('protocolUdpRatio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('protocolUdpRatio')}>UDP占比 <span className="text-xs">{sortIndicator(datasetSortBy === 'protocolUdpRatio', datasetSortDir)}</span></button></th>
+                {datasetMetricColumns.map((col) => (
+                  <th key={`label-col-${col}`} style={datasetColumnStyle(col)} className="whitespace-nowrap px-3 py-2 font-mono text-[11px]">
+                    <button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort(col)}>
+                      <MetricStatColumnHeader col={col} />
+                      <span className="text-xs">{sortIndicator(datasetSortBy === col, datasetSortDir)}</span>
+                    </button>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {datasetLabelAll.map((row) => (
-                <tr key={row.label} className="border-b border-slate-100 text-slate-800 hover:bg-slate-50">
-                  <td className={`px-3 py-2 font-mono text-xs ${row.isBenign ? 'text-emerald-700' : 'text-rose-700'}`}>
+              {filteredDatasetLabelRows.map((row) => (
+                <tr key={row.label} className={datasetLabelTableRowClassName(row.isBenign)}>
+                  <td style={datasetColumnStyle('label')} className={`${STICKY_FIRST_COL_TD_FRAME} ${stickyFirstColTdBgDataset(row.isBenign)} whitespace-nowrap px-3 py-2 font-mono text-xs ${row.isBenign ? 'text-emerald-700' : 'text-rose-700'}`}>
                     {row.label}
                   </td>
-                  <td className="px-3 py-2">{row.count.toLocaleString()}</td>
-                  <td className="px-3 py-2">
+                  <td style={datasetColumnStyle('count')} className="whitespace-nowrap px-3 py-2">{row.count.toLocaleString()}</td>
+                  <td style={datasetColumnStyle('ratio')} className="whitespace-nowrap px-3 py-2">
                     <div className="flex items-center gap-2">
                       <div
                         className="h-2.5 w-36 overflow-hidden rounded-full bg-slate-200"
-                        title={`${(row.ratio * 100).toFixed(3)}%`}
+                        title={`${(row.ratio * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}
                       >
                         <div
                           className={`h-full rounded-full ${row.isBenign ? 'bg-emerald-500' : 'bg-rose-500'}`}
@@ -796,20 +2063,84 @@ export default function GraphAnalysisPage() {
                         />
                       </div>
                       <span className={`text-xs ${row.isBenign ? 'text-emerald-700' : 'text-rose-700'}`}>
-                        {(row.ratio * 100).toFixed(3)}%
+                        {(row.ratio * 100).toFixed(METRIC_DECIMAL_PLACES)}%
                       </span>
                     </div>
                   </td>
-                  <td className="px-3 py-2">
+                  <td style={datasetColumnStyle('type')} className="whitespace-nowrap px-3 py-2">
                     <span className={row.isBenign ? 'rounded-md bg-emerald-100 px-2 py-1 text-emerald-700' : 'rounded-md bg-rose-100 px-2 py-1 text-rose-700'}>
                       {row.isBenign ? 'BENIGN' : 'ATTACK'}
                     </span>
                   </td>
-                  <td className="px-3 py-2">{row.yearTag}</td>
-                  <td className="px-3 py-2">{row.baseLabel}</td>
+                  <td style={datasetColumnStyle('yearTag')} className="whitespace-nowrap px-3 py-2">{row.yearTag}</td>
+                  <td style={datasetColumnStyle('baseLabel')} className="whitespace-nowrap px-3 py-2">{row.baseLabel}</td>
+                  <td style={datasetColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-2">
+                    <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-700">{row.protocolType}</span>
+                  </td>
+                  <td style={datasetColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-2">{(row.protocolConcentration * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
+                  <td style={datasetColumnStyle('protocolTcpRatio')} className="whitespace-nowrap px-3 py-2 text-emerald-700">{(row.protocolTcpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
+                  <td style={datasetColumnStyle('protocolUdpRatio')} className="whitespace-nowrap px-3 py-2 text-sky-700">{(row.protocolUdpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
+                  {datasetMetricColumns.map((col) => (
+                    <td
+                      key={`${row.label}-${col}`}
+                      style={datasetColumnStyle(col)}
+                      className="max-w-[18rem] whitespace-pre-wrap px-3 py-2 font-mono text-[11px] break-all"
+                      title={
+                        typeof row.raw[col] === 'string'
+                          ? row.raw[col].length > 140
+                            ? row.raw[col]
+                            : undefined
+                          : undefined
+                      }
+                    >
+                      {formatDatasetDistributionMetricCell(row.raw[col])}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
+            <tfoot className="border-t-2 border-slate-300 bg-slate-100 text-[11px] text-slate-800">
+              {TABLE_COLUMN_STAT_ROWS.map(({ field: statField, label: statLabel }) => (
+                <tr key={`ds-foot-${statField}`}>
+                  <td
+                    style={datasetColumnStyle('label')}
+                    className={`${STICKY_FIRST_COL_TD_FRAME} sticky-table-bg-slate whitespace-nowrap px-3 py-1.5 font-medium text-slate-600`}
+                  >
+                    {statLabel}
+                  </td>
+                  <td style={datasetColumnStyle('count')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(datasetTableColumnStats.count, statField)}
+                  </td>
+                  <td style={datasetColumnStyle('ratio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(datasetTableColumnStats.ratio, statField)}
+                  </td>
+                  <td style={datasetColumnStyle('type')} className="whitespace-nowrap px-3 py-1.5 text-slate-400">—</td>
+                  <td style={datasetColumnStyle('yearTag')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(datasetTableColumnStats.yearTag, statField)}
+                  </td>
+                  <td style={datasetColumnStyle('baseLabel')} className="whitespace-nowrap px-3 py-1.5 text-slate-400">—</td>
+                  <td style={datasetColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-1.5 text-slate-400">—</td>
+                  <td style={datasetColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(datasetTableColumnStats.protocolConcentration, statField)}
+                  </td>
+                  <td style={datasetColumnStyle('protocolTcpRatio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(datasetTableColumnStats.protocolTcpRatio, statField)}
+                  </td>
+                  <td style={datasetColumnStyle('protocolUdpRatio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(datasetTableColumnStats.protocolUdpRatio, statField)}
+                  </td>
+                  {datasetMetricColumns.map((col) => (
+                    <td
+                      key={`ds-foot-${col}-${statField}`}
+                      style={datasetColumnStyle(col)}
+                      className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px]"
+                    >
+                      {formatColumnStatField(datasetTableColumnStats[col] ?? null, statField)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tfoot>
           </table>
         </div>
       </section>
@@ -825,63 +2156,179 @@ export default function GraphAnalysisPage() {
         </article>
       </section>
 
-      <section className="panel">
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">Learner 创建样本量 Top15</h2>
-        <ReactECharts option={creationOption} style={{ height: 340 }} />
+      <section className="grid gap-4 xl:grid-cols-2">
+        <article className="panel">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">
+            簇特征 vs attack_ratio 相关性（Top24）
+          </h2>
+          <div className="mb-2 text-xs text-slate-500">
+            正相关为红色，负相关为绿色；已过滤 `count` / `ratio`，并排除一切标准差与 Std 画像相关指标列；数据来自{' '}
+            <span className="font-mono">learner_feature_attack_ratio_correlation.json</span>
+          </div>
+          <ReactECharts option={featureCorrOption} style={{ height: 560 }} />
+        </article>
+        <article className="panel">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-600">
+              学习器 Top5 相关特征雷达图
+            </h2>
+            <Popover
+              trigger="click"
+              open={learnerRadarFilterOpen}
+              onOpenChange={(open) => {
+                setLearnerRadarFilterOpen(open)
+              }}
+              placement="leftTop"
+              content={(
+                <div className="w-[320px] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-600">
+                      已选 {effectiveLearnerRadarNames.length} / {allLearnerRows.length}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                        onClick={() => setLearnerRadarNameSelection(null)}
+                      >
+                        全选
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                        onClick={() => setLearnerRadarNameSelection([])}
+                      >
+                        清空
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto rounded border border-slate-200 p-2">
+                    <Checkbox.Group
+                      value={effectiveLearnerRadarNames}
+                      onChange={(vals) => setLearnerRadarNameSelection((vals as string[]).map((v) => String(v)))}
+                      className="flex w-full flex-col gap-1"
+                    >
+                      {allLearnerRows
+                        .slice()
+                        .sort((a, b) => b.samples - a.samples)
+                        .map((row) => (
+                          <Checkbox key={`learner-radar-${row.name}`} value={row.name}>
+                            <span className={row.attackRatio >= 0.5 ? 'text-rose-700' : 'text-emerald-700'}>
+                              {row.name}
+                            </span>
+                            <span className="ml-1 text-[11px] text-slate-500">
+                              ({row.samples.toLocaleString()}, {(row.attackRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%)
+                            </span>
+                          </Checkbox>
+                        ))}
+                    </Checkbox.Group>
+                  </div>
+                </div>
+              )}
+            >
+              <button type="button" className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
+                选择展示学习器
+              </button>
+            </Popover>
+          </div>
+          <div className="mb-2 text-xs text-slate-500">
+            默认展示全部学习器；悬浮可查看流量类型（恶意倾向/良性倾向）与 attack_ratio
+          </div>
+          <ReactECharts option={learnerTopFeatureRadarOption} style={{ height: 560 }} />
+        </article>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <article className="panel">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">Learner 创建样本量 Top15</h2>
+          <ReactECharts option={creationOption} style={{ height: 340 }} />
+        </article>
+        <article className="panel">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">学习器重训次数 Top10</h2>
+          <ReactECharts option={retrainTopOption} style={{ height: 340 }} />
+        </article>
       </section>
 
       <section className="panel">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-600">学习器效果总览（全部）</h2>
-          <div className="flex flex-wrap gap-2">
+        </div>
+        <div className="mb-3 flex flex-wrap items-center justify-end gap-3">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <TableSortTag
+              scopeLabel="Learner表"
+              columnLabel={learnerSortColumnLabel}
+              dir={learnerSortDir}
+              clearDisabled={
+                learnerSortBy === LEARNER_DEFAULT_SORT_KEY && learnerSortDir === LEARNER_DEFAULT_SORT_DIR
+              }
+              onClear={() => {
+                setLearnerSortBy(LEARNER_DEFAULT_SORT_KEY)
+                setLearnerSortDir(LEARNER_DEFAULT_SORT_DIR)
+              }}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <input
               className="input-base w-72"
               placeholder="搜索 learner / 主导标签..."
               value={learnerQuery}
               onChange={(e) => setLearnerQuery(e.target.value)}
             />
-            <select
-              className="input-base"
-              value={learnerSortBy}
-              onChange={(e) => setLearnerSortBy(e.target.value as typeof learnerSortBy)}
+            <Popover
+              content={learnerColumnPickerContent}
+              trigger="click"
+              placement="bottomRight"
             >
-              <option value="samples">按样本量</option>
-              <option value="attackRatio">按attack_ratio</option>
-              <option value="creationSamples">按创建样本量</option>
-              <option value="dominantRatio">按主导占比</option>
-              <option value="name">按学习器名称</option>
-            </select>
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => setLearnerSortDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
-            >
-              排序方向: {learnerSortDir === 'desc' ? '降序' : '升序'}
-            </button>
+              <button type="button" className="btn-primary">
+                ⚙ 设置列
+              </button>
+            </Popover>
           </div>
         </div>
 
-        <div className="mb-2 text-xs text-slate-500">
-          共 {learnerRows.length} 个学习器，当前显示 {allLearnerRows.length} 个
+        <div className="mb-2 text-xs leading-relaxed text-slate-500">
+          <span className="block">
+            固定列之外的字段来自{' '}
+            <span className="font-mono">learner_label_distribution.csv</span>：
+            <span className="font-semibold text-slate-700">增量样本(post_creation)、dominant_count、protocol_other_ratio、label_distribution_json 以及全部</span>{' '}
+            <span className="font-mono">__mean/__cv</span> 等聚合指标列均已追加（标准差列与 Std 画像特征族不在本页展示）。
+          </span>
+          <span className="mt-0.5 block text-slate-400">
+            共 {learnerRows.length} 条学习器 · 筛选后 {allLearnerRows.length} 条
+          </span>
         </div>
 
-        <div className="max-h-[520px] overflow-auto rounded-lg border border-slate-200">
-          <table className="w-full min-w-[980px] text-sm">
-            <thead className="sticky top-0 bg-slate-50/95">
+        <div className="max-h-[520px] overflow-x-auto overflow-y-auto rounded-lg border border-slate-200">
+          <table className="w-full min-w-[1380px] whitespace-nowrap text-sm">
+            <thead className="sticky top-0 bg-slate-50">
               <tr className="border-b border-slate-200 text-left text-slate-600">
-                <th className="px-3 py-2">Learner</th>
-                <th className="px-3 py-2">Attack Ratio</th>
-                <th className="px-3 py-2">总样本</th>
-                <th className="px-3 py-2">创建样本</th>
-                <th className="px-3 py-2">主导标签</th>
-                <th className="px-3 py-2">主导占比</th>
+                <th style={learnerColumnStyle('name')} className={`whitespace-nowrap px-3 py-2 ${STICKY_FIRST_COL_TH}`}><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('name')}>Learner <span className="text-xs">{sortIndicator(learnerSortBy === 'name', learnerSortDir)}</span></button></th>
+                <th style={learnerColumnStyle('attackRatio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('attackRatio')}>Attack Ratio <span className="text-xs">{sortIndicator(learnerSortBy === 'attackRatio', learnerSortDir)}</span></button></th>
+                <th style={learnerColumnStyle('samples')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('samples')}>总样本 <span className="text-xs">{sortIndicator(learnerSortBy === 'samples', learnerSortDir)}</span></button></th>
+                <th style={learnerColumnStyle('creationSamples')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('creationSamples')}>创建样本 <span className="text-xs">{sortIndicator(learnerSortBy === 'creationSamples', learnerSortDir)}</span></button></th>
+                <th style={learnerColumnStyle('retrainCount')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('retrainCount')}>重训次数 <span className="text-xs">{sortIndicator(learnerSortBy === 'retrainCount', learnerSortDir)}</span></button></th>
+                <th style={learnerColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('protocolType')}>协议簇类型 <span className="text-xs">{sortIndicator(learnerSortBy === 'protocolType', learnerSortDir)}</span></button></th>
+                <th style={learnerColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('protocolConcentration')}>协议聚集性 <span className="text-xs">{sortIndicator(learnerSortBy === 'protocolConcentration', learnerSortDir)}</span></button></th>
+                <th style={learnerColumnStyle('tcpRatio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('tcpRatio')}>TCP占比 <span className="text-xs">{sortIndicator(learnerSortBy === 'tcpRatio', learnerSortDir)}</span></button></th>
+                <th style={learnerColumnStyle('udpRatio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('udpRatio')}>UDP占比 <span className="text-xs">{sortIndicator(learnerSortBy === 'udpRatio', learnerSortDir)}</span></button></th>
+                <th style={learnerColumnStyle('dominantLabel')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('dominantLabel')}>主导标签 <span className="text-xs">{sortIndicator(learnerSortBy === 'dominantLabel', learnerSortDir)}</span></button></th>
+                <th style={learnerColumnStyle('dominantRatio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('dominantRatio')}>主导占比 <span className="text-xs">{sortIndicator(learnerSortBy === 'dominantRatio', learnerSortDir)}</span></button></th>
+                {learnerResidualCsvColumns.map((col) => (
+                  <th key={col} style={learnerColumnStyle(col)} className="whitespace-nowrap px-3 py-2 font-mono text-[11px]">
+                    <button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort(col)}>
+                      <MetricStatColumnHeader col={col} />
+                      <span className="text-xs">{sortIndicator(learnerSortBy === col, learnerSortDir)}</span>
+                    </button>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {allLearnerRows.map((row) => (
-                <tr key={row.name} className="border-b border-slate-100 text-slate-800 hover:bg-slate-50">
-                  <td className="px-3 py-2 font-mono text-xs text-slate-700">{row.name}</td>
-                  <td className="px-3 py-2">
+                <tr key={row.name} className={learnerTableRowClassFromAttackRatio(row.attackRatio)}>
+                  <td style={learnerColumnStyle('name')} className={`${STICKY_FIRST_COL_TD_FRAME} ${stickyFirstColTdBgLearner(row.attackRatio)} whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-700`}>{row.name}</td>
+                  <td style={learnerColumnStyle('attackRatio')} className="whitespace-nowrap px-3 py-2">
                     <span
                       className={
                         row.attackRatio > 0.7
@@ -891,12 +2338,19 @@ export default function GraphAnalysisPage() {
                             : 'rounded-md border border-yellow-400 bg-yellow-50 px-2 py-1 text-yellow-700'
                       }
                     >
-                      {(row.attackRatio * 100).toFixed(2)}%
+                      {(row.attackRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%
                     </span>
                   </td>
-                  <td className="px-3 py-2">{row.samples.toLocaleString()}</td>
-                  <td className="px-3 py-2">{row.creationSamples.toLocaleString()}</td>
-                  <td className="px-3 py-2">
+                  <td style={learnerColumnStyle('samples')} className="whitespace-nowrap px-3 py-2">{row.samples.toLocaleString()}</td>
+                  <td style={learnerColumnStyle('creationSamples')} className="whitespace-nowrap px-3 py-2">{row.creationSamples.toLocaleString()}</td>
+                  <td style={learnerColumnStyle('retrainCount')} className="whitespace-nowrap px-3 py-2">{row.retrainCount.toLocaleString()}</td>
+                  <td style={learnerColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-2">
+                    <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-700">{row.protocolType}</span>
+                  </td>
+                  <td style={learnerColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-2">{(row.protocolConcentration * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
+                  <td style={learnerColumnStyle('tcpRatio')} className="whitespace-nowrap px-3 py-2 text-emerald-700">{(row.tcpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
+                  <td style={learnerColumnStyle('udpRatio')} className="whitespace-nowrap px-3 py-2 text-sky-700">{(row.udpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
+                  <td style={learnerColumnStyle('dominantLabel')} className="whitespace-nowrap px-3 py-2">
                     <span
                       className={
                         row.attackRatio > 0.7
@@ -909,10 +2363,74 @@ export default function GraphAnalysisPage() {
                       {row.dominantLabel}
                     </span>
                   </td>
-                  <td className="px-3 py-2">{(row.dominantRatio * 100).toFixed(2)}%</td>
+                  <td style={learnerColumnStyle('dominantRatio')} className="whitespace-nowrap px-3 py-2">{(row.dominantRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
+                  {learnerResidualCsvColumns.map((col) => {
+                    const jsonCol = /_json$/i.test(col) || col === 'label_distribution_json'
+                    return (
+                    <td
+                      key={`${row.name}-${col}`}
+                      style={learnerColumnStyle(col)}
+                      className={
+                        jsonCol
+                          ? 'max-w-[28rem] overflow-hidden text-ellipsis whitespace-nowrap px-3 py-2 font-mono text-[11px]'
+                          : 'max-w-[22rem] whitespace-pre-wrap px-3 py-2 font-mono text-[11px] break-all'
+                      }
+                      title={row.residualCsv[col]?.length ? row.residualCsv[col] : undefined}
+                    >
+                      {formatLearnerResidualCsvCell(col, row.residualCsv[col])}
+                    </td>
+                    )
+                  })}
                 </tr>
               ))}
             </tbody>
+            <tfoot className="border-t-2 border-slate-300 bg-slate-100 text-[11px] text-slate-800">
+              {TABLE_COLUMN_STAT_ROWS.map(({ field: statField, label: statLabel }) => (
+                <tr key={`lr-foot-${statField}`}>
+                  <td
+                    style={learnerColumnStyle('name')}
+                    className={`${STICKY_FIRST_COL_TD_FRAME} sticky-table-bg-slate whitespace-nowrap px-3 py-1.5 font-medium text-slate-600`}
+                  >
+                    {statLabel}
+                  </td>
+                  <td style={learnerColumnStyle('attackRatio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(learnerTableColumnStats.attackRatio, statField)}
+                  </td>
+                  <td style={learnerColumnStyle('samples')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(learnerTableColumnStats.samples, statField)}
+                  </td>
+                  <td style={learnerColumnStyle('creationSamples')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(learnerTableColumnStats.creationSamples, statField)}
+                  </td>
+                  <td style={learnerColumnStyle('retrainCount')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(learnerTableColumnStats.retrainCount, statField)}
+                  </td>
+                  <td style={learnerColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-1.5 text-slate-400">—</td>
+                  <td style={learnerColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(learnerTableColumnStats.protocolConcentration, statField)}
+                  </td>
+                  <td style={learnerColumnStyle('tcpRatio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(learnerTableColumnStats.tcpRatio, statField)}
+                  </td>
+                  <td style={learnerColumnStyle('udpRatio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(learnerTableColumnStats.udpRatio, statField)}
+                  </td>
+                  <td style={learnerColumnStyle('dominantLabel')} className="whitespace-nowrap px-3 py-1.5 text-slate-400">—</td>
+                  <td style={learnerColumnStyle('dominantRatio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
+                    {formatColumnStatField(learnerTableColumnStats.dominantRatio, statField)}
+                  </td>
+                  {learnerResidualCsvColumns.map((col) => (
+                    <td
+                      key={`lr-foot-${col}-${statField}`}
+                      style={learnerColumnStyle(col)}
+                      className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px]"
+                    >
+                      {formatColumnStatField(learnerTableColumnStats[col] ?? null, statField)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tfoot>
           </table>
         </div>
       </section>
@@ -926,14 +2444,14 @@ export default function GraphAnalysisPage() {
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-slate-600">图谱配置</h2>
             <div className="space-y-3">
               <div>
-                <label className="field-label">阈值 {threshold.toFixed(2)}</label>
+                <label className="field-label">阈值 {threshold.toFixed(METRIC_DECIMAL_PLACES)}</label>
                 <Slider
                   min={0}
                   max={1}
                   step={0.01}
                   value={threshold}
                   onChange={(value) => setThreshold(Array.isArray(value) ? value[0] : value)}
-                  tooltip={{ formatter: (v) => `${Number(v || 0).toFixed(2)}` }}
+                  tooltip={{ formatter: (v) => `${Number(v || 0).toFixed(METRIC_DECIMAL_PLACES)}` }}
                 />
               </div>
               <div>
@@ -967,20 +2485,66 @@ export default function GraphAnalysisPage() {
             {selectedEdge ? (
               <div className="space-y-1 text-sm text-slate-700">
                 <p className="font-semibold text-slate-900">边: {selectedEdge.source} ↔ {selectedEdge.target}</p>
-                <p>Jaccard: {selectedEdge.value.toFixed(6)}</p>
+                <p>Jaccard: {selectedEdge.value.toFixed(METRIC_DECIMAL_PLACES)}</p>
                 <p>交集: {selectedEdge.intersectionCount}</p>
                 <p>并集: {selectedEdge.unionCount}</p>
-                <p>A→B: {selectedEdge.acceptRateAToB.toFixed(6)}</p>
-                <p>B→A: {selectedEdge.acceptRateBToA.toFixed(6)}</p>
+                <p>A→B: {selectedEdge.acceptRateAToB.toFixed(METRIC_DECIMAL_PLACES)}</p>
+                <p>B→A: {selectedEdge.acceptRateBToA.toFixed(METRIC_DECIMAL_PLACES)}</p>
               </div>
             ) : null}
             {!selectedEdge && selectedDetail ? (
               <div className="space-y-1 text-sm text-slate-700">
                 <p className="font-semibold text-slate-900">节点: {selectedDetail.learnerName}</p>
-                <p>attack_ratio: {selectedDetail.attackRatio == null ? 'N/A' : selectedDetail.attackRatio.toFixed(6)}</p>
+                <p>attack_ratio: {selectedDetail.attackRatio == null ? 'N/A' : selectedDetail.attackRatio.toFixed(METRIC_DECIMAL_PLACES)}</p>
                 <p>总样本数: {selectedDetail.totalSamples}</p>
                 <p>主导标签: {selectedDetail.dominantLabel}</p>
-                <p>主导占比: {selectedDetail.dominantRatio == null ? 'N/A' : selectedDetail.dominantRatio.toFixed(6)}</p>
+                <p>主导占比: {selectedDetail.dominantRatio == null ? 'N/A' : selectedDetail.dominantRatio.toFixed(METRIC_DECIMAL_PLACES)}</p>
+                {selectedCreationPreview && selectedCreationPreview.flows_preview.length > 0 ? (
+                  <div className="mt-3 border-t border-slate-200 pt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">创建时流预览</p>
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      来源 <span className="font-mono">{selectedCreationPreview.creation_source}</span>
+                      ，窗口 [<span className="font-mono">{selectedCreationPreview.window_left}</span>
+                      , <span className="font-mono">{selectedCreationPreview.window_right}</span>
+                      )，簇大小 <span className="font-mono">{selectedCreationPreview.cluster_size}</span>
+                      ，至多 {creationFlowPreview?.preview_flow_count ?? '—'} 条
+                    </p>
+                    <div className="mt-2 max-h-72 overflow-auto rounded border border-slate-200 bg-slate-50/80">
+                      <table className="min-w-max border-collapse text-left text-[11px]">
+                        <thead className="sticky top-0 bg-slate-100 text-[10px] uppercase tracking-wide text-slate-600">
+                          <tr>
+                            {orderedCreationPreviewColumns(selectedCreationPreview.flows_preview).map((col) => (
+                              <th key={`cp-col-${col}`} className="border-b border-slate-200 px-2 py-1.5 whitespace-nowrap">
+                                <MetricStatColumnHeader col={col} />
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedCreationPreview.flows_preview.map((flow, fi) => (
+                            <tr key={`cp-flow-${selectedDetail.learnerName}-${fi}`} className="odd:bg-white even:bg-slate-50">
+                              {orderedCreationPreviewColumns(selectedCreationPreview.flows_preview).map((col) => (
+                                <td key={`cp-cell-${fi}-${col}`} className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap font-mono">
+                                  {formatCreationPreviewCell(flow[col])}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+                {selectedDetail && !selectedCreationPreview && creationFlowPreview ? (
+                  <p className="mt-3 border-t border-slate-200 pt-3 text-[11px] text-slate-400">
+                    该学习器暂无创建流预览条目。
+                  </p>
+                ) : null}
+                {selectedDetail && !creationFlowPreview ? (
+                  <p className="mt-3 border-t border-slate-200 pt-3 text-[11px] text-slate-400">
+                    未加载 learner_creation_flow_previews.json（旧 run 或未生成）。
+                  </p>
+                ) : null}
               </div>
             ) : null}
             {!selectedEdge && !selectedDetail ? <p className="text-sm text-slate-500">点击图谱节点或边查看详情。</p> : null}

@@ -1,0 +1,52 @@
+                                             precision    recall  f1-score   support
+
+                                2017|BENIGN      0.990     0.992     0.991       489
+                                2017|BOTNET      1.000     1.000     1.000       120
+                    2017|BOTNET - ATTEMPTED      0.988     1.000     0.994       488
+                                  2017|DDOS      1.000     1.000     1.000       489
+                         2017|DOS GOLDENEYE      1.000     0.998     0.999       489
+             2017|DOS GOLDENEYE - ATTEMPTED      0.750     0.692     0.720        13
+                              2017|DOS HULK      1.000     1.000     1.000       488
+                  2017|DOS HULK - ATTEMPTED      0.948     0.968     0.958        94
+                      2017|DOS SLOWHTTPTEST      1.000     1.000     1.000       283
+          2017|DOS SLOWHTTPTEST - ATTEMPTED      0.998     1.000     0.999       489
+                         2017|DOS SLOWLORIS      1.000     1.000     1.000       488
+             2017|DOS SLOWLORIS - ATTEMPTED      1.000     0.990     0.995       300
+                           2017|FTP-PATATOR      1.000     1.000     1.000       488
+               2017|FTP-PATATOR - ATTEMPTED      1.000     1.000     1.000         2
+                            2017|HEARTBLEED      1.000     1.000     1.000         2
+                          2017|INFILTRATION      1.000     0.833     0.909         6
+              2017|INFILTRATION - ATTEMPTED      1.000     0.429     0.600         7
+               2017|INFILTRATION - PORTSCAN      0.935     0.935     0.935       489
+                              2017|PORTSCAN      0.942     0.935     0.938       489
+                           2017|SSH-PATATOR      0.998     1.000     0.999       482
+               2017|SSH-PATATOR - ATTEMPTED      1.000     1.000     1.000         4
+              2017|WEB ATTACK - BRUTE FORCE      1.000     1.000     1.000        12
+  2017|WEB ATTACK - BRUTE FORCE - ATTEMPTED      0.700     0.757     0.728       210
+            2017|WEB ATTACK - SQL INJECTION      1.000     0.500     0.667         2
+2017|WEB ATTACK - SQL INJECTION - ATTEMPTED      0.000     0.000     0.000         1
+                      2017|WEB ATTACK - XSS      1.000     1.000     1.000         3
+          2017|WEB ATTACK - XSS - ATTEMPTED      0.457     0.393     0.422       107
+                                2019|BENIGN      0.988     1.000     0.994       489
+                             2019|DRDOS_DNS      0.656     0.499     0.567       489
+                            2019|DRDOS_LDAP      0.542     0.760     0.633       488
+                           2019|DRDOS_MSSQL      0.772     0.762     0.767       488
+                         2019|DRDOS_NETBIOS      0.642     0.658     0.650       488
+                             2019|DRDOS_NTP      0.912     0.928     0.920       489
+                            2019|DRDOS_SNMP      0.832     0.721     0.773       488
+                            2019|DRDOS_SSDP      0.659     0.605     0.631       489
+                             2019|DRDOS_UDP      0.668     0.752     0.708       488
+                                   2019|SYN      0.712     0.540     0.614       489
+                                  2019|TFTP      0.510     0.865     0.642       489
+                               2019|UDP-LAG      0.792     0.350     0.485       489
+                               2019|WEBDDOS      0.544     0.521     0.532        71
+                            2026|BENIGN|DNS      0.998     1.000     0.999       489
+                            2026|BENIGN|FTP      1.000     1.000     1.000       489
+                          2026|BENIGN|HTTPS      0.998     0.998     0.998       488
+                          2026|BENIGN|OTHER      1.000     1.000     1.000       488
+                            2026|BENIGN|SSH      1.000     0.998     0.999       489
+                            2026|BENIGN|VPN      0.998     0.998     0.998       489
+
+                                   accuracy                          0.872     15400
+                                  macro avg      0.868     0.834     0.843     15400
+                               weighted avg      0.879     0.872     0.870     15400

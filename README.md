@@ -60,6 +60,9 @@ python3 main.py --config configs/config.yaml
 - `runtime.seed`：随机种子（当前为 42）
 - `runtime.cpu_only`：`false` 时优先 CUDA，`true` 强制 CPU
 - `runtime.max_rows`：最大读取行数；`0` 表示不截断
+- `runtime.year_include`：年份白名单（如 `["2017","2019"]`）
+- `runtime.attack_type_include` / `runtime.attack_type_exclude`：攻击类型白/黑名单（基于 `Label`）
+- `runtime.protocol_include`：协议白名单（支持 `tcp`/`udp`/`other` 或协议号如 `6`/`17`）
 
 ### 3) 流式阶段
 

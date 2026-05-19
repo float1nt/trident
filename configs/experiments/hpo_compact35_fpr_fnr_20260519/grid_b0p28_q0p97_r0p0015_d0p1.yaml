@@ -1,0 +1,118 @@
+title: CIC2017_to_2019_transfer_aligned_v1_subset
+description: hpo_c35_b0p28_q0p97_r0p0015_d0p1
+paths:
+  data_dir: data
+  input_files:
+  - aligned_2017_2019_2026_sampled_x5_yeartagged_for_main.csv
+  log_file: run.log
+  output_dir: outputs
+runtime:
+  aggregate_graph_algo: connected_components
+  aggregate_max_edges: 80
+  aggregate_min_jaccard: 0.15
+  aggregate_mutual_top_k: 3
+  aggregate_overlap_enabled: true
+  aggregate_top_k_edges: 80
+  attack_sample_per_type: 0
+  benign_accept_scale: 0.28
+  benign_sample_max_rows: 0
+  cpu_only: false
+  debug_overlap_enabled: true
+  debug_overlap_max_edges: 80
+  debug_overlap_min_jaccard: 0.15
+  debug_overlap_top_k_edges: 80
+  feature_profile: compact_stats_no_env
+  freeze_benign_incremental: false
+  max_rows: 0
+  year_include:
+  - '2017'
+  - '2019'
+  - '2026'
+  protocol_include:
+  - tcp
+  attack_type_exclude:
+  - DrDoS_DNS
+  - DrDoS_LDAP
+  - DrDoS_MSSQL
+  - DrDoS_NetBIOS
+  - DrDoS_NTP
+  - DrDoS_SNMP
+  - DrDoS_SSDP
+  - DrDoS_UDP
+  - TFTP
+  - UDPLag
+  seed: 42
+  uniform_learner_treatment: false
+  use_name_based_benign_logic: false
+  drop_when_all_numeric_zero_rules:
+  - name: zero_fwd_bwd_packet_counts
+    enabled: true
+    columns:
+    - Total Fwd Packet
+    - Total Bwd packets
+    eps: 0.0
+    treat_nan_as_zero: true
+sampling:
+  attack_sample_per_type: 5000
+  benign_sample_max_rows: 0
+  benign_sample_per_day: 10000
+  chunksize: 100000
+  data_dir: data
+  input_files:
+  - aligned_2017_2019/2017_monday.csv
+  - aligned_2017_2019/2017_tuesday.csv
+  - aligned_2017_2019/2017_wednesday.csv
+  - aligned_2017_2019/2017_thursday.csv
+  - aligned_2017_2019/2017_friday.csv
+  - aligned_2017_2019/2019_DrDoS_DNS.csv
+  - aligned_2017_2019/2019_DrDoS_LDAP.csv
+  - aligned_2017_2019/2019_DrDoS_MSSQL.csv
+  - aligned_2017_2019/2019_DrDoS_NetBIOS.csv
+  - aligned_2017_2019/2019_DrDoS_NTP.csv
+  - aligned_2017_2019/2019_DrDoS_SNMP.csv
+  - aligned_2017_2019/2019_DrDoS_SSDP.csv
+  - aligned_2017_2019/2019_DrDoS_UDP.csv
+  - aligned_2017_2019/2019_Syn.csv
+  - aligned_2017_2019/2019_TFTP.csv
+  - aligned_2017_2019/2019_UDPLag.csv
+  output_csv: data/aligned_2017_2019_sampled_year_tagged.csv
+  report_json: data/aligned_2017_2019_sampled_year_tagged.report.json
+  seed: 42
+stream:
+  init_benign_count: 50000
+  init_benign_year: '2017'
+  init_known_mode: benign_only
+  init_ratio: 0.01
+  window_size: 10000
+tmagnifier:
+  cluster_trigger_size: 120
+  dbscan_eps: 1.6
+  dbscan_min_samples: 20
+  max_unknown_buffer: 30000
+  new_class_min_size: 500
+tscissors:
+  evt_quantile: 0.97
+  evt_risk: 0.0015
+  fallback_quantile: 0.99
+tsieve:
+  batch_size: 256
+  benign_history_confidence_scale: 1.0
+  classifier_backend: ae
+  historical_sample_rate: 0.0
+  history_samples_per_update: 0
+  iforest_n_estimators: 200
+  increment_drift_gate_enabled: true
+  increment_drift_min_history_samples: 500
+  increment_drift_min_score: 0.1
+  increment_epochs: 1
+  increment_min_samples: 1000
+  init_epochs: 5
+  lr: 0.001
+  max_history_samples_per_learner: 10000
+  max_increment_samples: 1000
+  max_retrain_per_learner: 0
+  max_train_per_class: 20000
+  min_class_samples: 300
+  new_class_epochs: 4
+  threshold_refresh_new_ratio: 0.2
+  threshold_refresh_use_anchor: true

@@ -1,205 +1,121 @@
-# -----------------------------
-# 数据与输出路径
-# -----------------------------
-
-title: "CIC2017_to_2019_transfer_aligned_v1_subset"
-description: "transfer test using mapped same-name features: aligned_2017_2019 subset"
-
+description: default
 paths:
-  # 数据目录
-  data_dir: "data"
-  # 流式读取顺序（按这个顺序拼接并按时间排序）
+  data_dir: data
   input_files:
-    - aligned_2017_2019_2026_sampled_yeartagged_for_main.csv
-  # 输出根目录（main.py 会在其下自动创建 runs/<run_id>/）
-  output_dir: "outputs"
-  # 日志文件名
-  log_file: "run.log"
-
-# -----------------------------
-# 采样构建配置（仅 scripts/prepare_sampled_aligned_data.py 使用）
-# 与主流程运行参数解耦
-# -----------------------------
-sampling:
-  data_dir: "data"
-  input_files:
-    - aligned_2017_2019/2017_monday.csv
-    - aligned_2017_2019/2017_tuesday.csv
-    - aligned_2017_2019/2017_wednesday.csv
-    - aligned_2017_2019/2017_thursday.csv
-    - aligned_2017_2019/2017_friday.csv
-    - aligned_2017_2019/2019_DrDoS_DNS.csv
-    - aligned_2017_2019/2019_DrDoS_LDAP.csv
-    - aligned_2017_2019/2019_DrDoS_MSSQL.csv
-    - aligned_2017_2019/2019_DrDoS_NetBIOS.csv
-    - aligned_2017_2019/2019_DrDoS_NTP.csv
-    - aligned_2017_2019/2019_DrDoS_SNMP.csv
-    - aligned_2017_2019/2019_DrDoS_SSDP.csv
-    - aligned_2017_2019/2019_DrDoS_UDP.csv
-    - aligned_2017_2019/2019_Syn.csv
-    - aligned_2017_2019/2019_TFTP.csv
-    - aligned_2017_2019/2019_UDPLag.csv
-  output_csv: "data/aligned_2017_2019_sampled_year_tagged.csv"
-  report_json: "data/aligned_2017_2019_sampled_year_tagged.report.json"
-  # 分块读取大小
-  chunksize: 100000
-  seed: 42
-  # 每种攻击最多采样数
-  attack_sample_per_type: 5000
-  # BENIGN 总量上限（0 表示不截断）
-  benign_sample_max_rows: 0
-  # BENIGN 每天采样上限（>0 优先生效）
-  benign_sample_per_day: 10000
-
-# -----------------------------
-# 运行控制
-# -----------------------------
+  - aligned_2017_2019_2026_sampled_x5_yeartagged_for_main.csv
+  log_file: run.log
+  output_dir: outputs
 runtime:
-  seed: 42
-  # false=优先 CUDA，true=强制 CPU
-  cpu_only: false
-  # 最大读取行数（0 表示不截断）
-  max_rows: 0
-  # 在线阶段攻击采样上限（0 表示不做二次采样）
-  attack_sample_per_type: 0
-  # 在线阶段 BENIGN 采样上限（0 表示不截断）
-  benign_sample_max_rows: 0
-  # 是否冻结 BENIGN learner 的增量更新
-  freeze_benign_incremental: false
-  # BENIGN 接受阈值缩放（越小越严格）
-  benign_accept_scale: 0.5
-  # 推理阶段是否所有 learner 一视同仁（false=允许 benign 锚点特殊处理）
-  uniform_learner_treatment: false
-  # 是否用 learner 名称里的 BENIGN 语义做在线逻辑（建议关闭，避免标签泄露）。
-  # 当本项为 false 时，BENIGN 特殊处理仅基于 init 阶段建立的 benign 锚点。
-  use_name_based_benign_logic: false
-  # 特征配置：all_numeric_no_env / stable_stats_no_env / compact_stats_no_env
-  feature_profile: "stable_stats_no_env"
-  # 开启真实重叠调试统计
-  debug_overlap_enabled: true
-  # overlap 图边阈值（Jaccard），越低连线越多
-  debug_overlap_min_jaccard: 0.01
-  # overlap 图保留的高权重边数量
-  debug_overlap_top_k_edges: 80
-  # overlap 图最终边数上限
-  debug_overlap_max_edges: 80
-  # 是否在收尾阶段按 overlap 图对 learner 做聚合
-  aggregate_overlap_enabled: true
-  # learner 聚合边阈值（Jaccard）
-  aggregate_min_jaccard: 0.01
-  # learner 聚合保留的高权重边数量
-  aggregate_top_k_edges: 80
-  # learner 聚合最终边数上限
+  aggregate_graph_algo: connected_components
   aggregate_max_edges: 80
-  # 聚合图算法：connected_components / mutual_knn_components
-  aggregate_graph_algo: "connected_components"
-  # mutual_knn_components 生效时，每个节点保留前 k 个邻居，需互选才连边
+  aggregate_min_jaccard: 0.15
   aggregate_mutual_top_k: 3
-  # 聚合后按初始良性锚点（默认 2017|BENIGN）判断 agg 良/恶
-  aggregate_init_benign_label: "2017|BENIGN"
-  aggregate_init_benign_ratio_threshold: 0.5
-  # 注意：聚合阶段严格无标签，仅使用 overlap 图结构（Jaccard + 图算法）
-  # 可手动指定 run_id；main.py 会用当前时间覆盖该值
-  run_id: 20260511_170800_batchinfer
-
-# -----------------------------
-# 流式设置（时间窗口）
-# -----------------------------
+  aggregate_overlap_enabled: true
+  aggregate_top_k_edges: 80
+  attack_sample_per_type: 0
+  benign_accept_scale: 0.34
+  benign_sample_max_rows: 0
+  cpu_only: false
+  debug_overlap_enabled: true
+  debug_overlap_max_edges: 80
+  debug_overlap_min_jaccard: 0.15
+  debug_overlap_top_k_edges: 80
+  feature_profile: compact_stats_no_env
+  freeze_benign_incremental: false
+  max_rows: 0
+  # 退化行剔除：任一启用规则中，所列列在数值上「同时」≈0 时整行丢弃（多规则之间为 OR）。
+  # 单规则列之间为 AND。用于去掉前/后向包数均为 0 等无信息量流。
+  drop_when_all_numeric_zero_rules:
+    - name: zero_fwd_bwd_packet_counts
+      enabled: true
+      columns:
+      - Total Fwd Packet
+      - Total Bwd packets
+      eps: 0.0
+      treat_nan_as_zero: true
+  year_include:
+  - '2017'
+  - '2019'
+  - '2026'
+  protocol_include:
+  - tcp
+  attack_type_exclude:
+  - DrDoS_DNS
+  - DrDoS_LDAP
+  - DrDoS_MSSQL
+  - DrDoS_NetBIOS
+  - DrDoS_NTP
+  - DrDoS_SNMP
+  - DrDoS_SSDP
+  - DrDoS_UDP
+  - TFTP
+  - UDPLag
+  run_id: auto_tcp_no_drdos_tftp_udplag_ssdp_fpr_tuned
+  seed: 42
+  uniform_learner_treatment: false
+  use_name_based_benign_logic: false
+sampling:
+  attack_sample_per_type: 5000
+  benign_sample_max_rows: 0
+  benign_sample_per_day: 10000
+  chunksize: 100000
+  data_dir: data
+  input_files:
+  - aligned_2017_2019/2017_monday.csv
+  - aligned_2017_2019/2017_tuesday.csv
+  - aligned_2017_2019/2017_wednesday.csv
+  - aligned_2017_2019/2017_thursday.csv
+  - aligned_2017_2019/2017_friday.csv
+  - aligned_2017_2019/2019_DrDoS_DNS.csv
+  - aligned_2017_2019/2019_DrDoS_LDAP.csv
+  - aligned_2017_2019/2019_DrDoS_MSSQL.csv
+  - aligned_2017_2019/2019_DrDoS_NetBIOS.csv
+  - aligned_2017_2019/2019_DrDoS_NTP.csv
+  - aligned_2017_2019/2019_DrDoS_SNMP.csv
+  - aligned_2017_2019/2019_DrDoS_SSDP.csv
+  - aligned_2017_2019/2019_DrDoS_UDP.csv
+  - aligned_2017_2019/2019_Syn.csv
+  - aligned_2017_2019/2019_TFTP.csv
+  - aligned_2017_2019/2019_UDPLag.csv
+  output_csv: data/aligned_2017_2019_sampled_year_tagged.csv
+  report_json: data/aligned_2017_2019_sampled_year_tagged.report.json
+  seed: 42
 stream:
-  # 前 init_ratio 比例数据用于初始 learner 建立
-  init_ratio: 0.2
-  # 初始模式：仅 BENIGN 作为已知类
-  init_known_mode: "benign_only"
-  # benign_only 下仅使用该年份 BENIGN 初始化
-  init_benign_year: "2017"
-  # 窗口大小
-  window_size: 5000
-
-# -----------------------------
-# tSieve（一类分类器：AE / IsolationForest）
-# -----------------------------
-tsieve:
-  # ae / iforest
-  classifier_backend: "ae"
-  # 仅 iforest 生效
-  iforest_n_estimators: 200
-  init_epochs: 5
-  new_class_epochs: 4
-  increment_epochs: 1
-  batch_size: 256
-  lr: 0.001
-  max_train_per_class: 20000
-  increment_min_samples: 1000
-  max_increment_samples: 1000
-  min_class_samples: 300
-  historical_sample_rate: 0.0
-  max_history_samples_per_learner: 10000
-  history_pool_compress_enabled: true
-  history_samples_per_update: 0
-  # 历史采样时间衰减系数（>0 启用指数衰减采样；0 关闭，回退到原有损失分布抽样）
-  history_time_decay_lambda: 0.0
-  benign_history_confidence_scale: 1.0
-  # 增量门控（无标签）
-  increment_use_last_train_gap: false
-  increment_gate_enabled: false
-  increment_gate_min_benign_prob_mean: 0.02
-  increment_gate_max_own_exceed_rate: 0.90
-  # NEW learner 增量防污染门控：基于 own margin 与 margin gap 的高相关特征
-  increment_route_gate_enabled: false
-  increment_route_apply_to_new_only: true
-  increment_route_min_samples: 300
-  increment_route_min_own_margin: 0.02
-  increment_route_min_margin_gap: 0.03
-  increment_route_min_confident_ratio: 0.55
-  # NEW learner 增量 IForest 防污染门控：用该 learner 自身样本初始化
-  increment_iforest_guard_enabled: false
-  increment_iforest_guard_apply_to_new_only: true
-  increment_iforest_guard_min_samples: 300
-  increment_iforest_guard_n_estimators: 200
-  increment_iforest_guard_train_max_samples: 5000
-  increment_iforest_guard_keep_quantile: 0.90
-
-# -----------------------------
-# tScissors（EVT 阈值）
-# -----------------------------
-tscissors:
-  evt_quantile: 0.95
-  evt_risk: 0.001
-  fallback_quantile: 0.99
-
-# -----------------------------
-# tMagnifier（未知聚类）
-# -----------------------------
+  init_benign_count: 50000
+  init_benign_year: '2017'
+  init_known_mode: benign_only
+  init_ratio: 0.01
+  window_size: 10000
+title: CIC2017_to_2019_transfer_aligned_v1_subset
 tmagnifier:
   cluster_trigger_size: 120
+  dbscan_eps: 1.3
+  dbscan_min_samples: 10
   max_unknown_buffer: 30000
-  dbscan_eps: 1.2
-  dbscan_min_samples: 15
-  new_class_min_size: 80
-  # 新簇纯度门控（仅影响 NEW learner 是否创建，不影响 DBSCAN 聚类本身）
-  cluster_purity_gate_enabled: false
-  # 任一 BENIGN learner 的接受率上限（超出则拒绝创建 NEW）
-  cluster_gate_max_benign_accept_rate: 1.0
-  # 任一 BENIGN learner 的 soft 概率均值上限（超出则拒绝创建 NEW）
-  cluster_gate_max_benign_prob_mean: 1.0
-  # 任一 BENIGN learner 的 soft 概率 p90 上限（超出则拒绝创建 NEW）
-  cluster_gate_max_benign_prob_p90: 1.0
-  # 混合簇检查（无标签）：当 benign_prob_p10 < low 且 benign_prob_p90 > high 时拒绝
-  cluster_gate_mixed_check_enabled: false
-  cluster_gate_mixed_prob_low: 0.2
-  cluster_gate_mixed_prob_high: 0.8
-  # 结构混合门控（无标签）：簇可被稳定二分且两子簇都够大时，视为混合簇并拒绝
-  cluster_gate_structure_check_enabled: false
-  cluster_gate_structure_min_samples: 600
-  cluster_gate_structure_min_child_ratio: 0.2
-  cluster_gate_structure_min_silhouette: 0.18
-  cluster_gate_structure_min_split_gain: 0.45
-  # 路由一致性门控（无标签）：簇内样本若被多个现有 learner 高比例共同接纳，且winner不集中，则拒绝
-  cluster_gate_route_consistency_enabled: false
-  cluster_gate_route_min_samples: 500
-  cluster_gate_route_min_multi_accept_ratio: 0.3
-  cluster_gate_route_max_top1_share: 0.7
-  # soft 概率温度系数（sigmoid(k*margin)）
-  cluster_gate_soft_k: 4.0
-  # 拒绝簇处理策略：reinject_unknown / drop
-  cluster_gate_rejected_action: "reinject_unknown"
+  new_class_min_size: 500
+tscissors:
+  evt_quantile: 0.97
+  evt_risk: 0.0015
+  fallback_quantile: 0.99
+tsieve:
+  batch_size: 256
+  benign_history_confidence_scale: 1.0
+  classifier_backend: ae
+  historical_sample_rate: 0.0
+  history_samples_per_update: 0
+  iforest_n_estimators: 200
+  increment_drift_gate_enabled: true
+  increment_drift_min_history_samples: 500
+  increment_drift_min_score: 0.12
+  increment_epochs: 1
+  increment_min_samples: 1000
+  init_epochs: 5
+  lr: 0.001
+  max_history_samples_per_learner: 10000
+  max_increment_samples: 1000
+  max_retrain_per_learner: 0
+  max_train_per_class: 20000
+  min_class_samples: 300
+  new_class_epochs: 4
+  threshold_refresh_new_ratio: 0.2
+  threshold_refresh_use_anchor: true
