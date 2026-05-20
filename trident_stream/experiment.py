@@ -221,7 +221,7 @@ class TridentStreamingExperiment:
         self.logger = logger
         set_seed(cfg["runtime"]["seed"])
 
-        self.output_dir = Path(cfg["paths"]["output_dir"])
+        self.output_dir = Path(cfg["paths"]["output_dir"]).resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         cpu_only = cfg["runtime"]["cpu_only"]
@@ -4286,6 +4286,7 @@ class TridentStreamingExperiment:
 
         ts_df = pd.DataFrame(time_series)
         self._finalize_unknown_assignments()
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         csv_path = self.output_dir / "learner_count_over_time.csv"
         ts_df.to_csv(csv_path, index=False)
         creation_profile_path = self.output_dir / "learner_creation_distribution.csv"

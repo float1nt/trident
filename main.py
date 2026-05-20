@@ -26,7 +26,7 @@ def main() -> None:
     run_id = build_run_id(args.config)
     cfg.setdefault("runtime", {})["run_id"] = run_id
     base_output_dir = Path(cfg["paths"]["output_dir"])
-    run_output_dir = base_output_dir / "runs" / run_id
+    run_output_dir = (base_output_dir / "runs" / run_id).resolve()
     cfg["paths"]["output_dir"] = str(run_output_dir)
     cfg["paths"]["log_file"] = "run.log"
     logger = build_logger(output_dir=Path(cfg["paths"]["output_dir"]), log_file=cfg["paths"]["log_file"])
