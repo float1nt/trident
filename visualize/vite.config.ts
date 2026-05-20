@@ -84,6 +84,10 @@ function runDataApiPlugin(): Plugin {
           'learner_aggregation_summary.json',
           'learner_feature_attack_ratio_correlation.json',
           'learner_creation_flow_previews.json',
+          'decision_tree_summary.json',
+          'decision_tree_visualization.json',
+          'dataset_network_topology.json',
+          'learner_network_topology.json',
         ])
         if (!allowed.has(fileName)) {
           sendJson(res, 400, { error: `Unsupported file: ${fileName}` })

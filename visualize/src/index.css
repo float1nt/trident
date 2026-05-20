@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --notion-bg: #191919;
-  --notion-surface: #202020;
-  --notion-surface-alt: #2a2a2a;
-  --notion-border: #373737;
-  --notion-text-primary: #e3e3e3;
-  --notion-text-secondary: #9b9b9b;
-  --notion-accent: #3b82f6;
-  --notion-green: #4ade80;
-  --notion-red: #fb7185;
-  --notion-yellow: #facc15;
+  --notion-bg: #ffffff;
+  --notion-surface: #ffffff;
+  --notion-surface-alt: #f7f6f3;
+  --notion-border: #e9e9e7;
+  --notion-text-primary: #37352f;
+  --notion-text-secondary: #787774;
+  --notion-accent: #2563eb;
+  --notion-green: #16a34a;
+  --notion-red: #e11d48;
+  --notion-yellow: #ca8a04;
 }
 
 html,
@@ -25,7 +25,7 @@ body {
   font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background: var(--notion-bg);
   color: var(--notion-text-primary);
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 .panel {
@@ -41,7 +41,7 @@ body {
 }
 
 .btn-primary:hover {
-  background: #2563eb;
+  background: #1d4ed8;
 }
 
 .metric-card {
@@ -63,9 +63,9 @@ body {
 .input-base {
   @apply rounded-lg px-3 py-2 text-sm outline-none transition focus:ring;
   border: 1px solid var(--notion-border);
-  background: var(--notion-surface-alt);
+  background: #ffffff;
   color: var(--notion-text-primary);
-  --tw-ring-color: rgb(59 130 246 / 0.35);
+  --tw-ring-color: rgb(37 99 235 / 0.25);
 }
 
 .field-label {
@@ -94,102 +94,16 @@ body {
 }
 
 .sortable-head:hover {
-  background-color: rgb(255 255 255 / 0.06);
+  background-color: rgb(241 245 249);
   border-radius: 0.125rem;
 }
 
-/* 黑夜模式：根节点挂 notion-dark，与 :root 深色变量配合 */
-
-.notion-dark .text-slate-900,
-.notion-dark .text-slate-800,
-.notion-dark .text-slate-700,
-.notion-dark .text-slate-600,
-.notion-dark .text-slate-500,
-.notion-dark .text-slate-400 {
-  color: var(--notion-text-primary) !important;
-}
-
-.notion-dark .text-slate-500,
-.notion-dark .text-slate-400 {
-  color: var(--notion-text-secondary) !important;
-}
-
-.notion-dark .bg-white,
-.notion-dark .bg-\[\#ffffff\] {
-  background-color: var(--notion-surface) !important;
-}
-
-.notion-dark .bg-\[\#fbfbfa\] {
-  background-color: #232323 !important;
-}
-
-.notion-dark .bg-slate-50,
-.notion-dark .bg-slate-50\/95,
-.notion-dark .hover\:bg-slate-50:hover {
-  background-color: #242424 !important;
-}
-
-.notion-dark .bg-slate-100,
-.notion-dark .hover\:bg-slate-200:hover {
-  background-color: #2b2b2b !important;
-}
-
-.notion-dark .border-slate-200,
-.notion-dark .border-slate-100,
-.notion-dark .border-slate-300 {
-  border-color: var(--notion-border) !important;
-}
-
-.notion-dark .text-emerald-700 {
-  color: #4ade80 !important;
-}
-
-.notion-dark .text-rose-700 {
-  color: #fb7185 !important;
-}
-
-.notion-dark .bg-emerald-500 {
-  background-color: #4ade80 !important;
-}
-
-.notion-dark .bg-rose-500 {
-  background-color: #fb7185 !important;
-}
-
-.notion-dark .text-sky-700 {
-  color: #7dd3fc !important;
-}
-
-.notion-dark .bg-emerald-100,
-.notion-dark .bg-emerald-50 {
-  background-color: rgb(74 222 128 / 0.2) !important;
-}
-
-.notion-dark .bg-rose-100,
-.notion-dark .bg-rose-50 {
-  background-color: rgb(251 113 133 / 0.2) !important;
-}
-
-.notion-dark .bg-amber-50,
-.notion-dark .bg-yellow-50 {
-  background-color: rgb(210 153 34 / 0.2) !important;
-}
-
-/*
- * 冻结列表格专用：勿用 Tailwind 的 bg-*-50，否则在 .notion-dark 下会被改成半透明叠字。
- * 类名不含 bg-emerald-50 等，避免命中上面的全局覆盖。
- */
+/* 冻结列表格：使用不透明背景，避免 sticky 叠字 */
 .sticky-table-bg-emerald {
   background-color: #ecfdf5;
 }
 .sticky-table-bg-emerald:hover {
   background-color: #d1fae5;
-}
-.notion-dark .sticky-table-bg-emerald {
-  background-color: #1e3a2e !important;
-}
-.notion-dark .sticky-table-bg-emerald:hover {
-  background-color: #264d3d !important;
 }
 
 .sticky-table-bg-rose {
@@ -198,24 +112,12 @@ body {
 .sticky-table-bg-rose:hover {
   background-color: #ffe4e6;
 }
-.notion-dark .sticky-table-bg-rose {
-  background-color: #341e24 !important;
-}
-.notion-dark .sticky-table-bg-rose:hover {
-  background-color: #452830 !important;
-}
 
 .sticky-table-bg-amber {
   background-color: #fffbeb;
 }
 .sticky-table-bg-amber:hover {
   background-color: #fef3c7;
-}
-.notion-dark .sticky-table-bg-amber {
-  background-color: #342e1a !important;
-}
-.notion-dark .sticky-table-bg-amber:hover {
-  background-color: #453d24 !important;
 }
 
 .sticky-table-bg-slate {
@@ -224,80 +126,29 @@ body {
 .sticky-table-bg-slate:hover {
   background-color: #f1f5f9;
 }
-.notion-dark .sticky-table-bg-slate {
-  background-color: #242424 !important;
-}
-.notion-dark .sticky-table-bg-slate:hover {
-  background-color: #2b2b2b !important;
-}
 
-.notion-dark .text-amber-700,
-.notion-dark .text-yellow-700 {
-  color: #facc15 !important;
-}
-
-.notion-dark .bg-indigo-500 {
-  background-color: var(--notion-accent) !important;
-}
-
-.notion-dark .bg-slate-200 {
-  background-color: #3a3a3a !important;
-}
-
-.notion-dark .ant-select-selector,
-.notion-dark .ant-select-dropdown,
-.notion-dark .ant-popover-inner,
-.notion-dark .ant-popover-arrow::before,
-.notion-dark .ant-checkbox-wrapper,
-.notion-dark .ant-checkbox-group {
-  background-color: #242424 !important;
+.page .ant-select-selector,
+.page .ant-select-dropdown,
+.page .ant-popover-inner,
+.page .ant-popover-arrow::before {
+  background-color: #ffffff !important;
   color: var(--notion-text-primary) !important;
   border-color: var(--notion-border) !important;
 }
 
-.notion-dark .ant-select-item,
-.notion-dark .ant-select-selection-item,
-.notion-dark .ant-select-selection-placeholder,
-.notion-dark .ant-checkbox-wrapper {
-  color: var(--notion-text-primary) !important;
+.page .ant-select-item-option-active,
+.page .ant-select-item-option-selected {
+  background-color: #f1f5f9 !important;
 }
 
-.notion-dark .ant-select-item-option-active,
-.notion-dark .ant-select-item-option-selected {
-  background-color: #2f2f2f !important;
+.page .ant-slider-rail {
+  background-color: #e2e8f0 !important;
 }
 
-.notion-dark .ant-slider-rail {
-  background-color: #3a3a3a !important;
-}
-
-.notion-dark .ant-slider-track {
+.page .ant-slider-track {
   background-color: var(--notion-accent) !important;
 }
 
-.notion-dark .ant-slider-handle::after {
+.page .ant-slider-handle::after {
   box-shadow: 0 0 0 2px var(--notion-accent) inset !important;
-}
-
-.notion-dark .odd\:bg-white {
-  background-color: var(--notion-surface) !important;
-}
-
-.notion-dark .even\:bg-slate-50 {
-  background-color: #242424 !important;
-}
-
-.notion-dark .hover\:bg-emerald-100\/90:hover,
-.notion-dark .border-emerald-200\/80 {
-  border-color: rgb(74 222 128 / 0.35) !important;
-}
-
-.notion-dark .hover\:bg-rose-100\/90:hover,
-.notion-dark .border-rose-200\/80 {
-  border-color: rgb(251 113 133 / 0.35) !important;
-}
-
-.notion-dark .hover\:bg-amber-100\/90:hover,
-.notion-dark .border-amber-200\/80 {
-  border-color: rgb(250 204 21 / 0.35) !important;
 }

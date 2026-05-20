@@ -5,7 +5,7 @@ import RunsComparePage from './pages/RunsComparePage'
 
 function App() {
   return (
-    <div className="notion-dark page min-h-screen bg-[var(--notion-bg)] text-[var(--notion-text-primary)]">
+    <div className="page min-h-screen bg-[var(--notion-bg)] text-[var(--notion-text-primary)]">
       <header className="border-b border-[var(--notion-border)] bg-[var(--notion-surface)]">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between px-6 py-4">
           <div>

@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Checkbox, Popover, Select, Slider } from 'antd'
 import * as echarts from 'echarts'
 import ReactECharts from 'echarts-for-react'
+import { DecisionTreePanel, type DecisionTreeVizJson } from '../components/DecisionTreePanel'
+import { NetworkTopologyPanel, type DatasetNetworkTopologyJson } from '../components/NetworkTopologyPanel'
+import {
+  LearnerInternalTopologyPanel,
+  type LearnerNetworkTopologyJson,
+} from '../components/LearnerInternalTopologyPanel'
+import { TableFilterBar } from '../components/TableFilterBar'
 import { fetchRunJsonOptional, fetchRuns, parseCsv, runDataUrl, type RunInfo } from '../lib/runApi'
 import { useTablePreferencesStore } from '../stores/tablePreferencesStore'
 
@@ -147,6 +154,10 @@ function orderedCreationPreviewColumns(rows: Record<string, unknown>[]): string[
   return [...out, ...rest]
 }
 
+function orderedCreationPreviewDisplayColumns(rows: Record<string, unknown>[]): MetricTableColumn[] {
+  return buildMetricTableColumns(orderedCreationPreviewColumns(rows))
+}
+
 function formatCreationPreviewCell(value: unknown): string {
   if (value === null || value === undefined) return '—'
   if (typeof value === 'boolean') return value ? 'true' : 'false'
@@ -206,11 +217,11 @@ type LearnerDetail = {
   topLabels: Array<[string, number]>
 }
 
-const CHART_TEXT_PRIMARY = '#e2e8f0'
-const CHART_TEXT_SECONDARY = '#94a3b8'
-const CHART_AXIS_LINE = '#475569'
-const CHART_SPLIT_LINE = '#334155'
-const CHART_EDGE = '#64748b'
+const CHART_TEXT_PRIMARY = '#1e293b'
+const CHART_TEXT_SECONDARY = '#64748b'
+const CHART_AXIS_LINE = '#cbd5e1'
+const CHART_SPLIT_LINE = '#e2e8f0'
+const CHART_EDGE = '#94a3b8'
 const CHART_GREEN = '#4ade80'
 const CHART_GREEN_BORDER = '#22c55e'
 const CHART_RED = '#fb7185'
@@ -276,9 +287,13 @@ function metricStatSuffix(col: string): MetricAggSuffix | null {
   return null
 }
 
-function metricStatBaseZh(col: string): string {
+function metricStatBaseName(col: string): string {
   const i = col.lastIndexOf('__')
-  const base = i >= 0 ? col.slice(0, i) : col
+  return i >= 0 ? col.slice(0, i) : col
+}
+
+function metricStatBaseZh(col: string): string {
+  const base = metricStatBaseName(col)
   return FEATURE_BASE_ZH_MAP[base] || base
 }
 
@@ -315,6 +330,167 @@ function MetricStatColumnHeader({ col }: { col: string }) {
     )
   }
   return <span className="font-sans">{metricDisplayName(col)}</span>
+}
+
+const METRIC_MEAN_CV_COL_PREFIX = 'mean_cv::'
+
+type MetricTableColumn =
+  | { kind: 'single'; id: string; col: string }
+  | { kind: 'mean_cv'; id: string; base: string; meanCol: string; cvCol: string }
+
+function metricColComboId(base: string): string {
+  return `${METRIC_MEAN_CV_COL_PREFIX}${base}`
+}
+
+function isMetricColComboId(id: string): boolean {
+  return id.startsWith(METRIC_MEAN_CV_COL_PREFIX)
+}
+
+function metricColComboBase(id: string): string {
+  return id.slice(METRIC_MEAN_CV_COL_PREFIX.length)
+}
+
+/** 将 CSV 指标列分组：同一底层特征的 mean+cv 合并为一列展示 */
+function buildMetricTableColumns(csvColumns: string[]): MetricTableColumn[] {
+  const singles: string[] = []
+  const byBase = new Map<string, Partial<Record<MetricAggSuffix, string>>>()
+  const baseOrder: string[] = []
+
+  for (const col of csvColumns) {
+    const suf = metricStatSuffix(col)
+    if (!suf) {
+      singles.push(col)
+      continue
+    }
+    const base = metricStatBaseName(col)
+    if (!byBase.has(base)) {
+      byBase.set(base, {})
+      baseOrder.push(base)
+    }
+    byBase.get(base)![suf] = col
+  }
+
+  const out: MetricTableColumn[] = singles.map((col) => ({ kind: 'single', id: col, col }))
+  const suffixOrder: MetricAggSuffix[] = ['mean', 'cv', 'max', 'min']
+  for (const base of baseOrder) {
+    const parts = byBase.get(base)!
+    if (parts.mean && parts.cv) {
+      out.push({
+        kind: 'mean_cv',
+        id: metricColComboId(base),
+        base,
+        meanCol: parts.mean,
+        cvCol: parts.cv,
+      })
+    }
+    for (const suf of suffixOrder) {
+      if (suf === 'mean' || suf === 'cv') {
+        if (parts.mean && parts.cv) continue
+      }
+      const c = parts[suf]
+      if (c) out.push({ kind: 'single', id: c, col: c })
+    }
+  }
+  return out
+}
+
+function metricTableColumnLabel(col: MetricTableColumn): string {
+  if (col.kind === 'mean_cv') {
+    const baseZh = FEATURE_BASE_ZH_MAP[col.base] || col.base
+    return `${baseZh}（μ + CV）`
+  }
+  return metricDisplayName(col.col)
+}
+
+function MetricMeanCvColumnHeader({ base }: { base: string }) {
+  const baseZh = FEATURE_BASE_ZH_MAP[base] || base
+  return (
+    <span className="inline-flex max-w-[14rem] flex-col items-start gap-0.5 font-sans leading-tight">
+      <span className="min-w-0 truncate text-[11px] font-medium text-slate-800">{baseZh}</span>
+      <span className="inline-flex items-center gap-1">
+        <span
+          className="inline-flex h-[16px] shrink-0 items-center justify-center rounded-sm bg-indigo-100 px-1 font-serif text-[12px] font-semibold leading-none text-indigo-800"
+          title="均值（mean）"
+        >
+          μ
+        </span>
+        <span
+          className="inline-flex h-[16px] shrink-0 items-center justify-center rounded-sm bg-amber-100 px-1 text-[9px] font-bold leading-none tracking-tight text-amber-900"
+          title="变异系数（CV）"
+        >
+          CV
+        </span>
+      </span>
+    </span>
+  )
+}
+
+function formatMeanCvCombinedCell(
+  meanRaw: string | boolean | undefined,
+  cvRaw: string | boolean | undefined,
+  formatValue: (raw: string | boolean | undefined) => string,
+): ReactNode {
+  const meanText = formatValue(meanRaw)
+  const cvText = formatValue(cvRaw)
+  if (meanText === '—' && cvText === '—') return '—'
+  return (
+    <span className="inline-flex flex-col gap-0.5 leading-tight">
+      <span className="inline-flex items-baseline gap-1">
+        <span className="shrink-0 font-serif text-[10px] font-semibold text-indigo-700">μ</span>
+        <span>{meanText}</span>
+      </span>
+      <span className="inline-flex items-baseline gap-1">
+        <span className="shrink-0 text-[9px] font-bold text-amber-800">CV</span>
+        <span>{cvText}</span>
+      </span>
+    </span>
+  )
+}
+
+function normalizeMetricVisibleColumnIds(
+  visible: string[],
+  displayColumns: MetricTableColumn[],
+): string[] {
+  const displayIds = new Set(displayColumns.map((c) => c.id))
+  const rawCols = new Set<string>()
+  displayColumns.forEach((c) => {
+    if (c.kind === 'single') rawCols.add(c.col)
+    else {
+      rawCols.add(c.meanCol)
+      rawCols.add(c.cvCol)
+    }
+  })
+  const out = new Set<string>()
+  for (const v of visible) {
+    if (displayIds.has(v)) {
+      out.add(v)
+      continue
+    }
+    if (rawCols.has(v)) {
+      const suf = metricStatSuffix(v)
+      if (suf === 'mean' || suf === 'cv') {
+        const base = metricStatBaseName(v)
+        const combo = metricColComboId(base)
+        if (displayIds.has(combo)) {
+          out.add(combo)
+          continue
+        }
+      }
+      out.add(v)
+    }
+  }
+  return [...out]
+}
+
+function isMetricDisplayColumnVisible(
+  col: MetricTableColumn,
+  visibleSet: Set<string>,
+): boolean {
+  if (visibleSet.has(col.id)) return true
+  if (col.kind === 'mean_cv') {
+    return visibleSet.has(col.meanCol) || visibleSet.has(col.cvCol)
+  }
+  return false
 }
 
 /** 不展示标准差画像：后缀 __std，或底层特征名为 *Std（再聚合的均值/CV等亦隐藏） */
@@ -434,7 +610,7 @@ const STICKY_FIRST_COL_TH =
 const STICKY_FIRST_COL_TD_FRAME =
   'sticky left-0 z-10 border-r border-slate-200 bg-clip-padding shadow-[2px_0_8px_-4px_rgba(15,23,42,0.08)]'
 
-/** 使用 index.css 的 sticky-table-bg-*，避免 notion-dark 把 Tailwind bg-*-50 改成半透明 */
+/** 使用 index.css 的 sticky-table-bg-*，保证冻结列不透明背景 */
 function stickyFirstColTdBgDataset(isBenign: boolean): string {
   return isBenign ? 'sticky-table-bg-emerald' : 'sticky-table-bg-rose'
 }
@@ -536,6 +712,9 @@ export default function GraphAnalysisPage() {
   const [featureCorr, setFeatureCorr] = useState<FeatureCorrJson | null>(null)
   const [datasetLabelFeatureCorr, setDatasetLabelFeatureCorr] = useState<FeatureCorrJson | null>(null)
   const [creationFlowPreview, setCreationFlowPreview] = useState<CreationFlowPreviewJson | null>(null)
+  const [decisionTreeViz, setDecisionTreeViz] = useState<DecisionTreeVizJson | null>(null)
+  const [datasetNetworkTopology, setDatasetNetworkTopology] = useState<DatasetNetworkTopologyJson | null>(null)
+  const [learnerNetworkTopology, setLearnerNetworkTopology] = useState<LearnerNetworkTopologyJson | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string>('')
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
@@ -550,10 +729,14 @@ export default function GraphAnalysisPage() {
   const [learnerRadarFilterOpen, setLearnerRadarFilterOpen] = useState(false)
   /** null = 默认展示全部学习器 */
   const [learnerRadarNameSelection, setLearnerRadarNameSelection] = useState<string[] | null>(null)
-  const datasetQuery = useTablePreferencesStore((s) => s.datasetQuery)
-  const setDatasetQuery = useTablePreferencesStore((s) => s.setDatasetQuery)
-  const learnerQuery = useTablePreferencesStore((s) => s.learnerQuery)
-  const setLearnerQuery = useTablePreferencesStore((s) => s.setLearnerQuery)
+  const datasetFilterTags = useTablePreferencesStore((s) => s.datasetFilterTags)
+  const learnerFilterTags = useTablePreferencesStore((s) => s.learnerFilterTags)
+  const addDatasetFilterTag = useTablePreferencesStore((s) => s.addDatasetFilterTag)
+  const removeDatasetFilterTag = useTablePreferencesStore((s) => s.removeDatasetFilterTag)
+  const clearDatasetFilterTags = useTablePreferencesStore((s) => s.clearDatasetFilterTags)
+  const addLearnerFilterTag = useTablePreferencesStore((s) => s.addLearnerFilterTag)
+  const removeLearnerFilterTag = useTablePreferencesStore((s) => s.removeLearnerFilterTag)
+  const clearLearnerFilterTags = useTablePreferencesStore((s) => s.clearLearnerFilterTags)
   const datasetVisibleColumns = useTablePreferencesStore((s) => s.datasetVisibleColumns)
   const setDatasetVisibleColumns = useTablePreferencesStore((s) => s.setDatasetVisibleColumns)
   const learnerVisibleColumns = useTablePreferencesStore((s) => s.learnerVisibleColumns)
@@ -597,7 +780,7 @@ export default function GraphAnalysisPage() {
       setLoading(true)
       setError('')
       try {
-        const [pairs, aggs, learners, counts, trainBatches, labelDistRows, labelDistSummary, metricJson, perfJson, aggSummaryJson, featureCorrJson, datasetLabelFeatureCorrJson, creationPreviewJson] = await Promise.all([
+        const [pairs, aggs, learners, counts, trainBatches, labelDistRows, labelDistSummary, metricJson, perfJson, aggSummaryJson, featureCorrJson, datasetLabelFeatureCorrJson, creationPreviewJson, decisionTreeJson, datasetTopologyJson, learnerTopologyJson] = await Promise.all([
           parseCsv<PairRow>(runDataUrl(selectedRunId, 'debug_true_overlap_pairs.csv')),
           parseCsv<AggRow>(runDataUrl(selectedRunId, 'learner_aggregated_distribution.csv')),
           parseCsv<LearnerDistRow>(runDataUrl(selectedRunId, 'learner_label_distribution.csv')),
@@ -611,6 +794,9 @@ export default function GraphAnalysisPage() {
           fetchRunJsonOptional<FeatureCorrJson>(selectedRunId, 'learner_feature_attack_ratio_correlation.json'),
           fetchRunJsonOptional<FeatureCorrJson>(selectedRunId, 'dataset_label_feature_attack_correlation.json'),
           fetchRunJsonOptional<CreationFlowPreviewJson>(selectedRunId, 'learner_creation_flow_previews.json'),
+          fetchRunJsonOptional<DecisionTreeVizJson>(selectedRunId, 'decision_tree_visualization.json'),
+          fetchRunJsonOptional<DatasetNetworkTopologyJson>(selectedRunId, 'dataset_network_topology.json'),
+          fetchRunJsonOptional<LearnerNetworkTopologyJson>(selectedRunId, 'learner_network_topology.json'),
         ])
         setPairRows(pairs)
         setAggRows(aggs)
@@ -625,6 +811,9 @@ export default function GraphAnalysisPage() {
         setFeatureCorr(featureCorrJson)
         setDatasetLabelFeatureCorr(datasetLabelFeatureCorrJson)
         setCreationFlowPreview(creationPreviewJson)
+        setDecisionTreeViz(decisionTreeJson)
+        setDatasetNetworkTopology(datasetTopologyJson)
+        setLearnerNetworkTopology(learnerTopologyJson)
         setSelectedNodeId(null)
         setSelectedEdge(null)
       } catch (err) {
@@ -856,7 +1045,7 @@ export default function GraphAnalysisPage() {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'item',
-        backgroundColor: '#202020',
+        backgroundColor: '#ffffff',
         borderColor: CHART_AXIS_LINE,
         textStyle: { color: CHART_TEXT_PRIMARY },
         formatter: (params: { dataType?: string; data: NodeData | LinkData }) => {
@@ -990,6 +1179,11 @@ export default function GraphAnalysisPage() {
 
   const learnerResidualColSet = useMemo(() => new Set(learnerResidualCsvColumns), [learnerResidualCsvColumns])
 
+  const learnerMetricDisplayColumns = useMemo(
+    () => buildMetricTableColumns(learnerResidualCsvColumns),
+    [learnerResidualCsvColumns],
+  )
+
   const retrainTopOption = useMemo(() => {
     const top = Array.from(retrainCountMap.entries())
       .map(([name, value]) => ({ name, value }))
@@ -1047,6 +1241,14 @@ export default function GraphAnalysisPage() {
         case 'protocolUdpRatio':
           return row.protocolUdpRatio
         default: {
+          if (isMetricColComboId(key)) {
+            const base = metricColComboBase(key)
+            const meanKey = `${base}__mean`
+            const rawVal = row.raw[meanKey] as string | boolean | undefined
+            const asNum = Number(rawVal ?? NaN)
+            if (Number.isFinite(asNum)) return asNum
+            return String(rawVal ?? '')
+          }
           const rawVal = row.raw[key] as string | boolean | undefined
           const asNum = Number(rawVal ?? NaN)
           if (Number.isFinite(asNum)) return asNum
@@ -1106,6 +1308,11 @@ export default function GraphAnalysisPage() {
     return columns
   }, [datasetLabelRows])
 
+  const datasetMetricDisplayColumns = useMemo(
+    () => buildMetricTableColumns(datasetMetricColumns),
+    [datasetMetricColumns],
+  )
+
   const datasetColumnOptions = useMemo(() => {
     const fixed = [
       { value: 'label', label: 'Label' },
@@ -1121,9 +1328,12 @@ export default function GraphAnalysisPage() {
     ]
     return [
       ...fixed,
-      ...datasetMetricColumns.map((col) => ({ value: col, label: metricDisplayName(col) })),
+      ...datasetMetricDisplayColumns.map((col) => ({
+        value: col.id,
+        label: metricTableColumnLabel(col),
+      })),
     ]
-  }, [datasetMetricColumns])
+  }, [datasetMetricDisplayColumns])
 
   const datasetSortColumnLabel = useMemo(() => {
     const opt = datasetColumnOptions.find((o) => o.value === datasetSortBy)
@@ -1132,19 +1342,25 @@ export default function GraphAnalysisPage() {
 
   const effectiveDatasetVisibleColumns = useMemo(() => {
     const all = datasetColumnOptions.map((x) => x.value)
-    const valid = datasetVisibleColumns.filter((x) => all.includes(x))
+    const normalized = normalizeMetricVisibleColumnIds(datasetVisibleColumns, datasetMetricDisplayColumns)
+    const valid = normalized.filter((x) => all.includes(x))
     // First load defaults to all columns; once user customizes, honor exact selection (including empty).
     if (!datasetColumnsCustomized && valid.length === 0) return all
     return valid
-  }, [datasetColumnOptions, datasetVisibleColumns, datasetColumnsCustomized])
+  }, [datasetColumnOptions, datasetVisibleColumns, datasetColumnsCustomized, datasetMetricDisplayColumns])
 
   const datasetVisibleColumnSet = useMemo(() => new Set(effectiveDatasetVisibleColumns), [effectiveDatasetVisibleColumns])
 
+  const visibleDatasetMetricDisplayColumns = useMemo(
+    () => datasetMetricDisplayColumns.filter((col) => isMetricDisplayColumnVisible(col, datasetVisibleColumnSet)),
+    [datasetMetricDisplayColumns, datasetVisibleColumnSet],
+  )
+
   const filteredDatasetLabelRows = useMemo(() => {
-    const q = datasetQuery.trim().toLowerCase()
-    if (!q) return datasetLabelAll
+    const tags = datasetFilterTags.map((t) => t.trim().toLowerCase()).filter(Boolean)
+    if (!tags.length) return datasetLabelAll
     return datasetLabelAll.filter((row) => {
-      return [
+      const haystack = [
         row.label,
         row.baseLabel,
         row.yearTag,
@@ -1153,9 +1369,9 @@ export default function GraphAnalysisPage() {
       ]
         .join(' ')
         .toLowerCase()
-        .includes(q)
+      return tags.every((tag) => haystack.includes(tag))
     })
-  }, [datasetLabelAll, datasetQuery])
+  }, [datasetLabelAll, datasetFilterTags])
 
   const datasetBenignAttackStats = useMemo(() => {
     let benign = 0
@@ -1477,9 +1693,12 @@ export default function GraphAnalysisPage() {
       dominantRatio: Number(row.dominant_ratio || 0),
       residualCsv,
     }})
-    const q = learnerQuery.trim().toLowerCase()
-    const filtered = q
-      ? list.filter((r) => r.name.toLowerCase().includes(q) || r.dominantLabel.toLowerCase().includes(q))
+    const tags = learnerFilterTags.map((t) => t.trim().toLowerCase()).filter(Boolean)
+    const filtered = tags.length
+      ? list.filter((r) => {
+          const haystack = [r.name, r.dominantLabel, r.protocolType].join(' ').toLowerCase()
+          return tags.every((tag) => haystack.includes(tag))
+        })
       : list
     const sorted = [...filtered].sort((a, b) => {
       if (learnerSortBy === 'name' || learnerSortBy === 'dominantLabel' || learnerSortBy === 'protocolType') {
@@ -1488,9 +1707,12 @@ export default function GraphAnalysisPage() {
         const cmp = va.localeCompare(vb)
         return learnerSortDir === 'asc' ? cmp : -cmp
       }
-      if (learnerResidualColSet.has(learnerSortBy)) {
-        const sa = (a.residualCsv[learnerSortBy] ?? '').trim()
-        const sb = (b.residualCsv[learnerSortBy] ?? '').trim()
+      if (learnerResidualColSet.has(learnerSortBy) || isMetricColComboId(learnerSortBy)) {
+        const sortKey = isMetricColComboId(learnerSortBy)
+          ? `${metricColComboBase(learnerSortBy)}__mean`
+          : learnerSortBy
+        const sa = (a.residualCsv[sortKey] ?? '').trim()
+        const sb = (b.residualCsv[sortKey] ?? '').trim()
         const na = Number(sa)
         const nb = Number(sb)
         const aNum = sa !== '' && Number.isFinite(na)
@@ -1506,7 +1728,7 @@ export default function GraphAnalysisPage() {
       return learnerSortDir === 'asc' ? va - vb : vb - va
     })
     return sorted
-  }, [learnerRows, retrainCountMap, learnerQuery, learnerSortBy, learnerSortDir, learnerResidualCsvColumns, learnerResidualColSet])
+  }, [learnerRows, retrainCountMap, learnerFilterTags, learnerSortBy, learnerSortDir, learnerResidualCsvColumns, learnerResidualColSet])
 
   const allLearnerRadarNames = useMemo(() => allLearnerRows.map((r) => r.name), [allLearnerRows])
 
@@ -1532,9 +1754,12 @@ export default function GraphAnalysisPage() {
     ]
     return [
       ...fixed,
-      ...learnerResidualCsvColumns.map((col) => ({ value: col, label: metricDisplayName(col) })),
+      ...learnerMetricDisplayColumns.map((col) => ({
+        value: col.id,
+        label: metricTableColumnLabel(col),
+      })),
     ]
-  }, [learnerResidualCsvColumns])
+  }, [learnerMetricDisplayColumns])
 
   const learnerSortColumnLabel = useMemo(() => {
     const opt = learnerColumnOptions.find((o) => o.value === learnerSortBy)
@@ -1543,13 +1768,19 @@ export default function GraphAnalysisPage() {
 
   const effectiveLearnerVisibleColumns = useMemo(() => {
     const all = learnerColumnOptions.map((x) => x.value)
-    const valid = learnerVisibleColumns.filter((x) => all.includes(x))
+    const normalized = normalizeMetricVisibleColumnIds(learnerVisibleColumns, learnerMetricDisplayColumns)
+    const valid = normalized.filter((x) => all.includes(x))
     // First load defaults to all columns; once user customizes, honor exact selection (including empty).
     if (!learnerColumnsCustomized && valid.length === 0) return all
     return valid
-  }, [learnerColumnOptions, learnerVisibleColumns, learnerColumnsCustomized])
+  }, [learnerColumnOptions, learnerVisibleColumns, learnerColumnsCustomized, learnerMetricDisplayColumns])
 
   const learnerVisibleColumnSet = useMemo(() => new Set(effectiveLearnerVisibleColumns), [effectiveLearnerVisibleColumns])
+
+  const visibleLearnerMetricDisplayColumns = useMemo(
+    () => learnerMetricDisplayColumns.filter((col) => isMetricDisplayColumnVisible(col, learnerVisibleColumnSet)),
+    [learnerMetricDisplayColumns, learnerVisibleColumnSet],
+  )
 
   const datasetColumnPickerContent = useMemo(() => (
     <div className="max-h-72 w-72 overflow-auto pr-1">
@@ -1776,9 +2007,19 @@ export default function GraphAnalysisPage() {
       protocolTcpRatio: agg((r) => r.protocolTcpRatio),
       protocolUdpRatio: agg((r) => r.protocolUdpRatio),
     }
-    for (const col of datasetMetricColumns) {
-      out[col] = agg((r) => {
-        const raw = r.raw[col] as string | boolean | undefined
+    for (const col of datasetMetricDisplayColumns) {
+      if (col.kind === 'mean_cv') {
+        out[col.id] = agg((r) => {
+          const raw = r.raw[col.meanCol] as string | boolean | undefined
+          if (typeof raw === 'boolean') return raw ? 1 : 0
+          const s = String(raw ?? '').trim()
+          if (!s) return Number.NaN
+          return Number(s)
+        })
+        continue
+      }
+      out[col.id] = agg((r) => {
+        const raw = r.raw[col.col] as string | boolean | undefined
         if (typeof raw === 'boolean') return raw ? 1 : 0
         const s = String(raw ?? '').trim()
         if (!s) return Number.NaN
@@ -1786,7 +2027,7 @@ export default function GraphAnalysisPage() {
       })
     }
     return out
-  }, [filteredDatasetLabelRows, datasetMetricColumns])
+  }, [filteredDatasetLabelRows, datasetMetricDisplayColumns])
 
   const learnerTableColumnStats = useMemo(() => {
     const rows = allLearnerRows
@@ -1811,19 +2052,27 @@ export default function GraphAnalysisPage() {
       udpRatio: agg((r) => r.udpRatio),
       dominantRatio: agg((r) => r.dominantRatio),
     }
-    for (const col of learnerResidualCsvColumns) {
-      if (/_json$/i.test(col) || col === 'label_distribution_json') {
-        out[col] = null
+    for (const col of learnerMetricDisplayColumns) {
+      if (col.kind === 'single' && (/_json$/i.test(col.col) || col.col === 'label_distribution_json')) {
+        out[col.id] = null
         continue
       }
-      out[col] = agg((r) => {
-        const s = String(r.residualCsv[col] ?? '').trim()
+      if (col.kind === 'mean_cv') {
+        out[col.id] = agg((r) => {
+          const s = String(r.residualCsv[col.meanCol] ?? '').trim()
+          if (!s) return Number.NaN
+          return Number(s)
+        })
+        continue
+      }
+      out[col.id] = agg((r) => {
+        const s = String(r.residualCsv[col.col] ?? '').trim()
         if (!s) return Number.NaN
         return Number(s)
       })
     }
     return out
-  }, [allLearnerRows, learnerResidualCsvColumns])
+  }, [allLearnerRows, learnerMetricDisplayColumns])
 
   const selectedDetail = selectedNodeId ? learnerDetailMap.get(selectedNodeId) : null
 
@@ -1887,6 +2136,15 @@ export default function GraphAnalysisPage() {
           rows={datasetLabelSummary?.total_rows ?? '-'} | labels={datasetLabelSummary?.label_count ?? datasetLabelRows.length}
           {' '}| benign={datasetLabelSummary?.benign_rows ?? '-'} | attack={datasetLabelSummary?.attack_rows ?? '-'}
         </div>
+        <article className="mb-4 rounded-lg border border-slate-200 bg-white p-3">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+            数据集网络拓扑（IP / 端口）
+          </h3>
+          <NetworkTopologyPanel
+            data={datasetNetworkTopology}
+            labelOptions={datasetLabelRows.map((r) => r.label).filter(Boolean)}
+          />
+        </article>
         <div className="mb-4 grid gap-4 xl:grid-cols-2">
           <article className="rounded-lg border border-slate-200 bg-white p-3">
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">总体正常/异常占比</h3>
@@ -1985,10 +2243,10 @@ export default function GraphAnalysisPage() {
         <p className="mb-3 text-[11px] leading-relaxed text-slate-600">
           固定列之外的指标列默认全部展示：<span className="font-mono">dataset_label_distribution.csv</span> 中出现的特征统计字段（如{' '}
           <span className="font-mono">__mean/__cv/__max/__min</span>
-          ，不含标准差与 Std 画像相关列）；可在「⚙ 设置列」中隐藏不需看的列。
+          （同一指标的 μ 与 CV 合并在同一单元格；不含标准差与 Std 画像相关列）；可在「⚙ 设置列」中隐藏不需看的列。
         </p>
-        <div className="mb-2 flex flex-wrap items-center justify-end gap-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <div className="mb-2 flex flex-wrap items-start gap-3">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <TableSortTag
               scopeLabel="Label表"
               columnLabel={datasetSortColumnLabel}
@@ -2002,19 +2260,23 @@ export default function GraphAnalysisPage() {
               }}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              className="input-base w-72"
-              placeholder="搜索 label / base label / year / protocol..."
-              value={datasetQuery}
-              onChange={(e) => setDatasetQuery(e.target.value)}
-            />
+          <div className="ml-auto flex min-w-0 flex-[2] flex-wrap items-start justify-end gap-2 sm:min-w-[min(100%,560px)]">
+            <div className="min-w-0 flex-1">
+              <TableFilterBar
+                inputClassName="min-w-[min(100%,420px)] w-full max-w-[720px]"
+                placeholder="搜索 label / base label / year / protocol..."
+                tags={datasetFilterTags}
+                onAddTag={addDatasetFilterTag}
+                onRemoveTag={removeDatasetFilterTag}
+                onClearAll={clearDatasetFilterTags}
+              />
+            </div>
             <Popover
               content={datasetColumnPickerContent}
               trigger="click"
               placement="bottomRight"
             >
-              <button type="button" className="btn-primary">
+              <button type="button" className="btn-primary shrink-0 self-start">
                 ⚙ 设置列
               </button>
             </Popover>
@@ -2034,11 +2296,15 @@ export default function GraphAnalysisPage() {
                 <th style={datasetColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('protocolConcentration')}>协议聚集性 <span className="text-xs">{sortIndicator(datasetSortBy === 'protocolConcentration', datasetSortDir)}</span></button></th>
                 <th style={datasetColumnStyle('protocolTcpRatio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('protocolTcpRatio')}>TCP占比 <span className="text-xs">{sortIndicator(datasetSortBy === 'protocolTcpRatio', datasetSortDir)}</span></button></th>
                 <th style={datasetColumnStyle('protocolUdpRatio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('protocolUdpRatio')}>UDP占比 <span className="text-xs">{sortIndicator(datasetSortBy === 'protocolUdpRatio', datasetSortDir)}</span></button></th>
-                {datasetMetricColumns.map((col) => (
-                  <th key={`label-col-${col}`} style={datasetColumnStyle(col)} className="whitespace-nowrap px-3 py-2 font-mono text-[11px]">
-                    <button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort(col)}>
-                      <MetricStatColumnHeader col={col} />
-                      <span className="text-xs">{sortIndicator(datasetSortBy === col, datasetSortDir)}</span>
+                {visibleDatasetMetricDisplayColumns.map((col) => (
+                  <th key={`label-col-${col.id}`} style={datasetColumnStyle(col.id)} className="whitespace-nowrap px-3 py-2 font-mono text-[11px]">
+                    <button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort(col.id)}>
+                      {col.kind === 'mean_cv' ? (
+                        <MetricMeanCvColumnHeader base={col.base} />
+                      ) : (
+                        <MetricStatColumnHeader col={col.col} />
+                      )}
+                      <span className="text-xs">{sortIndicator(datasetSortBy === col.id, datasetSortDir)}</span>
                     </button>
                   </th>
                 ))}
@@ -2080,20 +2346,21 @@ export default function GraphAnalysisPage() {
                   <td style={datasetColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-2">{(row.protocolConcentration * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
                   <td style={datasetColumnStyle('protocolTcpRatio')} className="whitespace-nowrap px-3 py-2 text-emerald-700">{(row.protocolTcpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
                   <td style={datasetColumnStyle('protocolUdpRatio')} className="whitespace-nowrap px-3 py-2 text-sky-700">{(row.protocolUdpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
-                  {datasetMetricColumns.map((col) => (
+                  {visibleDatasetMetricDisplayColumns.map((col) => (
                     <td
-                      key={`${row.label}-${col}`}
-                      style={datasetColumnStyle(col)}
-                      className="max-w-[18rem] whitespace-pre-wrap px-3 py-2 font-mono text-[11px] break-all"
-                      title={
-                        typeof row.raw[col] === 'string'
-                          ? row.raw[col].length > 140
-                            ? row.raw[col]
-                            : undefined
-                          : undefined
-                      }
+                      key={`${row.label}-${col.id}`}
+                      style={datasetColumnStyle(col.id)}
+                      className="max-w-[18rem] whitespace-normal px-3 py-2 font-mono text-[11px]"
                     >
-                      {formatDatasetDistributionMetricCell(row.raw[col])}
+                      {col.kind === 'mean_cv' ? (
+                        formatMeanCvCombinedCell(
+                          row.raw[col.meanCol] as string | boolean | undefined,
+                          row.raw[col.cvCol] as string | boolean | undefined,
+                          formatDatasetDistributionMetricCell,
+                        )
+                      ) : (
+                        formatDatasetDistributionMetricCell(row.raw[col.col] as string | boolean | undefined)
+                      )}
                     </td>
                   ))}
                 </tr>
@@ -2129,13 +2396,13 @@ export default function GraphAnalysisPage() {
                   <td style={datasetColumnStyle('protocolUdpRatio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
                     {formatColumnStatField(datasetTableColumnStats.protocolUdpRatio, statField)}
                   </td>
-                  {datasetMetricColumns.map((col) => (
+                  {visibleDatasetMetricDisplayColumns.map((col) => (
                     <td
-                      key={`ds-foot-${col}-${statField}`}
-                      style={datasetColumnStyle(col)}
+                      key={`ds-foot-${col.id}-${statField}`}
+                      style={datasetColumnStyle(col.id)}
                       className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px]"
                     >
-                      {formatColumnStatField(datasetTableColumnStats[col] ?? null, statField)}
+                      {formatColumnStatField(datasetTableColumnStats[col.id] ?? null, statField)}
                     </td>
                   ))}
                 </tr>
@@ -2143,6 +2410,17 @@ export default function GraphAnalysisPage() {
             </tfoot>
           </table>
         </div>
+      </section>
+
+      <section className="panel">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">
+          决策树可解释性（标签 / 学习器）
+        </h2>
+        <p className="mb-4 text-xs text-slate-500">
+          主流程在 run 结束时自动训练决策树：区分数据集标签（良性 vs 攻击、base_label 多类）与学习器（attack_ratio 阈值、极性三分类、协议簇）。
+          指标为分层 5 折交叉验证 OOF；二分类任务展示 FPR/FNR。
+        </p>
+        <DecisionTreePanel data={decisionTreeViz} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
@@ -2210,14 +2488,15 @@ export default function GraphAnalysisPage() {
                     >
                       {allLearnerRows
                         .slice()
-                        .sort((a, b) => b.samples - a.samples)
+                        .sort((a, b) => b.attackRatio - a.attackRatio || b.samples - a.samples)
                         .map((row) => (
                           <Checkbox key={`learner-radar-${row.name}`} value={row.name}>
                             <span className={row.attackRatio >= 0.5 ? 'text-rose-700' : 'text-emerald-700'}>
                               {row.name}
                             </span>
                             <span className="ml-1 text-[11px] text-slate-500">
-                              ({row.samples.toLocaleString()}, {(row.attackRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%)
+                              （攻击占比 {(row.attackRatio * 100).toFixed(2)}% · 主导 {row.dominantLabel} ·{' '}
+                              {row.samples.toLocaleString()} 样本）
                             </span>
                           </Checkbox>
                         ))}
@@ -2250,11 +2529,30 @@ export default function GraphAnalysisPage() {
       </section>
 
       <section className="panel">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">
+          学习器内部网络拓扑（IP / 端口）
+        </h2>
+        <p className="mb-3 text-xs text-slate-500">
+          按学习器聚合其分配到的流；与下方关系图选中节点可联动。绿/红边表示该流在数据集中的真实良性/攻击标签。
+        </p>
+        <LearnerInternalTopologyPanel
+          data={learnerNetworkTopology}
+          learnerOptions={allLearnerRows.map((r) => ({
+            name: r.name,
+            attackRatio: r.attackRatio,
+            dominantLabel: r.dominantLabel,
+          }))}
+          selectedLearner={selectedNodeId}
+          onLearnerChange={(name) => setSelectedNodeId(name)}
+        />
+      </section>
+
+      <section className="panel">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-600">学习器效果总览（全部）</h2>
         </div>
-        <div className="mb-3 flex flex-wrap items-center justify-end gap-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <div className="mb-3 flex flex-wrap items-start gap-3">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <TableSortTag
               scopeLabel="Learner表"
               columnLabel={learnerSortColumnLabel}
@@ -2268,19 +2566,23 @@ export default function GraphAnalysisPage() {
               }}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              className="input-base w-72"
-              placeholder="搜索 learner / 主导标签..."
-              value={learnerQuery}
-              onChange={(e) => setLearnerQuery(e.target.value)}
-            />
+          <div className="ml-auto flex min-w-0 flex-[2] flex-wrap items-start justify-end gap-2 sm:min-w-[min(100%,560px)]">
+            <div className="min-w-0 flex-1">
+              <TableFilterBar
+                inputClassName="min-w-[min(100%,420px)] w-full max-w-[720px]"
+                placeholder="搜索 learner / 主导标签 / 协议簇..."
+                tags={learnerFilterTags}
+                onAddTag={addLearnerFilterTag}
+                onRemoveTag={removeLearnerFilterTag}
+                onClearAll={clearLearnerFilterTags}
+              />
+            </div>
             <Popover
               content={learnerColumnPickerContent}
               trigger="click"
               placement="bottomRight"
             >
-              <button type="button" className="btn-primary">
+              <button type="button" className="btn-primary shrink-0 self-start">
                 ⚙ 设置列
               </button>
             </Popover>
@@ -2292,7 +2594,7 @@ export default function GraphAnalysisPage() {
             固定列之外的字段来自{' '}
             <span className="font-mono">learner_label_distribution.csv</span>：
             <span className="font-semibold text-slate-700">增量样本(post_creation)、dominant_count、protocol_other_ratio、label_distribution_json 以及全部</span>{' '}
-            <span className="font-mono">__mean/__cv</span> 等聚合指标列均已追加（标准差列与 Std 画像特征族不在本页展示）。
+            <span className="font-mono">__mean/__cv</span> 等聚合指标列均已追加（同一指标 μ 与 CV 同格展示；标准差列与 Std 画像特征族不在本页展示）。
           </span>
           <span className="mt-0.5 block text-slate-400">
             共 {learnerRows.length} 条学习器 · 筛选后 {allLearnerRows.length} 条
@@ -2314,11 +2616,15 @@ export default function GraphAnalysisPage() {
                 <th style={learnerColumnStyle('udpRatio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('udpRatio')}>UDP占比 <span className="text-xs">{sortIndicator(learnerSortBy === 'udpRatio', learnerSortDir)}</span></button></th>
                 <th style={learnerColumnStyle('dominantLabel')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('dominantLabel')}>主导标签 <span className="text-xs">{sortIndicator(learnerSortBy === 'dominantLabel', learnerSortDir)}</span></button></th>
                 <th style={learnerColumnStyle('dominantRatio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('dominantRatio')}>主导占比 <span className="text-xs">{sortIndicator(learnerSortBy === 'dominantRatio', learnerSortDir)}</span></button></th>
-                {learnerResidualCsvColumns.map((col) => (
-                  <th key={col} style={learnerColumnStyle(col)} className="whitespace-nowrap px-3 py-2 font-mono text-[11px]">
-                    <button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort(col)}>
-                      <MetricStatColumnHeader col={col} />
-                      <span className="text-xs">{sortIndicator(learnerSortBy === col, learnerSortDir)}</span>
+                {visibleLearnerMetricDisplayColumns.map((col) => (
+                  <th key={col.id} style={learnerColumnStyle(col.id)} className="whitespace-nowrap px-3 py-2 font-mono text-[11px]">
+                    <button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort(col.id)}>
+                      {col.kind === 'mean_cv' ? (
+                        <MetricMeanCvColumnHeader base={col.base} />
+                      ) : (
+                        <MetricStatColumnHeader col={col.col} />
+                      )}
+                      <span className="text-xs">{sortIndicator(learnerSortBy === col.id, learnerSortDir)}</span>
                     </button>
                   </th>
                 ))}
@@ -2364,21 +2670,37 @@ export default function GraphAnalysisPage() {
                     </span>
                   </td>
                   <td style={learnerColumnStyle('dominantRatio')} className="whitespace-nowrap px-3 py-2">{(row.dominantRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
-                  {learnerResidualCsvColumns.map((col) => {
-                    const jsonCol = /_json$/i.test(col) || col === 'label_distribution_json'
+                  {visibleLearnerMetricDisplayColumns.map((col) => {
+                    if (col.kind === 'mean_cv') {
+                      return (
+                        <td
+                          key={`${row.name}-${col.id}`}
+                          style={learnerColumnStyle(col.id)}
+                          className="max-w-[16rem] whitespace-normal px-3 py-2 font-mono text-[11px]"
+                        >
+                          {formatMeanCvCombinedCell(
+                            row.residualCsv[col.meanCol],
+                            row.residualCsv[col.cvCol],
+                            (raw) => formatLearnerResidualCsvCell(col.meanCol, raw === undefined ? undefined : String(raw)),
+                          )}
+                        </td>
+                      )
+                    }
+                    const csvCol = col.col
+                    const jsonCol = /_json$/i.test(csvCol) || csvCol === 'label_distribution_json'
                     return (
-                    <td
-                      key={`${row.name}-${col}`}
-                      style={learnerColumnStyle(col)}
-                      className={
-                        jsonCol
-                          ? 'max-w-[28rem] overflow-hidden text-ellipsis whitespace-nowrap px-3 py-2 font-mono text-[11px]'
-                          : 'max-w-[22rem] whitespace-pre-wrap px-3 py-2 font-mono text-[11px] break-all'
-                      }
-                      title={row.residualCsv[col]?.length ? row.residualCsv[col] : undefined}
-                    >
-                      {formatLearnerResidualCsvCell(col, row.residualCsv[col])}
-                    </td>
+                      <td
+                        key={`${row.name}-${col.id}`}
+                        style={learnerColumnStyle(col.id)}
+                        className={
+                          jsonCol
+                            ? 'max-w-[28rem] overflow-hidden text-ellipsis whitespace-nowrap px-3 py-2 font-mono text-[11px]'
+                            : 'max-w-[22rem] whitespace-normal px-3 py-2 font-mono text-[11px]'
+                        }
+                        title={row.residualCsv[csvCol]?.length ? row.residualCsv[csvCol] : undefined}
+                      >
+                        {formatLearnerResidualCsvCell(csvCol, row.residualCsv[csvCol])}
+                      </td>
                     )
                   })}
                 </tr>
@@ -2419,13 +2741,13 @@ export default function GraphAnalysisPage() {
                   <td style={learnerColumnStyle('dominantRatio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
                     {formatColumnStatField(learnerTableColumnStats.dominantRatio, statField)}
                   </td>
-                  {learnerResidualCsvColumns.map((col) => (
+                  {visibleLearnerMetricDisplayColumns.map((col) => (
                     <td
-                      key={`lr-foot-${col}-${statField}`}
-                      style={learnerColumnStyle(col)}
+                      key={`lr-foot-${col.id}-${statField}`}
+                      style={learnerColumnStyle(col.id)}
                       className="whitespace-nowrap px-3 py-1.5 font-mono text-[11px]"
                     >
-                      {formatColumnStatField(learnerTableColumnStats[col] ?? null, statField)}
+                      {formatColumnStatField(learnerTableColumnStats[col.id] ?? null, statField)}
                     </td>
                   ))}
                 </tr>
@@ -2513,9 +2835,13 @@ export default function GraphAnalysisPage() {
                       <table className="min-w-max border-collapse text-left text-[11px]">
                         <thead className="sticky top-0 bg-slate-100 text-[10px] uppercase tracking-wide text-slate-600">
                           <tr>
-                            {orderedCreationPreviewColumns(selectedCreationPreview.flows_preview).map((col) => (
-                              <th key={`cp-col-${col}`} className="border-b border-slate-200 px-2 py-1.5 whitespace-nowrap">
-                                <MetricStatColumnHeader col={col} />
+                            {orderedCreationPreviewDisplayColumns(selectedCreationPreview.flows_preview).map((col) => (
+                              <th key={`cp-col-${col.id}`} className="border-b border-slate-200 px-2 py-1.5 whitespace-nowrap">
+                                {col.kind === 'mean_cv' ? (
+                                  <MetricMeanCvColumnHeader base={col.base} />
+                                ) : (
+                                  <MetricStatColumnHeader col={col.col} />
+                                )}
                               </th>
                             ))}
                           </tr>
@@ -2523,9 +2849,20 @@ export default function GraphAnalysisPage() {
                         <tbody>
                           {selectedCreationPreview.flows_preview.map((flow, fi) => (
                             <tr key={`cp-flow-${selectedDetail.learnerName}-${fi}`} className="odd:bg-white even:bg-slate-50">
-                              {orderedCreationPreviewColumns(selectedCreationPreview.flows_preview).map((col) => (
-                                <td key={`cp-cell-${fi}-${col}`} className="border-b border-slate-100 px-2 py-1.5 whitespace-nowrap font-mono">
-                                  {formatCreationPreviewCell(flow[col])}
+                              {orderedCreationPreviewDisplayColumns(selectedCreationPreview.flows_preview).map((col) => (
+                                <td
+                                  key={`cp-cell-${fi}-${col.id}`}
+                                  className="border-b border-slate-100 px-2 py-1.5 whitespace-normal font-mono"
+                                >
+                                  {col.kind === 'mean_cv' ? (
+                                    formatMeanCvCombinedCell(
+                                      flow[col.meanCol] as string | boolean | undefined,
+                                      flow[col.cvCol] as string | boolean | undefined,
+                                      (raw) => formatCreationPreviewCell(raw),
+                                    )
+                                  ) : (
+                                    formatCreationPreviewCell(flow[col.col])
+                                  )}
                                 </td>
                               ))}
                             </tr>

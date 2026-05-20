@@ -1,10 +1,11 @@
-description: default
 decision_tree:
   enabled: true
   max_depth: 6
   min_samples_leaf: 2
   attack_threshold: 0.5
   min_label_count: 5000
+title: CIC2017_to_2019_transfer_aligned_v1_subset
+description: rerun_b0p28_temporal_port_fix
 paths:
   data_dir: data
   input_files:
@@ -19,26 +20,16 @@ runtime:
   aggregate_overlap_enabled: true
   aggregate_top_k_edges: 80
   attack_sample_per_type: 0
-  benign_accept_scale: 0.34
+  benign_accept_scale: 0.28
   benign_sample_max_rows: 0
   cpu_only: false
   debug_overlap_enabled: true
   debug_overlap_max_edges: 80
   debug_overlap_min_jaccard: 0.15
   debug_overlap_top_k_edges: 80
-  feature_profile: compact_stats_no_env
+  feature_profile: all_numeric_no_env
   freeze_benign_incremental: false
   max_rows: 0
-  # 退化行剔除：任一启用规则中，所列列在数值上「同时」≈0 时整行丢弃（多规则之间为 OR）。
-  # 单规则列之间为 AND。用于去掉前/后向包数均为 0 等无信息量流。
-  drop_when_all_numeric_zero_rules:
-    - name: zero_fwd_bwd_packet_counts
-      enabled: true
-      columns:
-      - Total Fwd Packet
-      - Total Bwd packets
-      eps: 0.0
-      treat_nan_as_zero: true
   year_include:
   - '2017'
   - '2019'
@@ -56,10 +47,17 @@ runtime:
   - DrDoS_UDP
   - TFTP
   - UDPLag
-  run_id: auto_tcp_no_drdos_tftp_udplag_ssdp_fpr_tuned
   seed: 42
   uniform_learner_treatment: false
   use_name_based_benign_logic: false
+  drop_when_all_numeric_zero_rules:
+  - name: zero_fwd_bwd_packet_counts
+    enabled: true
+    columns:
+    - Total Fwd Packet
+    - Total Bwd packets
+    eps: 0.0
+    treat_nan_as_zero: true
 sampling:
   attack_sample_per_type: 5000
   benign_sample_max_rows: 0
@@ -92,16 +90,15 @@ stream:
   init_known_mode: benign_only
   init_ratio: 0.01
   window_size: 10000
-title: CIC2017_to_2019_transfer_aligned_v1_subset
 tmagnifier:
   cluster_trigger_size: 120
-  dbscan_eps: 1.3
-  dbscan_min_samples: 10
+  dbscan_eps: 1.6
+  dbscan_min_samples: 20
   max_unknown_buffer: 30000
   new_class_min_size: 500
 tscissors:
-  evt_quantile: 0.97
-  evt_risk: 0.0015
+  evt_quantile: 0.95
+  evt_risk: 0.001
   fallback_quantile: 0.99
 tsieve:
   batch_size: 256
@@ -112,7 +109,7 @@ tsieve:
   iforest_n_estimators: 200
   increment_drift_gate_enabled: true
   increment_drift_min_history_samples: 500
-  increment_drift_min_score: 0.12
+  increment_drift_min_score: 0.1
   increment_epochs: 1
   increment_min_samples: 1000
   init_epochs: 5

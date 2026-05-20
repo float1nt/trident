@@ -45,20 +45,20 @@
   border-color: var(--notion-border);
 }
 
-.dark-card {
+.panel-card {
   background: var(--notion-surface) !important;
   border-color: var(--notion-border) !important;
 }
 
-.dark-card .ant-card-head,
-.dark-card .ant-card-body {
+.panel-card .ant-card-head,
+.panel-card .ant-card-body {
   color: var(--notion-text-primary);
 }
 
-.dark-card .ant-statistic-title {
+.panel-card .ant-statistic-title {
   color: var(--notion-text-secondary);
 }
 
-.dark-card .ant-statistic-content {
+.panel-card .ant-statistic-content {
   color: var(--notion-text-primary);
 }

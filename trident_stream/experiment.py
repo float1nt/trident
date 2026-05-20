@@ -180,6 +180,7 @@ LEARNER_CREATION_PREVIEW_FLOW_COUNT = 10
 
 TCP_PROTOCOL_NUMBER = 6
 UDP_PROTOCOL_NUMBER = 17
+LEARNER_GLOBAL_TIME_BINS = 256
 MISSING_SENTINEL_TO_ZERO_COLUMNS = {
     "FWD Init Win Bytes": "fwd_init_win_missing_flag",
     "Bwd Init Win Bytes": "bwd_init_win_missing_flag",
@@ -326,6 +327,7 @@ class TridentStreamingExperiment:
         self.learner_creation_sample_count: Dict[str, int] = {}
         self.learner_cumulative_counts: Dict[str, Dict[str, int]] = {}
         self.learner_assigned_feature_chunks: Dict[str, List[np.ndarray]] = {}
+        self.learner_assigned_label_chunks: Dict[str, List[np.ndarray]] = {}
         self.freeze_benign_incremental = bool(cfg["runtime"].get("freeze_benign_incremental", False))
         self.run_id = str(cfg["runtime"].get("run_id", datetime.now().strftime("%Y%m%d_%H%M%S")))
         self.history_sample_rate = float(cfg["tsieve"].get("historical_sample_rate", 0.5))
@@ -883,6 +885,14 @@ class TridentStreamingExperiment:
         )
 
     @staticmethod
+    def _format_stream_timestamp(value: Any) -> str:
+        """Emit fixed microsecond precision so assignment CSV parses reliably."""
+        ts = pd.Timestamp(value)
+        if bool(pd.isna(ts)):
+            return ""
+        return ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+    @staticmethod
     def _json_scalar(value: Any) -> Any:
         if value is None or isinstance(value, (bool, str)):
             return value
@@ -1128,7 +1138,12 @@ class TridentStreamingExperiment:
         }
         self.learner_fit_loss_profiles.append(row)
 
-    def _record_learner_samples(self, learner_name: str, samples: np.ndarray) -> None:
+    def _record_learner_samples(
+        self,
+        learner_name: str,
+        samples: np.ndarray,
+        labels: np.ndarray | None = None,
+    ) -> None:
         if len(samples) == 0:
             return
         chunk = np.asarray(samples, dtype=np.float32)
@@ -1136,7 +1151,16 @@ class TridentStreamingExperiment:
             chunk = chunk.reshape(1, -1)
         if chunk.shape[0] == 0:
             return
-        self.learner_assigned_feature_chunks.setdefault(str(learner_name), []).append(chunk)
+        lname = str(learner_name)
+        self.learner_assigned_feature_chunks.setdefault(lname, []).append(chunk)
+        if labels is not None:
+            label_chunk = np.asarray(labels, dtype=object).reshape(-1)
+            if len(label_chunk) != int(chunk.shape[0]):
+                raise ValueError(
+                    f"label count {len(label_chunk)} != sample count {chunk.shape[0]} "
+                    f"for learner {lname}"
+                )
+            self.learner_assigned_label_chunks.setdefault(lname, []).append(label_chunk)
 
     def _accumulate_learner_distribution_from_counts(
         self, learner_name: str, dist: Dict[str, int]
@@ -1342,6 +1366,164 @@ class TridentStreamingExperiment:
             )
         return pd.DataFrame(rows)
 
+    def _build_learner_temporal_stats_df(self, data: pd.DataFrame) -> pd.DataFrame:
+        if data.empty or "Timestamp" not in data.columns:
+            return pd.DataFrame(columns=["learner_name"])
+        assign_df = self._build_extended_assignment_index_df(len(data))
+        if assign_df.empty:
+            return pd.DataFrame(columns=["learner_name"])
+
+        ts_all = pd.to_datetime(data["Timestamp"], errors="coerce")
+        if not bool(ts_all.notna().any()):
+            return pd.DataFrame(columns=["learner_name"])
+        global_min = ts_all[ts_all.notna()].min()
+        global_max = ts_all[ts_all.notna()].max()
+        global_span_sec = float((global_max - global_min).total_seconds())
+        n_bins = int(LEARNER_GLOBAL_TIME_BINS)
+        edges = np.linspace(global_min.value, global_max.value, n_bins + 1)
+
+        ts_df = pd.DataFrame(
+            {
+                "row_index": np.arange(len(data), dtype=np.int64),
+                "Timestamp": ts_all,
+            }
+        )
+        merged = assign_df.merge(ts_df, on="row_index", how="left")
+        if merged.empty:
+            return pd.DataFrame(columns=["learner_name"])
+
+        rows: List[Dict[str, object]] = []
+        for learner_name, g in merged.groupby("assigned_learner", dropna=False):
+            ts = pd.to_datetime(g["Timestamp"], errors="coerce").dropna().sort_values()
+            n = int(len(ts))
+            if n <= 0:
+                rows.append(
+                    {
+                        "learner_name": str(learner_name),
+                        "temporal_sample_count": 0,
+                        "temporal_span_sec": 0.0,
+                        "temporal_span_ratio": 0.0,
+                        "temporal_global_hhi": 0.0,
+                        "temporal_norm_entropy": 0.0,
+                        "temporal_concentration": 0.0,
+                        "temporal_burst_score": 0.0,
+                        "temporal_cluster_type": "EMPTY",
+                    }
+                )
+                continue
+            span_sec = float((ts.iloc[-1] - ts.iloc[0]).total_seconds()) if n > 1 else 0.0
+            span_ratio = float(span_sec / global_span_sec) if global_span_sec > 0.0 else 0.0
+            counts, _ = np.histogram(ts.astype("int64"), bins=edges)
+            counts = counts.astype(float)
+            mass = counts / max(float(n), 1.0)
+            global_hhi = float(np.sum(mass**2))
+            occupied = counts[counts > 0]
+            if len(occupied) <= 1:
+                norm_entropy = 0.0
+            else:
+                p = occupied / float(n)
+                ent = float(-np.sum(p * np.log(p + 1e-15)))
+                norm_entropy = float(ent / np.log(len(occupied)))
+            concentration = float(1.0 - norm_entropy)
+            burst_score = float(0.5 * (1.0 - min(span_ratio, 1.0)) + 0.5 * global_hhi)
+            if span_ratio < 1e-3 and global_hhi >= 0.5:
+                cluster_type = "SHORT_BURST"
+            elif span_ratio >= 0.01:
+                cluster_type = "LONG_SPAN"
+            else:
+                cluster_type = "MEDIUM_SPAN"
+            rows.append(
+                {
+                    "learner_name": str(learner_name),
+                    "temporal_sample_count": n,
+                    "temporal_span_sec": span_sec,
+                    "temporal_span_ratio": span_ratio,
+                    "temporal_global_hhi": global_hhi,
+                    "temporal_norm_entropy": norm_entropy,
+                    "temporal_concentration": concentration,
+                    "temporal_burst_score": burst_score,
+                    "temporal_cluster_type": cluster_type,
+                }
+            )
+        return pd.DataFrame(rows)
+
+    def _build_learner_port_stats_df(self, data: pd.DataFrame) -> pd.DataFrame:
+        if "Dst Port" not in data.columns:
+            return pd.DataFrame(columns=["learner_name"])
+        assign_df = self._build_extended_assignment_index_df(len(data))
+        if assign_df.empty:
+            return pd.DataFrame(columns=["learner_name"])
+
+        port_df = pd.DataFrame(
+            {
+                "row_index": np.arange(len(data), dtype=np.int64),
+                "Dst Port": pd.to_numeric(data["Dst Port"], errors="coerce"),
+                "Src Port": pd.to_numeric(data["Src Port"], errors="coerce")
+                if "Src Port" in data.columns
+                else np.nan,
+            }
+        )
+        merged = assign_df.merge(port_df, on="row_index", how="left")
+        if merged.empty:
+            return pd.DataFrame(columns=["learner_name"])
+
+        def _port_metrics(ports: pd.Series) -> Dict[str, object]:
+            p = pd.to_numeric(ports, errors="coerce").dropna().astype(int)
+            n = int(len(p))
+            if n <= 0:
+                return {
+                    "n": 0,
+                    "unique": 0,
+                    "norm_entropy": 0.0,
+                    "concentration": 0.0,
+                    "hhi": 0.0,
+                    "top_port": 0,
+                    "top_ratio": 0.0,
+                }
+            vc = p.value_counts()
+            k = int(len(vc))
+            mass = (vc / n).values.astype(float)
+            ent = float(-np.sum(mass * np.log(mass + 1e-15)))
+            norm_entropy = float(ent / np.log(k)) if k > 1 else 0.0
+            return {
+                "n": n,
+                "unique": k,
+                "norm_entropy": norm_entropy,
+                "concentration": float(1.0 - norm_entropy),
+                "hhi": float(np.sum(mass**2)),
+                "top_port": int(vc.index[0]),
+                "top_ratio": float(mass[0]),
+            }
+
+        rows: List[Dict[str, object]] = []
+        for learner_name, g in merged.groupby("assigned_learner", dropna=False):
+            dst = _port_metrics(g["Dst Port"])
+            src = _port_metrics(g["Src Port"])
+            if int(dst["unique"]) <= 0:
+                cluster_type = "UNKNOWN"
+            elif float(dst["top_ratio"]) < 0.15 and int(dst["unique"]) >= 200:
+                cluster_type = "PORT_SCAN_LIKE"
+            elif float(dst["top_ratio"]) > 0.9 and int(dst["unique"]) <= 3:
+                cluster_type = "SINGLE_PORT"
+            else:
+                cluster_type = "SERVICE_LIKE"
+            rows.append(
+                {
+                    "learner_name": str(learner_name),
+                    "dst_port_sample_count": int(dst["n"]),
+                    "dst_port_unique": int(dst["unique"]),
+                    "dst_port_norm_entropy": float(dst["norm_entropy"]),
+                    "dst_port_concentration": float(dst["concentration"]),
+                    "dst_port_hhi": float(dst["hhi"]),
+                    "dst_top_port": int(dst["top_port"]),
+                    "dst_top_port_ratio": float(dst["top_ratio"]),
+                    "src_port_norm_entropy": float(src["norm_entropy"]),
+                    "src_port_unique": int(src["unique"]),
+                    "port_cluster_type": cluster_type,
+                }
+            )
+        return pd.DataFrame(rows)
+
     @staticmethod
     def _build_attack_ratio_feature_correlation_rows(
         profile_df: pd.DataFrame,
@@ -1358,6 +1540,8 @@ class TridentStreamingExperiment:
                 "label_distribution_json",
                 "is_attack_learner",
                 "protocol_cluster_type",
+                "temporal_cluster_type",
+                "port_cluster_type",
             }:
                 continue
             x = pd.to_numeric(profile_df[col], errors="coerce")
@@ -2426,7 +2610,9 @@ class TridentStreamingExperiment:
                 ],
             )
             self._accumulate_learner_distribution(learner_name=name, labels=cluster_labels_arr)
-            self._record_learner_samples(learner_name=name, samples=cluster_x)
+            self._record_learner_samples(
+                learner_name=name, samples=cluster_x, labels=cluster_labels_arr
+            )
             self._record_learner_creation_flow_preview(
                 data=data,
                 learner_name=name,
@@ -2453,25 +2639,56 @@ class TridentStreamingExperiment:
         self,
         learner_names: List[str],
         accepted_by_learner: Dict[str, List[np.ndarray]],
+        accepted_labels_by_learner: Dict[str, List[str]],
     ) -> Tuple[np.ndarray, np.ndarray]:
+        """Gather samples for small-learner recluster; keep original LabelNorm per row."""
         sample_chunks: List[np.ndarray] = []
         payload_labels: List[str] = []
         for learner_name in learner_names:
-            tag = f"RECLUSTER|{learner_name}"
-            for chunk in self.learner_assigned_feature_chunks.get(str(learner_name), []):
+            lname = str(learner_name)
+            feat_chunks = self.learner_assigned_feature_chunks.get(lname, [])
+            label_chunks = self.learner_assigned_label_chunks.get(lname, [])
+            if len(label_chunks) != len(feat_chunks):
+                self.logger.warning(
+                    "[SmallLearnerRecluster] learner=%s missing per-sample labels for %d/%d "
+                    "feature chunks; those chunks are skipped",
+                    lname,
+                    len(feat_chunks) - len(label_chunks),
+                    len(feat_chunks),
+                )
+            for chunk_idx, chunk in enumerate(feat_chunks):
+                if chunk_idx >= len(label_chunks):
+                    continue
                 arr = np.asarray(chunk, dtype=np.float32)
                 if arr.ndim == 1:
                     arr = arr.reshape(1, -1)
                 if len(arr) == 0:
                     continue
+                lbls = np.asarray(label_chunks[chunk_idx], dtype=object).reshape(-1)
+                if len(lbls) != int(arr.shape[0]):
+                    self.logger.warning(
+                        "[SmallLearnerRecluster] learner=%s chunk %d label/sample mismatch "
+                        "(%d vs %d); skip chunk",
+                        lname,
+                        chunk_idx,
+                        len(lbls),
+                        int(arr.shape[0]),
+                    )
+                    continue
                 sample_chunks.append(arr)
-                payload_labels.extend([tag] * int(arr.shape[0]))
-            pending = accepted_by_learner.get(str(learner_name), [])
+                payload_labels.extend(str(x) for x in lbls)
+            pending = accepted_by_learner.get(lname, [])
+            pending_labels = accepted_labels_by_learner.get(lname, [])
             if pending:
                 arr_pending = np.stack(pending, axis=0).astype(np.float32, copy=False)
                 if len(arr_pending) > 0:
+                    if len(pending_labels) != int(arr_pending.shape[0]):
+                        raise ValueError(
+                            f"pending label count {len(pending_labels)} != "
+                            f"pending sample count {arr_pending.shape[0]} for learner {lname}"
+                        )
                     sample_chunks.append(arr_pending)
-                    payload_labels.extend([tag] * int(arr_pending.shape[0]))
+                    payload_labels.extend(str(x) for x in pending_labels)
         if not sample_chunks:
             return np.empty((0, 0), dtype=np.float32), np.empty((0,), dtype=object)
         merged = np.concatenate(sample_chunks, axis=0).astype(np.float32, copy=False)
@@ -2491,6 +2708,7 @@ class TridentStreamingExperiment:
         self.learner_creation_sample_count.pop(name, None)
         self.learner_cumulative_counts.pop(name, None)
         self.learner_assigned_feature_chunks.pop(name, None)
+        self.learner_assigned_label_chunks.pop(name, None)
         self._learner_creation_row_indices.pop(name, None)
         self.debug_overlap_accept_count.pop(name, None)
         if self.debug_overlap_pair_intersections:
@@ -2531,6 +2749,7 @@ class TridentStreamingExperiment:
         payload_x, payload_labels = self._collect_recluster_payload(
             learner_names=candidate_names,
             accepted_by_learner=accepted_by_learner,
+            accepted_labels_by_learner=accepted_labels_by_learner,
         )
         if len(payload_x) == 0:
             return 0.0
@@ -2976,6 +3195,25 @@ class TridentStreamingExperiment:
                     before_rows,
                 )
 
+        year_benign_exclude_cfg = self._normalize_runtime_list(
+            runtime_cfg.get("year_benign_exclude")
+        )
+        if year_benign_exclude_cfg:
+            exclude_years = {str(y).strip() for y in year_benign_exclude_cfg if str(y).strip()}
+            if exclude_years:
+                before_rows = int(len(filtered))
+                year_series = filtered["LabelNorm"].map(lambda x: split_year_label(str(x))[0])
+                benign_mask = filtered["LabelNorm"].map(is_benign_label)
+                drop_mask = year_series.isin(exclude_years) & benign_mask
+                filtered = filtered.loc[~drop_mask].reset_index(drop=True)
+                self.logger.info(
+                    "[YearBenignFilter] exclude_years=%s dropped=%d kept=%d/%d",
+                    sorted(exclude_years),
+                    int(drop_mask.sum()),
+                    int(len(filtered)),
+                    before_rows,
+                )
+
         attack_include_cfg = self._normalize_runtime_list(runtime_cfg.get("attack_type_include"))
         if attack_include_cfg:
             include_set = {
@@ -3260,7 +3498,9 @@ class TridentStreamingExperiment:
                     cluster_labels=np.asarray(labels_preview, dtype=object),
                     binding_metas=metas_full_binding,
                 )
-                self._record_learner_samples(learner_name=label, samples=x_init[idx])
+                self._record_learner_samples(
+                    learner_name=label, samples=x_init[idx], labels=learner_labels
+                )
                 self._append_history_pool(label, x_init[idx])
                 self.learner_last_trained_row_index[str(label)] = int(max(0, init_end - 1))
                 if self.increment_iforest_guard_enabled:
@@ -3275,6 +3515,25 @@ class TridentStreamingExperiment:
             raise RuntimeError("No initial learners created")
         self.tsieve.set_benign_anchor_names(sorted(self.benign_anchor_learners))
         return init_end
+
+    def _run_decision_tree_analysis(
+        self,
+        *,
+        profile_df: pd.DataFrame,
+        label_df: pd.DataFrame,
+    ) -> None:
+        from trident_stream.decision_tree_analysis import run_pipeline_decision_tree_analysis
+
+        try:
+            run_pipeline_decision_tree_analysis(
+                self.output_dir,
+                profile_df,
+                label_df,
+                self.cfg,
+                logger=self.logger,
+            )
+        except Exception:
+            self.logger.exception("Decision tree analysis failed (non-fatal).")
 
     def run(self) -> None:
         self._log_hyperparameters()
@@ -3366,6 +3625,14 @@ class TridentStreamingExperiment:
         }
         with open(dataset_label_summary_path, "w", encoding="utf-8") as f:
             json.dump(dataset_label_summary, f, ensure_ascii=False, indent=2)
+        dataset_topology_path = self.output_dir / "dataset_network_topology.json"
+        try:
+            from trident_stream.dataset_topology import save_dataset_network_topology
+
+            if save_dataset_network_topology(data, dataset_topology_path):
+                self.logger.info("Done. DATASET_NETWORK_TOPOLOGY=%s", dataset_topology_path)
+        except Exception:
+            self.logger.exception("Dataset network topology export failed (non-fatal).")
         self.logger.info(
             "Done. DATASET_LABEL_DISTRIBUTION=%s | SUMMARY=%s | LABEL_CORR_JSON=%s | LABEL_CORR_FIG=%s | labels=%d",
             dataset_label_csv_path,
@@ -3424,7 +3691,7 @@ class TridentStreamingExperiment:
                 self.sample_assignments.append(
                     {
                         "row_index": int(left + i),
-                        "timestamp": str(chunk_df["Timestamp"].iloc[i]),
+                        "timestamp": self._format_stream_timestamp(chunk_df["Timestamp"].iloc[i]),
                         "assigned_learner": str(assigned_learner),
                         "phase": "stream",
                     }
@@ -3436,7 +3703,7 @@ class TridentStreamingExperiment:
                         str(chunk_labels[i]),
                         {
                             "row_index": int(left + i),
-                            "timestamp": str(chunk_df["Timestamp"].iloc[i]),
+                            "timestamp": self._format_stream_timestamp(chunk_df["Timestamp"].iloc[i]),
                         },
                     )
                 else:
@@ -3445,7 +3712,7 @@ class TridentStreamingExperiment:
                     accepted_meta_by_learner.setdefault(pred, []).append(
                         {
                             "row_index": int(left + i),
-                            "timestamp": str(chunk_df["Timestamp"].iloc[i]),
+                            "timestamp": self._format_stream_timestamp(chunk_df["Timestamp"].iloc[i]),
                             "label_norm": str(chunk_labels[i]),
                             "window_left": int(left),
                             "window_right": int(right),
@@ -3491,7 +3758,12 @@ class TridentStreamingExperiment:
                 if len(samples) == 0:
                     continue
                 arr_all_new = np.stack(samples, axis=0)
-                self._record_learner_samples(learner_name=name, samples=arr_all_new)
+                pending_labels = accepted_labels_by_learner.get(name, [])
+                self._record_learner_samples(
+                    learner_name=name,
+                    samples=arr_all_new,
+                    labels=np.asarray(pending_labels, dtype=object),
+                )
                 meta_rows = accepted_meta_by_learner.get(name, [])
                 keep_mask = np.ones(len(arr_all_new), dtype=bool)
                 if (not self.uniform_learner_treatment) and self.tsieve.is_benign_learner(name):
@@ -4057,6 +4329,8 @@ class TridentStreamingExperiment:
             feature_names=IMPORTANT_LEARNER_CLUSTER_FEATURES,
         )
         learner_protocol_stats_df = self._build_learner_protocol_stats_df(data=data)
+        learner_temporal_stats_df = self._build_learner_temporal_stats_df(data=data)
+        learner_port_stats_df = self._build_learner_port_stats_df(data=data)
         if not learner_feature_stats_df.empty:
             profile_df = profile_df.merge(learner_feature_stats_df, on="learner_name", how="left")
             stats_feature_cols = [c for c in learner_feature_stats_df.columns if c != "learner_name"]
@@ -4077,6 +4351,40 @@ class TridentStreamingExperiment:
             if "protocol_cluster_type" in profile_df.columns:
                 profile_df["protocol_cluster_type"] = (
                     profile_df["protocol_cluster_type"].fillna("UNKNOWN").astype(str)
+                )
+        if not learner_temporal_stats_df.empty:
+            profile_df = profile_df.merge(learner_temporal_stats_df, on="learner_name", how="left")
+            for c in [
+                "temporal_span_sec",
+                "temporal_span_ratio",
+                "temporal_global_hhi",
+                "temporal_norm_entropy",
+                "temporal_concentration",
+                "temporal_burst_score",
+            ]:
+                if c in profile_df.columns:
+                    profile_df[c] = pd.to_numeric(profile_df[c], errors="coerce").fillna(0.0)
+            if "temporal_cluster_type" in profile_df.columns:
+                profile_df["temporal_cluster_type"] = (
+                    profile_df["temporal_cluster_type"].fillna("UNKNOWN").astype(str)
+                )
+        if not learner_port_stats_df.empty:
+            profile_df = profile_df.merge(learner_port_stats_df, on="learner_name", how="left")
+            for c in [
+                "dst_port_norm_entropy",
+                "dst_port_concentration",
+                "dst_port_hhi",
+                "dst_top_port_ratio",
+                "src_port_norm_entropy",
+            ]:
+                if c in profile_df.columns:
+                    profile_df[c] = pd.to_numeric(profile_df[c], errors="coerce").fillna(0.0)
+            for c in ["dst_port_sample_count", "dst_port_unique", "dst_top_port", "src_port_unique"]:
+                if c in profile_df.columns:
+                    profile_df[c] = pd.to_numeric(profile_df[c], errors="coerce").fillna(0).astype(int)
+            if "port_cluster_type" in profile_df.columns:
+                profile_df["port_cluster_type"] = (
+                    profile_df["port_cluster_type"].fillna("UNKNOWN").astype(str)
                 )
         if not profile_df.empty and "attack_ratio" in profile_df.columns:
             profile_df = profile_df.sort_values(
@@ -4121,6 +4429,7 @@ class TridentStreamingExperiment:
         risk_rows = self._build_unsupervised_learner_risk_rows()
         pd.DataFrame(risk_rows).to_csv(learner_risk_path, index=False)
         self.logger.info("Done. LEARNER_RISK=%s", learner_risk_path)
+        self._run_decision_tree_analysis(profile_df=profile_df, label_df=dataset_label_profile_df)
         metrics_path = self.output_dir / "metrics.json"
         metrics = self._compute_run_metrics(cumulative_rows)
         metrics["protocol_cluster_summary"] = self._build_protocol_cluster_summary(profile_df)
@@ -4413,6 +4722,15 @@ class TridentStreamingExperiment:
             json.dump(perf_summary, f, ensure_ascii=False, indent=2)
         assignment_path = self.output_dir / "sample_learner_assignments.csv"
         pd.DataFrame(self.sample_assignments).to_csv(assignment_path, index=False)
+        learner_topology_path = self.output_dir / "learner_network_topology.json"
+        try:
+            from trident_stream.dataset_topology import save_learner_network_topology
+
+            assign_index_df = self._build_extended_assignment_index_df(len(data))
+            if save_learner_network_topology(data, assign_index_df, learner_topology_path):
+                self.logger.info("Done. LEARNER_NETWORK_TOPOLOGY=%s", learner_topology_path)
+        except Exception:
+            self.logger.exception("Learner network topology export failed (non-fatal).")
         accept_trace_path = self.output_dir / "learner_accept_trace.csv"
         pd.DataFrame(self.learner_accept_trace).to_csv(accept_trace_path, index=False)
 
