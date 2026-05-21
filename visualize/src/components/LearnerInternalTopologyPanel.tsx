@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Select, Slider } from 'antd'
-import { TopologyChartPane, type TopologyGraph } from './NetworkTopologyPanel'
+import {
+  GRID_CHART_HEIGHT,
+  GRID_LAYOUT_CLASS,
+  TopologyChartPane,
+  TopologyViewModeToggle,
+  type TopologyGraph,
+  type TopologyViewMode,
+} from './NetworkTopologyPanel'
 
 export type LearnerTopologyView = {
   learner: string
@@ -71,6 +78,7 @@ export function LearnerInternalTopologyPanel({
   onLearnerChange,
 }: Props) {
   const [pickedLearner, setPickedLearner] = useState<string>('')
+  const [viewMode, setViewMode] = useState<TopologyViewMode>('grid')
   const [repulsion, setRepulsion] = useState(180)
   const [minEdgeFlows, setMinEdgeFlows] = useState(1)
 
@@ -133,6 +141,10 @@ export function LearnerInternalTopologyPanel({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-3">
+        <div className="flex shrink-0 flex-col gap-1">
+          <label className="field-label">展示模式</label>
+          <TopologyViewModeToggle value={viewMode} onChange={setViewMode} />
+        </div>
         <div className="min-w-[180px] flex-1">
           <label className="field-label">斥力 {repulsion}</label>
           <Slider min={40} max={500} value={repulsion} onChange={setRepulsion} />
@@ -141,44 +153,112 @@ export function LearnerInternalTopologyPanel({
           <label className="field-label">最小边流量 {minEdgeFlows}</label>
           <Slider min={1} max={500} step={1} value={minEdgeFlows} onChange={setMinEdgeFlows} />
         </div>
-        <div className="w-full min-w-[min(100%,420px)] flex-[3] sm:ml-auto sm:max-w-[720px]">
-          <label className="field-label">学习器（按攻击占比降序）</label>
-          <Select
-            className="w-full"
-            showSearch
-            optionFilterProp="label"
-            popupMatchSelectWidth={false}
-            dropdownStyle={{ minWidth: 640 }}
-            value={effectiveLearner || undefined}
-            onChange={(v) => handleLearnerChange(String(v))}
-            options={selectOptions}
-          />
-        </div>
+        {viewMode === 'single' ? (
+          <div className="w-full min-w-[min(100%,420px)] flex-[3] sm:ml-auto sm:max-w-[720px]">
+            <label className="field-label">学习器（按攻击占比降序）</label>
+            <Select
+              className="w-full"
+              showSearch
+              optionFilterProp="label"
+              popupMatchSelectWidth={false}
+              dropdownStyle={{ minWidth: 640 }}
+              value={effectiveLearner || undefined}
+              onChange={(v) => handleLearnerChange(String(v))}
+              options={selectOptions}
+            />
+          </div>
+        ) : (
+          <p className="w-full flex-[3] text-xs text-slate-500 sm:ml-auto sm:max-w-[720px]">
+            网格模式：共 {sortedOptions.length} 个学习器
+          </p>
+        )}
       </div>
 
       <p className="text-xs text-slate-500">
-        左：IP；右：IP:端口。边按流真实标签着色（绿=良性、红=攻击）；蓝框=内网。当前：攻击占比={attackPct}
-        ，主导标签={dominantLabel}
-        {dominantRatio !== '—' ? <>（占比 {dominantRatio}）</> : null}
-        {flowCount != null ? <> · {flowCount.toLocaleString()} 条流</> : null}
+        {viewMode === 'single' ? (
+          <>
+            左：IP；右：IP:端口。边按流真实标签着色（绿=良性、红=攻击）；蓝框=内网。当前：攻击占比={attackPct}
+            ，主导标签={dominantLabel}
+            {dominantRatio !== '—' ? <>（占比 {dominantRatio}）</> : null}
+            {flowCount != null ? <> · {flowCount.toLocaleString()} 条流</> : null}
+          </>
+        ) : (
+          <>
+            网格模式展示全部学习器拓扑（左 IP / 右 IP:端口）；共 {sortedOptions.length} 项，边按真实标签着色。
+          </>
+        )}
       </p>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <TopologyChartPane
-          title="IP（主机）"
-          graph={hostGraph}
-          viewIsBenign={null}
-          repulsion={repulsion}
-          minEdgeFlows={minEdgeFlows}
-        />
-        <TopologyChartPane
-          title="IP:端口（服务）"
-          graph={endpointGraph}
-          viewIsBenign={null}
-          repulsion={repulsion}
-          minEdgeFlows={minEdgeFlows}
-        />
-      </div>
+      {viewMode === 'single' ? (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <TopologyChartPane
+            title="IP（主机）"
+            graph={hostGraph}
+            viewIsBenign={null}
+            repulsion={repulsion}
+            minEdgeFlows={minEdgeFlows}
+          />
+          <TopologyChartPane
+            title="IP:端口（服务）"
+            graph={endpointGraph}
+            viewIsBenign={null}
+            repulsion={repulsion}
+            minEdgeFlows={minEdgeFlows}
+          />
+        </div>
+      ) : (
+        <div className={GRID_LAYOUT_CLASS}>
+          {sortedOptions.map((option) => {
+            const gridView = data.views[option.name]
+            if (!gridView) return null
+            const itemFlowCount = gridView.host?.flow_count ?? gridView.endpoint?.flow_count
+            const itemAttackPct = `${(gridView.attack_ratio * 100).toFixed(2)}%`
+            const itemDominant = gridView.dominant_label || option.dominantLabel || '—'
+            return (
+              <div
+                key={`learner-topology-grid-${option.name}`}
+                className="overflow-hidden rounded-md border border-slate-200 bg-white"
+              >
+                <div className="border-b border-slate-100 px-2 py-1">
+                  <h4
+                    className="truncate text-[11px] font-medium leading-tight text-slate-800"
+                    title={option.name}
+                  >
+                    {option.name}
+                  </h4>
+                  <p className="truncate text-[10px] leading-tight text-slate-500">
+                    攻击 {itemAttackPct} · {itemDominant}
+                    {gridView.host ? (
+                      <> · {gridView.host.nodes.length} 节点</>
+                    ) : null}
+                    {itemFlowCount != null ? <> · {itemFlowCount.toLocaleString()} 流</> : null}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-1 p-1">
+                  <TopologyChartPane
+                    title="IP"
+                    graph={gridView.host}
+                    viewIsBenign={null}
+                    repulsion={repulsion}
+                    minEdgeFlows={minEdgeFlows}
+                    chartHeight={GRID_CHART_HEIGHT}
+                    compact
+                  />
+                  <TopologyChartPane
+                    title="端口"
+                    graph={gridView.endpoint}
+                    viewIsBenign={null}
+                    repulsion={repulsion}
+                    minEdgeFlows={minEdgeFlows}
+                    chartHeight={GRID_CHART_HEIGHT}
+                    compact
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
