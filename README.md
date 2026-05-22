@@ -13,7 +13,8 @@
 - `main.py`：入口脚本
 - `stream_trident_ae.py`：兼容旧命令的别名入口（内部转发到 `main.py`）
 - `configs/`：配置文件目录（如 `configs/config.yaml`）
-- `scripts/`：工具脚本目录（数据准备、评估、分析脚本）
+- `learner_qualification/`：学习器定性与可视化 artifact 导出入口（见 `learner_qualification/README.md`）
+- `scripts/`：离线研究/数据准备脚本；入口和分类见 `scripts/README.md`
 - `trident_stream/experiment.py`：主流程（加载数据、流式循环、输出结果）
 - `trident_stream/tsieve.py`：tSieve（AE 学习器管理、分类、增量更新）
 - `trident_stream/tscissors.py`：tScissors（EVT 阈值估计）
@@ -29,6 +30,13 @@ python3 main.py --config configs/config.yaml
 ```
 
 运行时会同时输出到终端和 `outputs/run.log`。
+
+每次 run 会在 `outputs/runs/<run_id>/` 写出 `visualize/` 所需产物。旧 run
+需要补导出时使用：
+
+```bash
+python3 learner_qualification/export_visualization_artifacts.py outputs/runs/<run_id>
+```
 
 ## 2017→2019 迁移测试（同义列对齐）
 
@@ -64,7 +72,14 @@ python3 main.py --config configs/config.yaml
 - `runtime.attack_type_include` / `runtime.attack_type_exclude`：攻击类型白/黑名单（基于 `Label`）
 - `runtime.protocol_include`：协议白名单（支持 `tcp`/`udp`/`other` 或协议号如 `6`/`17`）
 
-### 3) 流式阶段
+### 3) 可视化产物
+
+- `visualization.metric_audit_min_samples`：学习器拓扑指标审计的最小流数
+- `visualization.metric_audit_max_learners`：学习器拓扑指标审计最多输出的学习器数
+- `dataset_network_topology.json`、`learner_network_topology.json`、
+  `learner_topology_metric_audit.json` 会随 run 自动落盘
+
+### 4) 流式阶段
 
 - `stream.init_ratio`：前多少比例数据用于初始学习器
 - `stream.init_known_mode`：
@@ -72,7 +87,7 @@ python3 main.py --config configs/config.yaml
   - `all_init_labels`：初始阶段出现的所有标签都可建学习器
 - `stream.window_size`：每个窗口处理的样本数
 
-### 4) 三个核心组件参数
+### 5) 三个核心组件参数
 
 - `tsieve.*`：AE 训练、增量更新、最小样本要求等
 - `tscissors.*`：EVT 参数（`evt_quantile`、`evt_risk`、`fallback_quantile`）

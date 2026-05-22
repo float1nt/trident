@@ -282,19 +282,6 @@ export default function LearnerDetailPage() {
           </section>
 
           <section className="panel">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-widest text-notion-secondary">
-              内部网络拓扑
-            </h3>
-            <LearnerInternalTopologyPanel
-              data={topology}
-              learnerOptions={sortedLearnerOptions}
-              selectedLearner={effectiveLearner}
-              onLearnerChange={handleLearnerChange}
-              singleLearnerMode
-            />
-          </section>
-
-          <section className="panel">
             <h3 className="mb-1 text-sm font-semibold uppercase tracking-widest text-notion-secondary">
               拓扑审计指标
             </h3>
@@ -315,6 +302,19 @@ export default function LearnerDetailPage() {
               </div>
             ) : null}
             <LearnerMetricAuditPanel auditView={auditView} />
+          </section>
+
+          <section className="panel">
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-widest text-notion-secondary">
+              内部网络拓扑
+            </h3>
+            <LearnerInternalTopologyPanel
+              data={topology}
+              learnerOptions={sortedLearnerOptions}
+              selectedLearner={effectiveLearner}
+              onLearnerChange={handleLearnerChange}
+              singleLearnerMode
+            />
           </section>
         </>
       ) : (

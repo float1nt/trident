@@ -378,7 +378,7 @@ export function NetworkTopologyPanel({ data, labelOptions }: Props) {
       <div className="rounded-lg border border-dashed border-notion-border-strong bg-notion-surface-alt p-4 text-sm text-notion-secondary">
         本 run 尚无 <span className="font-mono">dataset_network_topology.json</span>。重新跑实验，或执行：
         <pre className="mt-2 overflow-x-auto rounded bg-notion-surface p-2 text-xs text-notion-text">
-          python3 scripts/export_dataset_network_topology.py outputs/runs/&lt;run_id&gt;
+          python3 learner_qualification/export_visualization_artifacts.py outputs/runs/&lt;run_id&gt;
         </pre>
       </div>
     )

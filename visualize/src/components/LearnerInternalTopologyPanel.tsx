@@ -85,7 +85,7 @@ export function LearnerInternalTopologyPanel({
       <div className="rounded-xl border border-dashed border-notion-border-strong bg-notion-surface-alt p-6 text-sm text-notion-secondary">
         本 run 尚无学习器拓扑数据。请执行：
         <pre className="mt-2 overflow-x-auto rounded-lg bg-notion-surface p-3 text-xs text-notion-text">
-          python3 scripts/export_learner_network_topology.py outputs/runs/&lt;run_id&gt;
+          python3 learner_qualification/export_visualization_artifacts.py outputs/runs/&lt;run_id&gt;
         </pre>
       </div>
     )

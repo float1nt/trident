@@ -34,7 +34,7 @@ outputs/runs/<run_id>/learner_label_distribution.csv
 已有可参考实现：
 
 ```text
-scripts/analyze_learner_internal_topology.py
+learner_qualification/analyze_learner_internal_topology.py
 trident_stream/dataset_topology.py
 visualize/src/components/LearnerInternalTopologyPanel.tsx
 ```
@@ -659,13 +659,13 @@ export type LearnerTopologyMetricAuditJson = {
 新增脚本：
 
 ```text
-scripts/export_learner_topology_metric_audit.py
+learner_qualification/export_visualization_artifacts.py
 ```
 
 输入：
 
 ```text
-python3 scripts/export_learner_topology_metric_audit.py outputs/runs/<run_id>
+python3 learner_qualification/export_visualization_artifacts.py outputs/runs/<run_id>
 ```
 
 输出：

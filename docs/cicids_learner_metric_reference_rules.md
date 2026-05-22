@@ -223,10 +223,12 @@ max_out_degree_ratio <= 15
 dst_port_entropy <= 12
 dst_port_richness <= 30
 dst_port_top1_concentration >= 95
-dst_host_concentration >= 85
-host_max_in_degree_ratio >= 85
 endpoint_edge_entropy >= 80
 src_port_entropy >= 80
+并且满足至少一项汇聚支撑证据：
+dst_host_concentration >= 65
+或 max_in_degree_ratio >= 75
+或 host_max_in_degree_ratio >= 75
 ```
 
 语义：
@@ -234,6 +236,7 @@ src_port_entropy >= 80
 ```text
 目的服务几乎固定，大量变化源端指向少数目的 endpoint；
 边熵可能很高，但高熵来自源端展开，不代表正常。
+主机层指标用于提供汇聚支撑证据，不再作为全部固定服务形态的一票否决条件。
 ```
 
 参考候选：

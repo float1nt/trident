@@ -37,16 +37,26 @@ function between(scores: MetricScores, key: string, min: number, max: number): b
   return atLeast(scores, key, min) && atMost(scores, key, max)
 }
 
-function isFixedTarget2017(scores: MetricScores): boolean {
+function hasFixedTargetServiceCore(scores: MetricScores): boolean {
   return (
     atMost(scores, 'dst_port_entropy', 12) &&
     atMost(scores, 'dst_port_richness', 30) &&
     atLeast(scores, 'dst_port_top1_concentration', 95) &&
-    atLeast(scores, 'dst_host_concentration', 85) &&
-    atLeast(scores, 'host_max_in_degree_ratio', 85) &&
     atLeast(scores, 'endpoint_edge_entropy', 80) &&
     atLeast(scores, 'src_port_entropy', 80)
   )
+}
+
+function hasFixedTargetSupport(scores: MetricScores): boolean {
+  return (
+    atLeast(scores, 'dst_host_concentration', 65) ||
+    atLeast(scores, 'max_in_degree_ratio', 75) ||
+    atLeast(scores, 'host_max_in_degree_ratio', 75)
+  )
+}
+
+function isFixedTarget2017(scores: MetricScores): boolean {
+  return hasFixedTargetServiceCore(scores) && hasFixedTargetSupport(scores)
 }
 
 function isDiffuseOneWay2019(scores: MetricScores): boolean {
@@ -85,7 +95,7 @@ const REFERENCE_RULES: LearnerReferenceRule[] = [
     dataset: 'CICIDS2017',
     tone: 'attack',
     semantic:
-      '目的服务几乎固定，大量变化源端指向少数目的 endpoint；边熵高也可能来自源端展开。',
+      '目的服务几乎固定，大量变化源端指向少数目的 endpoint；主机层可分散，但端口与 endpoint 形态仍显示明显汇聚。',
     referenceLabels: [
       '2017|DDOS',
       '2017|DOS_HULK',
@@ -103,7 +113,7 @@ const REFERENCE_RULES: LearnerReferenceRule[] = [
     dataset: 'CICIDS2017',
     tone: 'attack',
     semantic:
-      '仍是固定目的服务形态，但流内单向性更强，提示慢速或低反馈的服务冲击行为。',
+      '固定目的服务汇聚仍明显，同时流内单向性更强，提示慢速或低反馈的服务冲击行为。',
     referenceLabels: ['2017|DOS_SLOWHTTPTEST', '2017|DOS_SLOWLORIS'],
     match: (s) => isFixedTarget2017(s) && atLeast(s, 'low_reciprocity', 68),
   },

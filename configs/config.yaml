@@ -5,6 +5,9 @@ decision_tree:
   min_samples_leaf: 2
   attack_threshold: 0.5
   min_label_count: 5000
+visualization:
+  metric_audit_min_samples: 50
+  metric_audit_max_learners: 60
 paths:
   data_dir: data
   input_files:

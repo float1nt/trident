@@ -4874,15 +4874,25 @@ class TridentStreamingExperiment:
                 ensure_ascii=False,
                 indent=2,
             )
-        learner_topology_path = self.output_dir / "learner_network_topology.json"
+        visualization_artifacts: Dict[str, Path] = {}
         try:
-            from trident_stream.dataset_topology import save_learner_network_topology
+            from trident_stream.visualization_artifacts import export_visualization_artifacts
 
-            assign_index_df = assign_export_df[["row_index", "assigned_learner"]].copy()
-            if save_learner_network_topology(data, assign_index_df, learner_topology_path):
-                self.logger.info("Done. LEARNER_NETWORK_TOPOLOGY=%s", learner_topology_path)
+            viz_cfg = self.cfg.get("visualization", {})
+            visualization_artifacts = export_visualization_artifacts(
+                data=data,
+                assignments=assign_export_df,
+                label_distribution=profile_df,
+                output_dir=self.output_dir,
+                # The dataset-only graph is emitted immediately after dataset load.
+                export_dataset_topology=False,
+                metric_audit_min_samples=int(viz_cfg.get("metric_audit_min_samples", 50)),
+                metric_audit_max_learners=int(viz_cfg.get("metric_audit_max_learners", 60)),
+            )
+            for artifact_name, artifact_path in visualization_artifacts.items():
+                self.logger.info("Done. %s=%s", artifact_name.upper(), artifact_path)
         except Exception:
-            self.logger.exception("Learner network topology export failed (non-fatal).")
+            self.logger.exception("Visualization artifact export failed (non-fatal).")
         accept_trace_path = self.output_dir / "learner_accept_trace.csv"
         pd.DataFrame(self.learner_accept_trace).to_csv(accept_trace_path, index=False)
 
@@ -4946,4 +4956,3 @@ class TridentStreamingExperiment:
         self.logger.info("Done. METRIC_CATALOG_JSON=%s", metric_catalog_path)
         self.logger.info("Done. FIG=%s", fig_path)
         self.logger.info("Done. SUMMARY=%s", summary_path)
-
