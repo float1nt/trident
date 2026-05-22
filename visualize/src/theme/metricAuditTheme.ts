@@ -16,7 +16,8 @@ export const TRAIT_PALETTES: Record<string, readonly string[]> = {
   density: ['#72aac4', '#5494b0', '#407c98', '#326680', '#285268'],
   unidirectional: ['#b090cc', '#9874b8', '#805ea2', '#684a86', '#523a6c'],
   burst: ['#e0a858', '#cc8c38', '#b47424', '#965e1c', '#7c4c18'],
-  time_spread: ['#68b0dc', '#4598d0', '#2a80b8', '#1868a0', '#0f5488'],
+  time_global: ['#68b0dc', '#4598d0', '#2a80b8', '#1868a0', '#0f5488'],
+  time_uniformity: ['#8ec8e8', '#6eb4dc', '#4a9ccc', '#2e84b4', '#1a6c98'],
   time_concentration: ['#d09878', '#bc7c5c', '#a46448', '#885038', '#704030'],
   neutral: ['#a8a6a1', '#918f89', '#787672', '#605e59', '#4c4a46'],
 }

@@ -25,6 +25,11 @@ from trident_stream.learner_metric_audit import (
     compute_learner_metrics,
     compute_qualitative_hints,
 )
+from trident_stream.metric_audit_catalog import (
+    CORE_METRIC_KEYS,
+    METRIC_AUDIT_VERSION,
+    REMOVED_METRICS,
+)
 
 COL_ALIASES = {
     "src_ip": ["Src IP", "Source IP", " Source IP", "src_ip", "source_ip", " Src IP", " Src IP"],
@@ -34,6 +39,17 @@ COL_ALIASES = {
     "timestamp": ["Timestamp", "timestamp", " Timestamp"],
     "label": ["Label", "LabelNorm", "label", " Label"],
     "protocol": ["Protocol", "protocol", " Protocol"],
+    "total_fwd_packets": [
+        "Total Fwd Packet",
+        "Total Fwd Packets",
+        " Total Fwd Packets",
+    ],
+    "total_bwd_packets": [
+        "Total Bwd packets",
+        "Total Bwd Packets",
+        " Total Backward Packets",
+        "Total Backward Packets",
+    ],
 }
 
 
@@ -95,6 +111,10 @@ def _load_and_rename(csv_path: Path, col_map: dict) -> pd.DataFrame:
             rename[col] = "Label"
         elif key == "protocol":
             rename[col] = "Protocol"
+        elif key == "total_fwd_packets":
+            rename[col] = "Total Fwd Packet"
+        elif key == "total_bwd_packets":
+            rename[col] = "Total Bwd packets"
     df = df.rename(columns=rename)
     # Ensure required columns exist
     for col in ["SrcIP", "DstIP"]:
@@ -313,7 +333,10 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     payload = {
-        "version": 1,
+        "version": METRIC_AUDIT_VERSION,
+        "metric_count": len(CORE_METRIC_KEYS),
+        "core_metric_keys": list(CORE_METRIC_KEYS),
+        "removed_metrics": REMOVED_METRICS,
         "generated_from": {
             "assignments": "raw_csv" if args.raw_csvs else "sample_learner_assignments.csv",
             "label_distribution": "inferred" if args.raw_csvs else "learner_label_distribution.csv",

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Select, Slider } from 'antd'
 import {
   GRID_CHART_HEIGHT,
@@ -79,12 +79,6 @@ export function LearnerInternalTopologyPanel({
     if (pickedLearner && data?.views[pickedLearner]) return pickedLearner
     return sortedOptions[0]?.name ?? ''
   }, [data, selectedLearner, pickedLearner, sortedOptions])
-
-  useEffect(() => {
-    if (selectedLearner && data?.views[selectedLearner]) {
-      setPickedLearner(selectedLearner)
-    }
-  }, [selectedLearner, data])
 
   if (!data) {
     return (

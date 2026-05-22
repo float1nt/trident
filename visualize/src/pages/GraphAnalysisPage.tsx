@@ -816,6 +816,10 @@ export default function GraphAnalysisPage() {
         setLearnerNetworkTopology(learnerTopologyJson)
         setSelectedNodeId(null)
         setSelectedEdge(null)
+        setRadarLabelSelection(null)
+        setLearnerRadarNameSelection(null)
+        setRadarFilterOpen(false)
+        setLearnerRadarFilterOpen(false)
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         setError(`数据加载失败: ${message}`)
@@ -824,14 +828,6 @@ export default function GraphAnalysisPage() {
       }
     }
     load()
-  }, [selectedRunId])
-
-  useEffect(() => {
-    if (!selectedRunId) return
-    setRadarLabelSelection(null)
-    setLearnerRadarNameSelection(null)
-    setRadarFilterOpen(false)
-    setLearnerRadarFilterOpen(false)
   }, [selectedRunId])
 
   const kpi = useMemo(() => {

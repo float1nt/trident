@@ -2,13 +2,16 @@ import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
 import type { LearnerMetricAuditItem, LearnerMetricAuditView } from '../types/learnerTopology'
+import {
+  evaluateLearnerReferenceRules,
+  type LearnerReferenceRuleMatch,
+} from '../lib/learnerReferenceRules'
 import { metricBadgeStyle, metricBarColor } from '../theme/metricAuditTheme'
 import {
   CHART_AXIS_LINE,
   CHART_SPLIT_LINE,
   CHART_TEXT_PRIMARY,
   CHART_TEXT_SECONDARY,
-  notionTheme,
 } from '../theme/notionTheme'
 
 function groupMetrics(metrics: LearnerMetricAuditItem[]): { group: string; items: LearnerMetricAuditItem[] }[] {
@@ -103,9 +106,23 @@ type Props = {
   auditView: LearnerMetricAuditView | null
 }
 
+function referenceRuleClasses(tone: LearnerReferenceRuleMatch['tone']): string {
+  if (tone === 'benign') {
+    return 'border-notion-success/30 bg-notion-success-bg'
+  }
+  if (tone === 'caution') {
+    return 'border-notion-warning/30 bg-notion-warning-bg'
+  }
+  return 'border-notion-danger/30 bg-notion-danger-bg'
+}
+
 export function LearnerMetricAuditPanel({ auditView }: Props) {
   const groups = useMemo(
     () => (auditView?.metrics?.length ? groupMetrics(auditView.metrics) : []),
+    [auditView],
+  )
+  const referenceRules = useMemo(
+    () => (auditView?.metrics?.length ? evaluateLearnerReferenceRules(auditView.metrics) : []),
     [auditView],
   )
 
@@ -135,6 +152,39 @@ export function LearnerMetricAuditPanel({ auditView }: Props) {
         （0–100），不是风险分或异常分。颜色按<strong className="font-medium text-notion-text">特征维度</strong>
         区分（分散/集中/突发等），高分仅表示该维度上「更强」，需结合语义说明判断形态。
       </p>
+
+      <section className="rounded-xl border border-notion-border bg-notion-surface p-3">
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-notion-text">规则层匹配结果</h3>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-notion-secondary">
+              依据单项指标形态匹配参考规则，仅作人工研判提示，不是最终结论。
+            </p>
+          </div>
+          <span className="text-[11px] text-notion-secondary">
+            {referenceRules.length} 条规则命中
+          </span>
+        </div>
+        {referenceRules.length ? (
+          <div className="grid gap-2 xl:grid-cols-2">
+            {referenceRules.map((rule) => (
+              <article
+                key={rule.key}
+                className={`rounded-lg border px-3 py-2.5 ${referenceRuleClasses(rule.tone)}`}
+              >
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <h4 className="text-xs font-semibold text-notion-text">{rule.name}</h4>
+                </div>
+                <p className="mt-1 text-[11px] leading-relaxed text-notion-text">{rule.semantic}</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="rounded-lg border border-dashed border-notion-border bg-notion-surface-alt px-3 py-2 text-xs text-notion-secondary">
+            当前指标未命中参考规则；请直接查看下方单项指标证据。
+          </p>
+        )}
+      </section>
 
       {auditView.qualitative_hints && auditView.qualitative_hints.length > 0 ? (
         <div className="flex flex-wrap gap-2">

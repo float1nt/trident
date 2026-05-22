@@ -138,9 +138,46 @@ JSON 结构：
 }
 ```
 
-## 4. 指标定义
+## 4. 指标定义（v4 核心集，共 22 项）
 
-### 4.1 端口随机性
+设计原则：每个保留指标应提供**独立视角**；若与另一指标单调相关（如 HHI≈Top1、规则度=1−熵、Hub 流量占比=端点 Top1），只保留更易解释的一项。
+
+### 4.0 审计：保留 vs 移除
+
+| 保留 | 维度 | 移除（原因） |
+|------|------|----------------|
+| `dst_port_entropy` | 目的端口已出现类别间的分布均匀度 | `port_pair_entropy`（与 src/dst 熵重复） |
+| `dst_port_richness` | 目的端口唯一数/丰富度 | |
+| `src_port_entropy` | 源端口分散度 | `dst_port_hhi_concentration`（与 Top1/熵重复） |
+| `dst_port_top1_concentration` | 目的端口 Top1 | |
+| `endpoint_edge_entropy` | 边分散度 | `endpoint_edge_regular`（=1−边熵） |
+| `top1_endpoint_edge_share` | 单边主导 | `top5_endpoint_edge_share`（与 Top1 强相关） |
+| `edge_reuse_ratio` | 边复用（与边熵互补） | |
+| `host_edge_entropy` | 忽略端口后的主机边熵 | |
+| `dst_host_concentration` | 目的主机集中度 | |
+| `host_max_in_degree_ratio` | 主机层入向星型 | |
+| `host_max_out_degree_ratio` | 主机层出向星型 | |
+| `src_dst_endpoint_asymmetry` | 源/目的规模差 | `hub_in/out_strength`（= dst/src 端点 Top1） |
+| `src_endpoint_concentration` | 源端 Top1 | |
+| `dst_endpoint_concentration` | 目的端 Top1 | |
+| `max_in_degree_ratio` | 入向星型（多源→一点） | |
+| `max_out_degree_ratio` | 出向星型（一点→多目的） | |
+| `leaf_ratio` | 叶子/星型拓扑 | |
+| `edge_per_node` | 连接密度 | |
+| `low_reciprocity` | 流内 Fwd/Bwd 单向性 | |
+| `temporal_burst` | 时间突发 | `temporal_regular`（已移除） |
+| `temporal_global_spread` | 全局时间分散 | `temporal_entropy`（v3 拆分） |
+| `temporal_intra_uniformity` | 活跃窗内均匀 | |
+
+**解读矩阵（高分≈该列右侧描述，非“异常”）：**
+
+| 形态 | 端口 | 边 | 端点/方向 | 时间 | 单向性 |
+|------|------|-----|-----------|------|--------|
+| 扫描 | 目的端口分散 | 边分散、低复用 | 出向星型、源集中 | 可突发 | 高 |
+| Flood | 目的端口可集中 | 单边主导、高复用 | 目的端集中 | 突发强 | 高 |
+| Benign | 不定 | 边较散、低 Top1 | 较均衡 | 跨度大/较均匀 | 低 |
+
+### 4.1 端口
 
 #### `dst_port_entropy`
 
@@ -152,9 +189,24 @@ score_0_100 = raw_value * 100
 语义：
 
 ```text
-高分表示目的端口分布更分散。
-极高时不一定良性，需要结合源集中度、出度和低互惠性判断是否为端口扫描。
+高分表示已出现目的端口之间的流量分布更均匀。
+极高时不一定代表端口种类多，需要结合目的端口丰富度、源集中度、出度和低互惠性判断。
 低分表示目的端口高度集中，常见于固定服务访问、服务打击或 flood。
+```
+
+#### `dst_port_richness`
+
+```text
+raw_value = unique(Dst Port)
+score_0_100 = log1p(raw_value) / log1p(min(N, 65536)) * 100
+```
+
+语义：
+
+```text
+原始值给出不同目的端口数。
+高分表示在当前 learner 流量规模下目的端口确实大范围展开。
+它与目的端口熵配合使用，避免把少量端口上的均匀分布误读成扫描式多端口展开。
 ```
 
 #### `src_port_entropy`
@@ -167,22 +219,8 @@ score_0_100 = raw_value * 100
 语义：
 
 ```text
-高分表示源端口更分散。
-低分表示源端口模板化，可能来自固定程序、脚本或少量连接模板。
-```
-
-#### `port_pair_entropy`
-
-```text
-raw_value = norm_entropy((Src Port, Dst Port))
-score_0_100 = raw_value * 100
-```
-
-语义：
-
-```text
-高分表示端口组合多样。
-低分表示端口组合高度模板化，程序化重复特征更强。
+高分表示已出现源端口之间的分布更均匀。
+低分表示源端口模板化，可能来自固定程序、脚本或少量连接模板；临时源端口会抬高该指标，需对照主机层指标。
 ```
 
 #### `dst_port_top1_concentration`
@@ -198,20 +236,7 @@ score_0_100 = raw_value * 100
 高分表示少数目的端口承载大量流量，常见于固定服务攻击、flood 或单服务访问。
 ```
 
-#### `dst_port_hhi_concentration`
-
-```text
-raw_value = HHI(Dst Port)
-score_0_100 = raw_value * 100
-```
-
-语义：
-
-```text
-高分表示目的端口整体分布高度集中。
-```
-
-### 4.2 边集中/复用
+### 4.2 边
 
 以下指标基于 `EndpointEdge = SrcEP -> DstEP`。
 
@@ -229,19 +254,6 @@ score_0_100 = raw_value * 100
 低分表示少数边被反复使用，拓扑更模板化。
 ```
 
-#### `endpoint_edge_regular`
-
-```text
-raw_value = 1 - norm_entropy(EndpointEdge)
-score_0_100 = raw_value * 100
-```
-
-语义：
-
-```text
-高分表示边权高度集中、程序化重复强。
-```
-
 #### `top1_endpoint_edge_share`
 
 ```text
@@ -253,19 +265,6 @@ score_0_100 = raw_value * 100
 
 ```text
 高分表示单条 IP:Port 边支配学习器流量。
-```
-
-#### `top5_endpoint_edge_share`
-
-```text
-raw_value = top5_share(EndpointEdge)
-score_0_100 = raw_value * 100
-```
-
-语义：
-
-```text
-高分表示少数 IP:Port 边覆盖大部分流量。
 ```
 
 #### `edge_reuse_ratio`
@@ -281,35 +280,25 @@ score_0_100 = min(100, log1p(raw_value) / log1p(100) * 100)
 高分表示每条边平均被大量复用，常见于 flood、固定连接或批量请求。
 ```
 
-### 4.3 Hub 结构
+### 4.3 主机层
 
-以下指标基于 `EndpointEdge` 有向图。
-
-#### `hub_in_strength`
+以下指标基于 `HostEdge = Src IP -> Dst IP`。它们忽略源临时端口，用于给 endpoint 图补上下文。
 
 ```text
-raw_value = max_in_flow_count / N
-score_0_100 = raw_value * 100
+host_edge_entropy
+dst_host_concentration
+host_max_in_degree_ratio
+host_max_out_degree_ratio
 ```
 
 语义：
 
 ```text
-高分表示单一目的 endpoint 吸收大量流量，偏 DDoS、服务打击或集中爆破。
+主机边熵用来确认 IP 层关系是否同样分散。
+目的主机集中度和主机入/出度用于确认 hub 是否真实存在于主机层，而不只是 IP:Port endpoint 被临时端口放大。
 ```
 
-#### `hub_out_strength`
-
-```text
-raw_value = max_out_flow_count / N
-score_0_100 = raw_value * 100
-```
-
-语义：
-
-```text
-高分表示单一源 endpoint 发出大量流量，偏扫描、单源自动化或探测。
-```
+### 4.4 端点与方向
 
 #### `max_in_degree_ratio`
 
@@ -336,8 +325,6 @@ score_0_100 = raw_value * 100
 ```text
 高分表示单一源连接很多目的，偏扫描或横向探测。
 ```
-
-### 4.4 源目的不对称
 
 #### `src_dst_endpoint_asymmetry`
 
@@ -425,16 +412,16 @@ score_0_100 = raw_value * 100
 ```text
 高分表示流内反向包占比极低（单向、扫描、flood）。
 低分表示 Fwd/Bwd 包较均衡，更接近正常 TCP/UDP 会话。
+若导出数据缺少 Fwd/Bwd 包字段，则该指标不输出，不能把“不可计算”解释为强单向。
 ```
 
 ### 4.6 时间行为
 
-时间指标可选，但强烈建议加入。它对程序并发、短时间爆发和定时行为非常敏感。
+时间指标可选，但强烈建议加入。v3 将原 `temporal_entropy` 拆成两个独立视角（避免「攻击低熵 / 正常高熵」与实现语义打架）。
 
-全局时间范围切成固定 bin，推荐 100 个 bin。
-
-- **`temporal_burst`**：按 **全局最早时间戳** 对齐后落 bin（与 run 过滤后数据集一致），衡量相对整段实验窗口的突发与跨度。
-- **`temporal_entropy` / `temporal_regular`**：在 **该 learner 自身活跃时段** `[t_min, t_max]` 内落 100 个 bin；熵的 `K` 取 **有流量的 bin 个数**（与端口熵一致），**不要**用固定 100 作分母，否则活跃 bin 只有十几个时分数会被压低到 50 左右。
+- **`temporal_burst`**：局部 HHI + 全局 `span_ratio`（短 campaign、窗内集中 → 高分）。
+- **`temporal_global_spread`**：在 **run 全局时间轴** 上按约 **1h/bin** 自适应分箱（128–2048 bin），在 learner 已占用的全局时间足迹内衡量分布均匀度。它不是“占了多少小时”的跨度指标。
+- **`temporal_intra_uniformity`**：在 **learner 局部** `[t_min, t_max]` 上落 **100** 个 bin，熵的 `K` = **有流量的 bin 个数**（与原 `temporal_entropy` 相同）。
 
 #### `temporal_burst`
 
@@ -445,7 +432,7 @@ raw_value = 0.5 * temporal_hhi + 0.5 * (1 - min(span_ratio, 1))
 score_0_100 = raw_value * 100
 ```
 
-`temporal_hhi` 必须用 **learner 局部时间轴**；若用全局轴，短窗口攻击会与 `temporal_entropy` 一样退化为常数（HHI≈1）。
+`temporal_hhi` 必须用 **learner 局部时间轴**；若用全局轴，短窗口攻击 HHI 会失真。
 
 语义：
 
@@ -453,40 +440,48 @@ score_0_100 = raw_value * 100
 高分表示短时间集中爆发。
 ```
 
-#### `temporal_entropy`
+#### `temporal_global_spread`
 
 ```text
-raw_value = norm_entropy(time_bin_counts where count > 0)
-K = number of occupied time bins (not 100)
+n_global = clamp(128, floor(global_span / 3600s), 2048)
+bin_counts = histogram(Timestamp on global [t_run_min, t_run_max], n_global bins)
+i_min, i_max = global bin indices of learner t_min / t_max
+occupied = bin_counts[i_min : i_max + 1][count > 0]
+raw_value = norm_entropy(occupied)   # K = len(occupied)
 score_0_100 = raw_value * 100
 ```
 
 语义：
 
 ```text
-高分表示在 learner 活跃窗口内，有流量的各时间段上分布较均匀。
-低分表示流集中在极少数时间段（可能仅 1–2 个 bin）。
+高分表示在学习器已占用的全局 ~1h 时段中分布较均匀。
+低分表示这些已占用时段内仍被少数时段主导；全局跨度另看 `temporal_burst` 的 span 部分。
+勿用整段 run 的 bin 总数或足迹内空 bin 作 K（否则 benign 会被压到极低分）。
 ```
 
-#### `temporal_regular`
+#### `temporal_intra_uniformity`
 
 ```text
-raw_value = 1 - norm_entropy(time_bin)
+bin_counts = histogram(Timestamp on learner-local [t_min, t_max], 100 bins)
+raw_value = norm_entropy(bin_counts[count > 0])   # K = occupied bins
 score_0_100 = raw_value * 100
 ```
 
 语义：
 
 ```text
-高分表示时间分布集中或规则，常见于程序化流量。
+高分表示在 learner 自身活跃窗口内，各时间段流量较均匀（含持续 flood）。
+低分表示窗内挤在极少数时段（端口扫描式爆发）。
+勿与全局分散度混读：持续 DDOS 可「全局低分散 + 窗内高均匀」。
 ```
 
 ## 4.7 实现审计备忘（常见误读）
 
 | 指标 | 尺度/陷阱 | 说明 |
 |------|-----------|------|
-| `temporal_entropy` | learner 局部 100 bin，**K=有流量 bin 数** | 不可用全局轴；不可用 K=100 作分母 |
-| `temporal_burst` | 局部 HHI + 全局 `span_ratio` | 局部 HHI 不可用全局轴，否则几乎所有短攻击 learner 突发分→100 |
+| `temporal_global_spread` | 全局 ~1h/bin，**K=足迹内有流量 bin 数** | 勿用 K=整段 run 或足迹空 bin |
+| `temporal_intra_uniformity` | learner 局部 100 bin，**K=有流量 bin 数** | 原 `temporal_entropy`；持续 flood 可高分 |
+| `temporal_burst` | 局部 HHI + 全局 `span_ratio` | 局部 HHI 不可用全局轴 |
 | `endpoint_edge_entropy` 高 + `top1_endpoint_edge_share` 低 | 不矛盾 | 大量唯一边、每条边仅少量流（扫描）时会出现 |
 | `dst_port_entropy` 高 + `dst_port_top1` 低 | 同上 | 端口扫描：多端口各少量流 |
 | `low_reciprocity` | 流内 `min(FwdPkt,BwdPkt)/(Fwd+Bwd)` | 反向 HostEdge 在 CIC 里对 benign 也≈0，会误判 |
@@ -503,16 +498,8 @@ score_0_100 = raw_value * 100
 触发条件建议：
 
 ```text
-top1_endpoint_edge_share >= 80
-或 dst_endpoint_concentration >= 80
-或 hub_in_strength >= 80
+top1_endpoint_edge_share >= 80 或 dst_endpoint_concentration >= 80
 并且 temporal_burst >= 50
-```
-
-解释：
-
-```text
-少数目的、少数边或单一入向 hub 承载大量流量，并伴随时间突发。
 ```
 
 ### Scan-like
@@ -521,15 +508,9 @@ top1_endpoint_edge_share >= 80
 
 ```text
 dst_port_entropy >= 80
-并且 hub_out_strength >= 50
 并且 max_out_degree_ratio >= 50
+并且 edge_reuse_ratio <= 55
 并且 low_reciprocity >= 70
-```
-
-解释：
-
-```text
-目的端口或目的 endpoint 高度分散，但源端和方向性高度规则，偏扫描或探测。
 ```
 
 ### Single-service-like
@@ -538,7 +519,7 @@ dst_port_entropy >= 80
 
 ```text
 dst_port_top1_concentration >= 80
-并且 endpoint_edge_regular >= 60
+并且 (top1_endpoint_edge_share >= 60 或 endpoint_edge_entropy <= 35)
 ```
 
 解释：
@@ -741,26 +722,25 @@ qualitative_hints = []
 不要使用一个总分判断学习器性质。推荐按证据链读：
 
 ```text
-1. 先看边集中/复用：是否少数边支配。
-2. 再看 hub：是目的集中还是源集中。
-3. 再看端口熵：是单服务、复杂良性，还是扫描式高熵。
-4. 再看低互惠性和叶子节点：是否呈单向星型/放射状。
-5. 最后看时间突发：是否短时间程序化并发。
+1. 边看：分散度 vs Top1 主导 vs 复用率。
+2. 再看端点：目的/源 Top1 与入向/出向星型（度比例）。
+3. 再看端口熵：扫描式高熵 vs 单服务集中。
+4. 再看低互惠与叶子：单向与会话形态。
+5. 最后看时间：突发、全局分散、窗内均匀（三者分开）。
 ```
 
 典型解释：
 
 ```text
 Flood-like:
-  top1_edge 高、dst_endpoint_concentration 高、hub_in_strength 高、temporal_burst 高。
+  top1_edge 高、dst_endpoint_concentration 高、temporal_burst 高。
 
 Scan-like:
-  dst_port_entropy 高、max_out_degree_ratio 高、hub_out_strength 高、low_reciprocity 高。
+  dst_port_entropy 高、max_out_degree_ratio 高、低_reciprocity 高、edge_reuse 偏低。
 
 Single-service-like:
-  dst_port_top1_concentration 高、endpoint_edge_regular 高、edge_reuse_ratio 高。
+  dst_port_top1 高、top1_edge 高或边熵低。
 
 Benign-like:
-  endpoint_edge_entropy 较高、top1_edge 低、low_reciprocity 不极端、temporal_burst 不强。
+  endpoint_edge_entropy 较高、top1_edge 低、low_reciprocity 偏低；global_spread 偏高、burst 不强。
 ```
-

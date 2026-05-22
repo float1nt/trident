@@ -35,7 +35,7 @@ type Props = {
 }
 
 export function DecisionTreePanel({ data }: Props) {
-  const tasks = data?.tasks ?? []
+  const tasks = useMemo(() => data?.tasks ?? [], [data])
   const [taskId, setTaskId] = useState<string>('')
 
   const selected = useMemo(() => {

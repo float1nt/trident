@@ -142,19 +142,19 @@ export default function LearnerDetailPage() {
   const effectiveLearner = useMemo(() => {
     if (!sortedLearnerOptions.length) return ''
     if (
+      learnerFromUrl &&
+      sortedLearnerOptions.some((o) => o.name === learnerFromUrl)
+    ) {
+      return learnerFromUrl
+    }
+    if (
       selectedLearner &&
       sortedLearnerOptions.some((o) => o.name === selectedLearner)
     ) {
       return selectedLearner
     }
     return sortedLearnerOptions[0].name
-  }, [selectedLearner, sortedLearnerOptions])
-
-  useEffect(() => {
-    if (learnerFromUrl && sortedLearnerOptions.some((o) => o.name === learnerFromUrl)) {
-      setSelectedLearner(learnerFromUrl)
-    }
-  }, [learnerFromUrl, sortedLearnerOptions])
+  }, [learnerFromUrl, selectedLearner, sortedLearnerOptions])
 
   const handleLearnerChange = (name: string) => {
     setSelectedLearner(name)
