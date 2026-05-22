@@ -62,9 +62,9 @@ const RUN_SORT_LABELS: Record<keyof RunRow, string> = {
 }
 
 const RUNS_COMPARE_STICKY_FIRST_TH =
-  'sticky left-0 z-30 border-r border-slate-200 bg-white py-2 pr-4 shadow-[2px_0_10px_-4px_rgba(15,23,42,0.12)]'
+  'sticky left-0 z-30 border-r border-notion-border bg-notion-surface py-2 pr-4 shadow-[2px_0_10px_-4px_rgba(55,53,47,0.12)]'
 const RUNS_COMPARE_STICKY_FIRST_TD =
-  'sticky left-0 z-10 border-r border-slate-200 bg-white py-2 pr-4 shadow-[2px_0_8px_-4px_rgba(15,23,42,0.08)] group-hover:bg-slate-50'
+  'sticky left-0 z-10 border-r border-notion-border bg-notion-surface py-2 pr-4 shadow-[2px_0_8px_-4px_rgba(55,53,47,0.08)] group-hover:bg-notion-surface-alt'
 
 function RunsCompareSortTag({
   columnLabel,
@@ -78,14 +78,14 @@ function RunsCompareSortTag({
   clearDisabled?: boolean
 }) {
   return (
-    <span className="inline-flex max-w-[min(100%,380px)] items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-800 shadow-sm">
-      <span className="shrink-0 text-slate-500">排序</span>
-      <span className="min-w-0 truncate font-medium text-slate-900">{columnLabel}</span>
-      <span className="shrink-0 tabular-nums text-slate-600">{dir === 'asc' ? '↑' : '↓'}</span>
+    <span className="inline-flex max-w-[min(100%,380px)] items-center gap-1 rounded-md border border-notion-border bg-notion-surface-alt px-2 py-1 text-xs text-notion-text shadow-sm">
+      <span className="shrink-0 text-notion-secondary">排序</span>
+      <span className="min-w-0 truncate font-medium text-notion-text">{columnLabel}</span>
+      <span className="shrink-0 tabular-nums text-notion-secondary">{dir === 'asc' ? '↑' : '↓'}</span>
       <button
         type="button"
         disabled={clearDisabled}
-        className="ml-0.5 shrink-0 rounded px-1 leading-none text-slate-500 hover:bg-slate-200 hover:text-slate-900 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+        className="ml-0.5 shrink-0 rounded px-1 leading-none text-notion-secondary hover:bg-notion-surface-hover hover:text-notion-text disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
         aria-label="恢复默认排序"
         onClick={onClear}
       >
@@ -188,8 +188,8 @@ export default function RunsComparePage() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="eyebrow">Run Security Benchmark</p>
-            <h1 className="text-2xl font-semibold tracking-wide text-slate-900">全部 Run 效果对比</h1>
-            <p className="mt-1 text-sm text-slate-600">聚焦 risk FPR / FNR / TPR，快速筛选最稳配置。</p>
+            <h1 className="text-2xl font-semibold tracking-wide text-notion-text">全部 Run 效果对比</h1>
+            <p className="mt-1 text-sm text-notion-secondary">聚焦 risk FPR / FNR / TPR，快速筛选最稳配置。</p>
           </div>
           <button
             type="button"
@@ -217,7 +217,7 @@ export default function RunsComparePage() {
         </article>
         <article className="metric-card">
           <p className="metric-label">最佳 Run</p>
-          <p className="truncate text-sm text-slate-700">{summary.bestRun}</p>
+          <p className="truncate text-sm text-notion-text">{summary.bestRun}</p>
         </article>
       </section>
 
@@ -233,7 +233,7 @@ export default function RunsComparePage() {
                 setSortDir(RUN_SORT_DEFAULT_DIR)
               }}
             />
-            <span className="text-xs text-slate-500">点击表头切换排序</span>
+            <span className="text-xs text-notion-secondary">点击表头切换排序</span>
           </div>
           <input
             value={query}
@@ -243,12 +243,12 @@ export default function RunsComparePage() {
           />
         </div>
 
-        {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+        {error ? <p className="text-sm text-notion-danger">{error}</p> : null}
 
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-slate-600">
+              <tr className="border-b border-notion-border text-left text-notion-secondary">
                 <th className={RUNS_COMPARE_STICKY_FIRST_TH}>
                   <button type="button" onClick={() => switchSort('id')} className="sortable-head">
                     Run {sortIndicator('id')}
@@ -293,21 +293,21 @@ export default function RunsComparePage() {
             </thead>
             <tbody>
               {filteredRows.map((row) => (
-                <tr key={row.id} className="group border-b border-slate-100 text-slate-800 hover:bg-slate-50">
+                <tr key={row.id} className="group border-b border-notion-border text-notion-text hover:bg-notion-surface-alt">
                   <td className={`max-w-[480px] font-mono text-xs ${RUNS_COMPARE_STICKY_FIRST_TD}`}>
-                    <Link to={`/run/${encodeURIComponent(row.id)}`} className="text-slate-700 hover:text-black hover:underline">
+                    <Link to={`/run/${encodeURIComponent(row.id)}`} className="text-notion-text hover:text-notion-text hover:underline">
                       {row.id}
                     </Link>
                   </td>
-                  <td className="py-2 pr-4 font-mono text-xs text-slate-600">{row.timestamp}</td>
+                  <td className="py-2 pr-4 font-mono text-xs text-notion-secondary">{row.timestamp}</td>
                   <td className="py-2 pr-4">
-                    <span className="rounded-md bg-rose-50 px-2 py-1 text-rose-700">{pct(row.fpr)}</span>
+                    <span className="rounded-md bg-notion-danger-bg px-2 py-1 text-notion-danger">{pct(row.fpr)}</span>
                   </td>
                   <td className="py-2 pr-4">
-                    <span className="rounded-md bg-amber-50 px-2 py-1 text-amber-700">{pct(row.fnr)}</span>
+                    <span className="rounded-md bg-notion-warning-bg px-2 py-1 text-notion-warning">{pct(row.fnr)}</span>
                   </td>
                   <td className="py-2 pr-4">
-                    <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700">{pct(row.tpr)}</span>
+                    <span className="rounded-md bg-notion-success-bg px-2 py-1 text-notion-success">{pct(row.tpr)}</span>
                   </td>
                   <td className="py-2 pr-4">{num(row.windows, 0)}</td>
                   <td className="py-2 pr-4">{num(row.learners, 0)}</td>

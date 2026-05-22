@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Select, Slider } from 'antd'
 import ReactECharts from 'echarts-for-react'
-
-const CHART_GREEN = '#16a34a'
-const CHART_RED = '#dc2626'
-const CHART_TEXT_PRIMARY = '#0f172a'
-const CHART_AXIS_LINE = '#cbd5e1'
+import {
+  CHART_AXIS_LINE,
+  CHART_GREEN,
+  CHART_RED,
+  CHART_TEXT_PRIMARY,
+  notionTheme,
+} from '../theme/notionTheme'
 
 export type TopologyNode = {
   id: string
@@ -73,13 +75,13 @@ export function TopologyViewModeToggle({
   onChange: (mode: TopologyViewMode) => void
 }) {
   return (
-    <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+    <div className="inline-flex rounded-lg border border-notion-border bg-notion-surface-alt p-0.5">
       <button
         type="button"
         className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
           value === 'single'
-            ? 'bg-white text-slate-900 shadow-sm'
-            : 'text-slate-600 hover:text-slate-900'
+            ? 'bg-notion-surface text-notion-text shadow-sm'
+            : 'text-notion-secondary hover:text-notion-text'
         }`}
         onClick={() => onChange('single')}
       >
@@ -89,8 +91,8 @@ export function TopologyViewModeToggle({
         type="button"
         className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
           value === 'grid'
-            ? 'bg-white text-slate-900 shadow-sm'
-            : 'text-slate-600 hover:text-slate-900'
+            ? 'bg-notion-surface text-notion-text shadow-sm'
+            : 'text-notion-secondary hover:text-notion-text'
         }`}
         onClick={() => onChange('grid')}
       >
@@ -173,8 +175,8 @@ function buildGraphData(
       is_internal: n.is_internal,
       symbolSize: Math.max(minSize, Math.min(size, maxSize)),
       itemStyle: {
-        color: n.is_internal ? '#dbeafe' : '#f1f5f9',
-        borderColor: n.is_internal ? '#2563eb' : '#64748b',
+        color: n.is_internal ? notionTheme.chart.nodeInternal : notionTheme.chart.nodeExternal,
+        borderColor: n.is_internal ? notionTheme.chart.nodeInternalBorder : notionTheme.chart.nodeExternalBorder,
         borderWidth: n.is_internal ? (compact ? 1.2 : 2) : compact ? 0.8 : 1.2,
       },
     }
@@ -215,7 +217,7 @@ function buildChartOption(
     backgroundColor: 'transparent',
     tooltip: {
       trigger: 'item',
-      backgroundColor: '#ffffff',
+      backgroundColor: notionTheme.chart.white,
       borderColor: CHART_AXIS_LINE,
       textStyle: { color: CHART_TEXT_PRIMARY },
       formatter: (params: { dataType?: string; data: GraphNode | GraphLink }) => {
@@ -297,16 +299,16 @@ export function TopologyChartPane({
 
   return (
     <div
-      className={`min-w-0 flex-1 rounded-lg bg-white ${
-        compact ? 'border border-slate-100' : 'border border-slate-200'
+      className={`min-w-0 flex-1 rounded-lg bg-notion-surface ${
+        compact ? 'border border-notion-border' : 'border border-notion-border'
       }`}
     >
-      <div className={`border-b border-slate-100 ${compact ? 'px-1.5 py-0.5' : 'px-3 py-2'}`}>
-        <h4 className={`font-medium text-slate-800 ${compact ? 'text-[10px]' : 'text-sm'}`}>
+      <div className={`border-b border-notion-border ${compact ? 'px-1.5 py-0.5' : 'px-3 py-2'}`}>
+        <h4 className={`font-medium text-notion-text ${compact ? 'text-[10px]' : 'text-sm'}`}>
           {title}
         </h4>
         {graph && !compact ? (
-          <p className="mt-0.5 text-xs text-slate-500">
+          <p className="mt-0.5 text-xs text-notion-secondary">
             {graph.nodes.length} 节点 · {graph.links.length} 边
             {stats.top_dst_port != null ? (
               <>
@@ -373,9 +375,9 @@ export function NetworkTopologyPanel({ data, labelOptions }: Props) {
 
   if (!data) {
     return (
-      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
+      <div className="rounded-lg border border-dashed border-notion-border-strong bg-notion-surface-alt p-4 text-sm text-notion-secondary">
         本 run 尚无 <span className="font-mono">dataset_network_topology.json</span>。重新跑实验，或执行：
-        <pre className="mt-2 overflow-x-auto rounded bg-white p-2 text-xs text-slate-700">
+        <pre className="mt-2 overflow-x-auto rounded bg-notion-surface p-2 text-xs text-notion-text">
           python3 scripts/export_dataset_network_topology.py outputs/runs/&lt;run_id&gt;
         </pre>
       </div>
@@ -408,7 +410,7 @@ export function NetworkTopologyPanel({ data, labelOptions }: Props) {
             />
           </div>
         ) : (
-          <p className="flex-1 text-xs text-slate-500">
+          <p className="flex-1 text-xs text-notion-secondary">
             网格模式：共 {gridViewKeys.length} 个标签/聚合视图
           </p>
         )}
@@ -422,7 +424,7 @@ export function NetworkTopologyPanel({ data, labelOptions }: Props) {
         </div>
       </div>
 
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-notion-secondary">
         {viewMode === 'single' ? (
           <>
             左：IP 主机视角；右：IP:端口 服务视角。默认缩放已适配整图，可滚轮缩放/拖拽；节点多时可调低斥力使布局更紧凑。
@@ -465,16 +467,16 @@ export function NetworkTopologyPanel({ data, labelOptions }: Props) {
             return (
               <div
                 key={`dataset-topology-grid-${key}`}
-                className="overflow-hidden rounded-md border border-slate-200 bg-white"
+                className="overflow-hidden rounded-md border border-notion-border bg-notion-surface"
               >
-                <div className="border-b border-slate-100 px-2 py-1">
+                <div className="border-b border-notion-border px-2 py-1">
                   <h4
-                    className="truncate text-[11px] font-medium leading-tight text-slate-800"
+                    className="truncate text-[11px] font-medium leading-tight text-notion-text"
                     title={title}
                   >
                     {title}
                   </h4>
-                  <p className="truncate text-[10px] leading-tight text-slate-500">
+                  <p className="truncate text-[10px] leading-tight text-notion-secondary">
                     {gridView.host?.nodes.length ?? 0} 节点 ·{' '}
                     {gridView.host?.links.length ?? 0} 边
                     {itemFlowCount != null ? (

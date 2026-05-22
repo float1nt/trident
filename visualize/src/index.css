@@ -1,16 +1,58 @@
 @import "tailwindcss";
 
+@theme {
+  --color-notion-bg: #ffffff;
+  --color-notion-surface: #ffffff;
+  --color-notion-surface-alt: #f7f6f3;
+  --color-notion-surface-hover: #efefef;
+  --color-notion-border: #e9e9e7;
+  --color-notion-border-strong: #d3d1cb;
+  --color-notion-text: #37352f;
+  --color-notion-secondary: #787774;
+  --color-notion-tertiary: #9b9a97;
+  --color-notion-accent: #2383e2;
+  --color-notion-accent-text: #337ea9;
+  --color-notion-accent-bg: #d3e5ef;
+  --color-notion-success: #448361;
+  --color-notion-success-bg: #dbeddb;
+  --color-notion-danger: #d44c47;
+  --color-notion-danger-bg: #fdebec;
+  --color-notion-warning: #92702d;
+  --color-notion-warning-bg: #fbf3db;
+  --color-notion-info: #337ea9;
+  --color-notion-info-bg: #d3e5ef;
+  --color-notion-orange: #d9730d;
+}
+
 :root {
   --notion-bg: #ffffff;
   --notion-surface: #ffffff;
   --notion-surface-alt: #f7f6f3;
+  --notion-surface-hover: #efefef;
   --notion-border: #e9e9e7;
+  --notion-border-strong: #d3d1cb;
   --notion-text-primary: #37352f;
   --notion-text-secondary: #787774;
-  --notion-accent: #2563eb;
-  --notion-green: #16a34a;
-  --notion-red: #e11d48;
-  --notion-yellow: #ca8a04;
+  --notion-text-tertiary: #9b9a97;
+  --notion-accent: #2383e2;
+  --notion-accent-hover: #1a73d1;
+  --notion-accent-text: #337ea9;
+  --notion-accent-bg: #d3e5ef;
+  --notion-green: #448361;
+  --notion-green-bg: #dbeddb;
+  --notion-green-bg-hover: #c7e0c7;
+  --notion-green-border: #c7ddc4;
+  --notion-red: #d44c47;
+  --notion-red-bg: #fdebec;
+  --notion-red-bg-hover: #f9d7d9;
+  --notion-red-border: #f5c4c7;
+  --notion-yellow: #92702d;
+  --notion-yellow-bg: #fbf3db;
+  --notion-yellow-bg-hover: #f5ead0;
+  --notion-yellow-border: #eee3c7;
+  --notion-blue: #337ea9;
+  --notion-blue-bg: #d3e5ef;
+  --notion-shadow: rgba(55, 53, 47, 0.12);
 }
 
 html,
@@ -22,7 +64,8 @@ body,
 }
 
 body {
-  font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+    "Apple Color Emoji", Arial, sans-serif, "Segoe UI Emoji", "Segoe UI Symbol";
   background: var(--notion-bg);
   color: var(--notion-text-primary);
   color-scheme: light;
@@ -36,12 +79,23 @@ body {
 
 .btn-primary {
   @apply rounded-lg px-4 py-2 text-sm font-medium text-white transition disabled:cursor-not-allowed disabled:opacity-60;
-  border: 1px solid #2563eb;
+  border: 1px solid var(--notion-accent);
   background: var(--notion-accent);
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: var(--notion-accent-hover);
+}
+
+.btn-secondary {
+  @apply rounded-lg border px-3 py-1.5 text-xs transition;
+  border-color: var(--notion-border-strong);
+  background: var(--notion-surface);
+  color: var(--notion-text-primary);
+}
+
+.btn-secondary:hover {
+  background: var(--notion-surface-hover);
 }
 
 .metric-card {
@@ -63,9 +117,9 @@ body {
 .input-base {
   @apply rounded-lg px-3 py-2 text-sm outline-none transition focus:ring;
   border: 1px solid var(--notion-border);
-  background: #ffffff;
+  background: var(--notion-surface);
   color: var(--notion-text-primary);
-  --tw-ring-color: rgb(37 99 235 / 0.25);
+  --tw-ring-color: rgb(35 131 226 / 0.22);
 }
 
 .field-label {
@@ -83,8 +137,18 @@ body {
   color: var(--notion-text-secondary);
 }
 
+.nav-link:hover {
+  background: var(--notion-surface-hover);
+  color: var(--notion-text-primary);
+}
+
 .nav-link-active {
   background: var(--notion-accent);
+  color: #ffffff;
+}
+
+.nav-link-active:hover {
+  background: var(--notion-accent-hover);
   color: #ffffff;
 }
 
@@ -94,55 +158,158 @@ body {
 }
 
 .sortable-head:hover {
-  background-color: rgb(241 245 249);
+  background-color: var(--notion-surface-hover);
   border-radius: 0.125rem;
+  color: var(--notion-text-primary);
 }
 
-/* 冻结列表格：使用不透明背景，避免 sticky 叠字 */
+/* 冻结列表格：不透明背景，避免 sticky 叠字 */
+.sticky-table-bg-success {
+  background-color: var(--notion-green-bg);
+}
+.sticky-table-bg-success:hover {
+  background-color: var(--notion-green-bg-hover);
+}
+
+.sticky-table-bg-danger {
+  background-color: var(--notion-red-bg);
+}
+.sticky-table-bg-danger:hover {
+  background-color: var(--notion-red-bg-hover);
+}
+
+.sticky-table-bg-warning {
+  background-color: var(--notion-yellow-bg);
+}
+.sticky-table-bg-warning:hover {
+  background-color: var(--notion-yellow-bg-hover);
+}
+
+.sticky-table-bg-neutral {
+  background-color: var(--notion-surface-alt);
+}
+.sticky-table-bg-neutral:hover {
+  background-color: var(--notion-surface-hover);
+}
+
+/* legacy aliases */
 .sticky-table-bg-emerald {
-  background-color: #ecfdf5;
+  background-color: var(--notion-green-bg);
 }
 .sticky-table-bg-emerald:hover {
-  background-color: #d1fae5;
+  background-color: var(--notion-green-bg-hover);
 }
-
 .sticky-table-bg-rose {
-  background-color: #fff1f2;
+  background-color: var(--notion-red-bg);
 }
 .sticky-table-bg-rose:hover {
-  background-color: #ffe4e6;
+  background-color: var(--notion-red-bg-hover);
 }
-
 .sticky-table-bg-amber {
-  background-color: #fffbeb;
+  background-color: var(--notion-yellow-bg);
 }
 .sticky-table-bg-amber:hover {
-  background-color: #fef3c7;
+  background-color: var(--notion-yellow-bg-hover);
 }
-
 .sticky-table-bg-slate {
-  background-color: #f8fafc;
+  background-color: var(--notion-surface-alt);
 }
 .sticky-table-bg-slate:hover {
-  background-color: #f1f5f9;
+  background-color: var(--notion-surface-hover);
+}
+
+.table-row-neutral {
+  @apply border-b text-notion-text hover:bg-notion-surface-hover;
+  border-color: var(--notion-border);
+  background: var(--notion-surface-alt);
+}
+
+.table-row-success {
+  @apply border-b text-notion-text hover:bg-notion-success-bg;
+  border-color: var(--notion-green-border);
+  background: var(--notion-green-bg);
+}
+
+.table-row-danger {
+  @apply border-b text-notion-text hover:bg-notion-danger-bg;
+  border-color: var(--notion-red-border);
+  background: var(--notion-red-bg);
+}
+
+.table-row-warning {
+  @apply border-b text-notion-text hover:bg-notion-warning-bg;
+  border-color: var(--notion-yellow-border);
+  background: var(--notion-yellow-bg);
+}
+
+.badge-success {
+  @apply rounded-md px-2 py-1;
+  background: var(--notion-green-bg);
+  color: var(--notion-green);
+}
+
+.badge-danger {
+  @apply rounded-md px-2 py-1;
+  background: var(--notion-red-bg);
+  color: var(--notion-red);
+}
+
+.badge-warning {
+  @apply rounded-md px-2 py-1;
+  background: var(--notion-yellow-bg);
+  color: var(--notion-yellow);
+}
+
+.badge-neutral {
+  @apply rounded-md px-2 py-1;
+  background: var(--notion-surface-hover);
+  color: var(--notion-text-primary);
+}
+
+.badge-info {
+  @apply rounded-md px-2 py-1;
+  background: var(--notion-blue-bg);
+  color: var(--notion-blue);
+}
+
+.filter-tag {
+  @apply inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs shadow-sm;
+  border-color: var(--notion-blue-bg);
+  background: var(--notion-accent-bg);
+  color: var(--notion-accent-text);
+}
+
+.filter-tag button {
+  color: var(--notion-accent-text);
+}
+
+.filter-tag button:hover {
+  background: var(--notion-blue-bg);
+}
+
+.code-block {
+  @apply overflow-auto rounded p-3 font-mono text-[11px] leading-relaxed;
+  background: var(--notion-surface-alt);
+  color: var(--notion-text-primary);
+  border: 1px solid var(--notion-border);
 }
 
 .page .ant-select-selector,
 .page .ant-select-dropdown,
 .page .ant-popover-inner,
 .page .ant-popover-arrow::before {
-  background-color: #ffffff !important;
+  background-color: var(--notion-surface) !important;
   color: var(--notion-text-primary) !important;
   border-color: var(--notion-border) !important;
 }
 
 .page .ant-select-item-option-active,
 .page .ant-select-item-option-selected {
-  background-color: #f1f5f9 !important;
+  background-color: var(--notion-surface-hover) !important;
 }
 
 .page .ant-slider-rail {
-  background-color: #e2e8f0 !important;
+  background-color: var(--notion-border) !important;
 }
 
 .page .ant-slider-track {
@@ -151,4 +318,9 @@ body {
 
 .page .ant-slider-handle::after {
   box-shadow: 0 0 0 2px var(--notion-accent) inset !important;
+}
+
+.page .ant-checkbox-checked .ant-checkbox-inner {
+  background-color: var(--notion-accent) !important;
+  border-color: var(--notion-accent) !important;
 }

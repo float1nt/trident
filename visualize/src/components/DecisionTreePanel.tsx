@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Select } from 'antd'
 import ReactECharts from 'echarts-for-react'
+import { notionTheme } from '../theme/notionTheme'
 
 export type DecisionTreeTask = {
   id: string
@@ -53,14 +54,14 @@ export function DecisionTreePanel({ data }: Props) {
         data: rows.map((r) => r.feature).reverse(),
         axisLabel: { fontSize: 10 },
       },
-      series: [{ type: 'bar', data: rows.map((r) => r.importance).reverse(), itemStyle: { color: '#2563eb' } }],
+      series: [{ type: 'bar', data: rows.map((r) => r.importance).reverse(), itemStyle: { color: notionTheme.chart.accent } }],
       tooltip: { trigger: 'axis' },
     }
   }, [selected])
 
   if (!tasks.length) {
     return (
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-notion-secondary">
         暂无决策树结果。请确认主流程已开启 decision_tree.enabled 并完成 run。
       </p>
     )
@@ -71,7 +72,7 @@ export function DecisionTreePanel({ data }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-xs text-slate-600">分析任务</span>
+        <span className="text-xs text-notion-secondary">分析任务</span>
         <Select
           className="min-w-[360px]"
           value={activeId}
@@ -82,39 +83,39 @@ export function DecisionTreePanel({ data }: Props) {
           }))}
         />
         {selected?.n_samples != null && (
-          <span className="text-xs text-slate-500">n = {selected.n_samples.toLocaleString()}</span>
+          <span className="text-xs text-notion-secondary">n = {selected.n_samples.toLocaleString()}</span>
         )}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-          <div className="text-[11px] uppercase tracking-wide text-slate-500">CV 准确率</div>
-          <div className="text-lg font-semibold text-slate-800">{pct(selected?.cv_accuracy_mean)}</div>
+        <div className="rounded-lg border border-notion-border bg-notion-surface-alt px-3 py-2">
+          <div className="text-[11px] uppercase tracking-wide text-notion-secondary">CV 准确率</div>
+          <div className="text-lg font-semibold text-notion-text">{pct(selected?.cv_accuracy_mean)}</div>
         </div>
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-          <div className="text-[11px] uppercase tracking-wide text-slate-500">CV F1 macro</div>
-          <div className="text-lg font-semibold text-slate-800">{pct(selected?.cv_f1_macro_mean)}</div>
+        <div className="rounded-lg border border-notion-border bg-notion-surface-alt px-3 py-2">
+          <div className="text-[11px] uppercase tracking-wide text-notion-secondary">CV F1 macro</div>
+          <div className="text-lg font-semibold text-notion-text">{pct(selected?.cv_f1_macro_mean)}</div>
         </div>
-        <div className="rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-2">
-          <div className="text-[11px] uppercase tracking-wide text-rose-700">CV 误报率 FPR</div>
-          <div className="text-lg font-semibold text-rose-800">{pct(selected?.cv_fpr)}</div>
-          <div className="text-[10px] text-rose-600">良性判为攻击</div>
+        <div className="rounded-lg border border-notion-danger/30 bg-notion-danger-bg/80 px-3 py-2">
+          <div className="text-[11px] uppercase tracking-wide text-notion-danger">CV 误报率 FPR</div>
+          <div className="text-lg font-semibold text-notion-danger">{pct(selected?.cv_fpr)}</div>
+          <div className="text-[10px] text-notion-danger">良性判为攻击</div>
         </div>
-        <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2">
-          <div className="text-[11px] uppercase tracking-wide text-amber-800">CV 漏报率 FNR</div>
-          <div className="text-lg font-semibold text-amber-900">{pct(selected?.cv_fnr)}</div>
-          <div className="text-[10px] text-amber-700">攻击判为良性</div>
+        <div className="rounded-lg border border-notion-warning/30 bg-notion-warning-bg/80 px-3 py-2">
+          <div className="text-[11px] uppercase tracking-wide text-notion-warning">CV 漏报率 FNR</div>
+          <div className="text-lg font-semibold text-notion-warning">{pct(selected?.cv_fnr)}</div>
+          <div className="text-[10px] text-notion-warning">攻击判为良性</div>
         </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
-        <article className="rounded-lg border border-slate-200 p-2">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-600">特征重要性 Top16</h3>
+        <article className="rounded-lg border border-notion-border p-2">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-notion-secondary">特征重要性 Top16</h3>
           <ReactECharts option={importanceOption} style={{ height: 360 }} />
         </article>
-        <article className="rounded-lg border border-slate-200 p-2">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-slate-600">决策规则树</h3>
-          <pre className="max-h-[520px] overflow-auto rounded bg-slate-900 p-3 font-mono text-[11px] leading-relaxed text-emerald-100">
+        <article className="rounded-lg border border-notion-border p-2">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-notion-secondary">决策规则树</h3>
+          <pre className="code-block max-h-[520px]">
             {selected?.tree_rules?.trim() || '（无规则文本）'}
           </pre>
         </article>

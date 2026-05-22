@@ -4,14 +4,24 @@ import { Checkbox, Popover, Select, Slider } from 'antd'
 import * as echarts from 'echarts'
 import ReactECharts from 'echarts-for-react'
 import { DecisionTreePanel, type DecisionTreeVizJson } from '../components/DecisionTreePanel'
+import { LearnerInternalTopologyPanel } from '../components/LearnerInternalTopologyPanel'
 import { NetworkTopologyPanel, type DatasetNetworkTopologyJson } from '../components/NetworkTopologyPanel'
-import {
-  LearnerInternalTopologyPanel,
-  type LearnerNetworkTopologyJson,
-} from '../components/LearnerInternalTopologyPanel'
+import type { LearnerNetworkTopologyJson } from '../types/learnerTopology'
 import { TableFilterBar } from '../components/TableFilterBar'
 import { fetchRunJsonOptional, fetchRuns, parseCsv, runDataUrl, type RunInfo } from '../lib/runApi'
 import { useTablePreferencesStore } from '../stores/tablePreferencesStore'
+import {
+  CHART_AXIS_LINE,
+  CHART_EDGE,
+  CHART_GREEN,
+  CHART_GREEN_BORDER,
+  CHART_RED,
+  CHART_RED_BORDER,
+  CHART_SPLIT_LINE,
+  CHART_TEXT_PRIMARY,
+  CHART_TEXT_SECONDARY,
+  notionTheme,
+} from '../theme/notionTheme'
 
 type PairRow = {
   learner_a_raw: string
@@ -217,16 +227,6 @@ type LearnerDetail = {
   topLabels: Array<[string, number]>
 }
 
-const CHART_TEXT_PRIMARY = '#1e293b'
-const CHART_TEXT_SECONDARY = '#64748b'
-const CHART_AXIS_LINE = '#cbd5e1'
-const CHART_SPLIT_LINE = '#e2e8f0'
-const CHART_EDGE = '#94a3b8'
-const CHART_GREEN = '#4ade80'
-const CHART_GREEN_BORDER = '#22c55e'
-const CHART_RED = '#fb7185'
-const CHART_RED_BORDER = '#f43f5e'
-
 /** 雷达无可绘内容时保持空白面板，不占位文案 */
 const EMPTY_RADAR_CHART_OPTION = { animation: false, backgroundColor: 'transparent' as const }
 
@@ -319,7 +319,7 @@ function MetricStatColumnHeader({ col }: { col: string }) {
     return (
       <span className="inline-flex max-w-[14rem] items-center gap-1.5 font-sans">
         <span
-          className="inline-flex h-[18px] shrink-0 items-center justify-center rounded-sm bg-amber-100 px-1 text-[10px] font-bold leading-none tracking-tight text-amber-900"
+          className="inline-flex h-[18px] shrink-0 items-center justify-center rounded-sm bg-notion-warning-bg px-1 text-[10px] font-bold leading-none tracking-tight text-notion-warning"
           title="变异系数（CV）"
           aria-label="变异系数"
         >
@@ -406,7 +406,7 @@ function MetricMeanCvColumnHeader({ base }: { base: string }) {
   const baseZh = FEATURE_BASE_ZH_MAP[base] || base
   return (
     <span className="inline-flex max-w-[14rem] flex-col items-start gap-0.5 font-sans leading-tight">
-      <span className="min-w-0 truncate text-[11px] font-medium text-slate-800">{baseZh}</span>
+      <span className="min-w-0 truncate text-[11px] font-medium text-notion-text">{baseZh}</span>
       <span className="inline-flex items-center gap-1">
         <span
           className="inline-flex h-[16px] shrink-0 items-center justify-center rounded-sm bg-indigo-100 px-1 font-serif text-[12px] font-semibold leading-none text-indigo-800"
@@ -415,7 +415,7 @@ function MetricMeanCvColumnHeader({ base }: { base: string }) {
           μ
         </span>
         <span
-          className="inline-flex h-[16px] shrink-0 items-center justify-center rounded-sm bg-amber-100 px-1 text-[9px] font-bold leading-none tracking-tight text-amber-900"
+          className="inline-flex h-[16px] shrink-0 items-center justify-center rounded-sm bg-notion-warning-bg px-1 text-[9px] font-bold leading-none tracking-tight text-notion-warning"
           title="变异系数（CV）"
         >
           CV
@@ -440,7 +440,7 @@ function formatMeanCvCombinedCell(
         <span>{meanText}</span>
       </span>
       <span className="inline-flex items-baseline gap-1">
-        <span className="shrink-0 text-[9px] font-bold text-amber-800">CV</span>
+        <span className="shrink-0 text-[9px] font-bold text-notion-warning">CV</span>
         <span>{cvText}</span>
       </span>
     </span>
@@ -601,36 +601,36 @@ const TABLE_COLUMN_STAT_ROWS: Array<{ field: keyof Omit<ColumnStatAggregate, 'n'
 
 /** 可排序表头：悬浮仅用浅底，不改变字色（避免 hover 变黑） */
 const TABLE_SORT_HEAD_BTN_CLASS =
-  'inline-flex max-w-full min-w-0 items-center gap-1 rounded-sm px-0.5 py-0.5 text-inherit transition-colors hover:bg-slate-200/55'
+  'inline-flex max-w-full min-w-0 items-center gap-1 rounded-sm px-0.5 py-0.5 text-inherit transition-colors hover:bg-notion-surface-hover/55'
 
 /** 横向滚动时冻结首列表头（需与 thead 顶固定叠加 left；纯色底避免叠字） */
 const STICKY_FIRST_COL_TH =
-  'sticky left-0 top-0 z-[31] border-r border-slate-200 bg-slate-50 bg-clip-padding shadow-[2px_0_10px_-4px_rgba(15,23,42,0.14)]'
+  'sticky left-0 top-0 z-[31] border-r border-notion-border bg-notion-surface-alt bg-clip-padding shadow-[2px_0_10px_-4px_rgba(55,53,47,0.14)]'
 /** 冻结首列数据格：仅布局与阴影，背景由 stickyFirstColTdBg* 单独指定不透明色 */
 const STICKY_FIRST_COL_TD_FRAME =
-  'sticky left-0 z-10 border-r border-slate-200 bg-clip-padding shadow-[2px_0_8px_-4px_rgba(15,23,42,0.08)]'
+  'sticky left-0 z-10 border-r border-notion-border bg-clip-padding shadow-[2px_0_8px_-4px_rgba(55,53,47,0.08)]'
 
 /** 使用 index.css 的 sticky-table-bg-*，保证冻结列不透明背景 */
 function stickyFirstColTdBgDataset(isBenign: boolean): string {
-  return isBenign ? 'sticky-table-bg-emerald' : 'sticky-table-bg-rose'
+  return isBenign ? 'sticky-table-bg-success' : 'sticky-table-bg-danger'
 }
 
 function stickyFirstColTdBgLearner(attackRatio: number): string {
   const r = Number(attackRatio)
-  if (!Number.isFinite(r)) return 'sticky-table-bg-slate'
-  if (r > 0.7) return 'sticky-table-bg-rose'
-  if (r < 0.3) return 'sticky-table-bg-emerald'
-  return 'sticky-table-bg-amber'
+  if (!Number.isFinite(r)) return 'sticky-table-bg-neutral'
+  if (r > 0.7) return 'sticky-table-bg-danger'
+  if (r < 0.3) return 'sticky-table-bg-success'
+  return 'sticky-table-bg-warning'
 }
 
 const TABLE_ROW_NEUTRAL =
-  'border-b border-slate-100 bg-slate-50 text-slate-800 hover:bg-slate-100'
+  'border-b border-notion-border bg-notion-surface-alt text-notion-text hover:bg-notion-surface-hover'
 const TABLE_ROW_BENIGN_BAND =
-  'border-b border-emerald-200/80 bg-emerald-50 text-slate-900 hover:bg-emerald-100/90'
+  'border-b border-notion-success/30 bg-notion-success-bg text-notion-text hover:bg-notion-success-bg/90'
 const TABLE_ROW_ATTACK_BAND =
-  'border-b border-rose-200/80 bg-rose-50 text-slate-900 hover:bg-rose-100/90'
+  'border-b border-notion-danger/30 bg-notion-danger-bg text-notion-text hover:bg-notion-danger-bg/90'
 const TABLE_ROW_MIXED_BAND =
-  'border-b border-amber-200/80 bg-amber-50 text-slate-900 hover:bg-amber-100/90'
+  'border-b border-notion-warning/30 bg-notion-warning-bg text-notion-text hover:bg-notion-warning-bg/90'
 
 function learnerTableRowClassFromAttackRatio(attackRatio: number): string {
   const r = Number(attackRatio)
@@ -670,14 +670,14 @@ function TableSortTag({
   clearDisabled?: boolean
 }) {
   return (
-    <span className="inline-flex max-w-[min(100%,420px)] items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-800 shadow-sm">
-      <span className="shrink-0 text-slate-500">{scopeLabel}</span>
-      <span className="min-w-0 truncate font-medium text-slate-900">{columnLabel}</span>
-      <span className="shrink-0 tabular-nums text-slate-600">{dir === 'asc' ? '↑' : '↓'}</span>
+    <span className="inline-flex max-w-[min(100%,420px)] items-center gap-1 rounded-md border border-notion-border bg-notion-surface-alt px-2 py-1 text-xs text-notion-text shadow-sm">
+      <span className="shrink-0 text-notion-secondary">{scopeLabel}</span>
+      <span className="min-w-0 truncate font-medium text-notion-text">{columnLabel}</span>
+      <span className="shrink-0 tabular-nums text-notion-secondary">{dir === 'asc' ? '↑' : '↓'}</span>
       <button
         type="button"
         disabled={clearDisabled}
-        className="ml-0.5 shrink-0 rounded px-1 leading-none text-slate-500 hover:bg-slate-200 hover:text-slate-900 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+        className="ml-0.5 shrink-0 rounded px-1 leading-none text-notion-secondary hover:bg-notion-surface-hover hover:text-notion-text disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
         aria-label="恢复默认排序"
         onClick={onClear}
       >
@@ -780,7 +780,7 @@ export default function GraphAnalysisPage() {
       setLoading(true)
       setError('')
       try {
-        const [pairs, aggs, learners, counts, trainBatches, labelDistRows, labelDistSummary, metricJson, perfJson, aggSummaryJson, featureCorrJson, datasetLabelFeatureCorrJson, creationPreviewJson, decisionTreeJson, datasetTopologyJson, learnerTopologyJson] = await Promise.all([
+          const [pairs, aggs, learners, counts, trainBatches, labelDistRows, labelDistSummary, metricJson, perfJson, aggSummaryJson, featureCorrJson, datasetLabelFeatureCorrJson, creationPreviewJson, decisionTreeJson, datasetTopologyJson, learnerTopologyJson] = await Promise.all([
           parseCsv<PairRow>(runDataUrl(selectedRunId, 'debug_true_overlap_pairs.csv')),
           parseCsv<AggRow>(runDataUrl(selectedRunId, 'learner_aggregated_distribution.csv')),
           parseCsv<LearnerDistRow>(runDataUrl(selectedRunId, 'learner_label_distribution.csv')),
@@ -966,20 +966,20 @@ export default function GraphAnalysisPage() {
       const detail = learnerDetailMap.get(id)
       const samples = learnerMeta.sampleMap.get(id) ?? detail?.totalSamples ?? 0
 
-      let color = '#94a3b8'
-      let borderColor = '#64748b'
+      let color: string = notionTheme.chart.edge
+      let borderColor: string = notionTheme.chart.nodeExternalBorder
       let borderWidth = 1.2
       if (ratio !== null) {
         if (ratio >= 0.3 && ratio <= 0.7) {
-          color = '#f8fafc'
-          borderColor = '#ca8a04'
+          color = notionTheme.chart.aggregate
+          borderColor = notionTheme.chart.aggregateBorder
           borderWidth = 2.4
         } else if (ratio < 0.3) {
-          color = CHART_GREEN
+          color = notionTheme.chart.greenFill
           borderColor = CHART_GREEN_BORDER
           borderWidth = 1.2
         } else {
-          color = CHART_RED
+          color = notionTheme.chart.redFill
           borderColor = CHART_RED_BORDER
           borderWidth = 1.2
         }
@@ -1045,7 +1045,7 @@ export default function GraphAnalysisPage() {
       backgroundColor: 'transparent',
       tooltip: {
         trigger: 'item',
-        backgroundColor: '#ffffff',
+        backgroundColor: notionTheme.chart.white,
         borderColor: CHART_AXIS_LINE,
         textStyle: { color: CHART_TEXT_PRIMARY },
         formatter: (params: { dataType?: string; data: NodeData | LinkData }) => {
@@ -1099,7 +1099,7 @@ export default function GraphAnalysisPage() {
       xAxis: { type: 'category', data: x, axisLabel: { color: CHART_TEXT_SECONDARY } },
       yAxis: { type: 'value', axisLabel: { color: CHART_TEXT_SECONDARY } },
       series: [
-        { name: 'Learner Count', type: 'line', data: learner, smooth: true, lineStyle: { color: '#2563eb' } },
+        { name: 'Learner Count', type: 'line', data: learner, smooth: true, lineStyle: { color: notionTheme.chart.accent } },
       ],
     }
   }, [countRows])
@@ -1113,7 +1113,7 @@ export default function GraphAnalysisPage() {
       xAxis: { type: 'category', data: x, axisLabel: { color: CHART_TEXT_SECONDARY } },
       yAxis: { type: 'value', axisLabel: { color: CHART_TEXT_SECONDARY } },
       series: [
-        { name: 'Unknown Buffer', type: 'line', data: unknown, smooth: true, lineStyle: { color: '#d97706' } },
+        { name: 'Unknown Buffer', type: 'line', data: unknown, smooth: true, lineStyle: { color: notionTheme.chart.orange } },
       ],
     }
   }, [countRows])
@@ -1142,14 +1142,14 @@ export default function GraphAnalysisPage() {
           type: 'bar',
           stack: 'samples',
           data: top.map((x) => x.creation),
-          itemStyle: { color: '#2563eb' },
+          itemStyle: { color: notionTheme.chart.accent },
         },
         {
           name: '增量匹配量',
           type: 'bar',
           stack: 'samples',
           data: top.map((x) => x.incremental),
-          itemStyle: { color: '#06b6d4' },
+          itemStyle: { color: notionTheme.chart.blue },
         },
       ],
     }
@@ -1195,7 +1195,7 @@ export default function GraphAnalysisPage() {
       tooltip: { trigger: 'axis' },
       xAxis: { type: 'value', axisLabel: { color: CHART_TEXT_SECONDARY } },
       yAxis: { type: 'category', data: top.map((x) => x.name), axisLabel: { color: CHART_TEXT_SECONDARY } },
-      series: [{ type: 'bar', data: top.map((x) => x.value), itemStyle: { color: '#0ea5e9' } }],
+      series: [{ type: 'bar', data: top.map((x) => x.value), itemStyle: { color: notionTheme.chart.blue } }],
     }
   }, [retrainCountMap])
 
@@ -2083,14 +2083,14 @@ export default function GraphAnalysisPage() {
     <div className="space-y-5">
       <section className="panel">
         <p className="eyebrow">Threat Relationship Intelligence</p>
-        <h1 className="text-2xl font-semibold tracking-wide text-slate-900">
+        <h1 className="text-2xl font-semibold tracking-wide text-notion-text">
           Run 详情
         </h1>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-notion-secondary">
           {detailMode ? `当前路由: /run/${routeRunId}` : ''}
         </p>
         {detailMode ? (
-          <p className="mt-2 text-xs text-slate-600">
+          <p className="mt-2 text-xs text-notion-secondary">
             <Link to="/runs-compare" className="hover:underline">返回 Run 对比</Link>
           </p>
         ) : null}
@@ -2117,8 +2117,8 @@ export default function GraphAnalysisPage() {
             )}
           </div>
         </div>
-        {loading ? <p className="text-sm text-slate-600">正在载入图谱数据...</p> : null}
-        {error ? <p className="text-sm text-rose-600">{error}</p> : null}
+        {loading ? <p className="text-sm text-notion-secondary">正在载入图谱数据...</p> : null}
+        {error ? <p className="text-sm text-notion-danger">{error}</p> : null}
       </section>
 
       <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -2131,13 +2131,13 @@ export default function GraphAnalysisPage() {
       </section>
 
       <section className="panel">
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">数据集标签分布（Run输入，全量）</h2>
-        <div className="mb-3 text-xs text-slate-500">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">数据集标签分布（Run输入，全量）</h2>
+        <div className="mb-3 text-xs text-notion-secondary">
           rows={datasetLabelSummary?.total_rows ?? '-'} | labels={datasetLabelSummary?.label_count ?? datasetLabelRows.length}
           {' '}| benign={datasetLabelSummary?.benign_rows ?? '-'} | attack={datasetLabelSummary?.attack_rows ?? '-'}
         </div>
-        <article className="mb-4 rounded-lg border border-slate-200 bg-white p-3">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+        <article className="mb-4 rounded-lg border border-notion-border bg-notion-surface p-3">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-notion-secondary">
             数据集网络拓扑（IP / 端口）
           </h3>
           <NetworkTopologyPanel
@@ -2146,29 +2146,29 @@ export default function GraphAnalysisPage() {
           />
         </article>
         <div className="mb-4 grid gap-4 xl:grid-cols-2">
-          <article className="rounded-lg border border-slate-200 bg-white p-3">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">总体正常/异常占比</h3>
+          <article className="rounded-lg border border-notion-border bg-notion-surface p-3">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-notion-secondary">总体正常/异常占比</h3>
             <ReactECharts option={datasetOverallOption} style={{ height: 250 }} />
           </article>
-          <article className="rounded-lg border border-slate-200 bg-white p-3">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-600">每年正常/异常占比</h3>
+          <article className="rounded-lg border border-notion-border bg-notion-surface p-3">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-notion-secondary">每年正常/异常占比</h3>
             <ReactECharts option={datasetYearlyRatioOption} style={{ height: 250 }} />
           </article>
         </div>
         <div className="mb-4 grid gap-4 xl:grid-cols-2">
-          <article className="rounded-lg border border-slate-200 bg-white p-3">
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+          <article className="rounded-lg border border-notion-border bg-notion-surface p-3">
+            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-notion-secondary">
               标签级特征相关性 Top24（attack=1）
             </h3>
-            <p className="mb-2 text-xs text-slate-500">
+            <p className="mb-2 text-xs text-notion-secondary">
               红色正相关，绿色负相关；已过滤 `count` / `ratio`，并排除一切标准差与 Std 画像相关指标列。来源{' '}
               <span className="font-mono">dataset_label_feature_attack_correlation.json</span>
             </p>
             <ReactECharts option={datasetLabelFeatureCorrOption} style={{ height: 560 }} />
           </article>
-          <article className="rounded-lg border border-slate-200 bg-white p-3">
+          <article className="rounded-lg border border-notion-border bg-notion-surface p-3">
             <div className="mb-1 flex items-center justify-between gap-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-notion-secondary">
                 Top5 相关特征：恶意 vs 良性（雷达）
               </h3>
               <Popover
@@ -2181,27 +2181,27 @@ export default function GraphAnalysisPage() {
                 content={(
                   <div className="w-[320px] space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-slate-600">
+                      <span className="text-xs text-notion-secondary">
                         已选 {effectiveRadarLabels.length} / {datasetLabelAll.length}
                       </span>
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                          className="btn-secondary px-2 py-1"
                           onClick={() => setRadarLabelSelection(null)}
                         >
                           全选
                         </button>
                         <button
                           type="button"
-                          className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                          className="btn-secondary px-2 py-1"
                           onClick={() => setRadarLabelSelection([])}
                         >
                           清空
                         </button>
                       </div>
                     </div>
-                    <div className="max-h-72 overflow-y-auto rounded border border-slate-200 p-2">
+                    <div className="max-h-72 overflow-y-auto rounded border border-notion-border p-2">
                       <Checkbox.Group
                         value={effectiveRadarLabels}
                         onChange={(vals) => setRadarLabelSelection((vals as string[]).map((v) => String(v)))}
@@ -2212,10 +2212,10 @@ export default function GraphAnalysisPage() {
                           .sort((a, b) => b.count - a.count)
                           .map((row) => (
                             <Checkbox key={`radar-label-${row.label}`} value={row.label}>
-                              <span className={row.isBenign ? 'text-emerald-700' : 'text-rose-700'}>
+                              <span className={row.isBenign ? 'text-notion-success' : 'text-notion-danger'}>
                                 {row.label}
                               </span>
-                              <span className="ml-1 text-[11px] text-slate-500">({row.count.toLocaleString()})</span>
+                              <span className="ml-1 text-[11px] text-notion-secondary">({row.count.toLocaleString()})</span>
                             </Checkbox>
                           ))}
                       </Checkbox.Group>
@@ -2223,24 +2223,24 @@ export default function GraphAnalysisPage() {
                   </div>
                 )}
               >
-                <button type="button" className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
+                <button type="button" className="btn-secondary px-2 py-1">
                   选择展示标签
                 </button>
               </Popover>
             </div>
-            <p className="mb-2 text-xs text-slate-500">
+            <p className="mb-2 text-xs text-notion-secondary">
               取相关性绝对值最大的5个特征；通过右上角按钮控制显示哪些标签（恶意红色、良性绿色）
             </p>
             <ReactECharts option={datasetLabelTopFeatureRadarOption} style={{ height: 560 }} />
           </article>
         </div>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-600">Label 表格筛选与展示列</h3>
-          <div className="text-xs text-slate-500">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-notion-secondary">Label 表格筛选与展示列</h3>
+          <div className="text-xs text-notion-secondary">
             当前显示 {filteredDatasetLabelRows.length} / {datasetLabelAll.length} 条
           </div>
         </div>
-        <p className="mb-3 text-[11px] leading-relaxed text-slate-600">
+        <p className="mb-3 text-[11px] leading-relaxed text-notion-secondary">
           固定列之外的指标列默认全部展示：<span className="font-mono">dataset_label_distribution.csv</span> 中出现的特征统计字段（如{' '}
           <span className="font-mono">__mean/__cv/__max/__min</span>
           （同一指标的 μ 与 CV 合并在同一单元格；不含标准差与 Std 画像相关列）；可在「⚙ 设置列」中隐藏不需看的列。
@@ -2282,10 +2282,10 @@ export default function GraphAnalysisPage() {
             </Popover>
           </div>
         </div>
-        <div className="max-h-[520px] overflow-x-auto overflow-y-auto rounded-lg border border-slate-200">
+        <div className="max-h-[520px] overflow-x-auto overflow-y-auto rounded-lg border border-notion-border">
           <table className="w-full min-w-[1380px] whitespace-nowrap text-sm">
-            <thead className="sticky top-0 bg-slate-50">
-              <tr className="border-b border-slate-200 text-left text-slate-600">
+            <thead className="sticky top-0 bg-notion-surface-alt">
+              <tr className="border-b border-notion-border text-left text-notion-secondary">
                 <th style={datasetColumnStyle('label')} className={`whitespace-nowrap px-3 py-2 ${STICKY_FIRST_COL_TH}`}><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('label')}>Label <span className="text-xs">{sortIndicator(datasetSortBy === 'label', datasetSortDir)}</span></button></th>
                 <th style={datasetColumnStyle('count')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('count')}>Count <span className="text-xs">{sortIndicator(datasetSortBy === 'count', datasetSortDir)}</span></button></th>
                 <th style={datasetColumnStyle('ratio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleDatasetSort('ratio')}>Ratio <span className="text-xs">{sortIndicator(datasetSortBy === 'ratio', datasetSortDir)}</span></button></th>
@@ -2313,39 +2313,39 @@ export default function GraphAnalysisPage() {
             <tbody>
               {filteredDatasetLabelRows.map((row) => (
                 <tr key={row.label} className={datasetLabelTableRowClassName(row.isBenign)}>
-                  <td style={datasetColumnStyle('label')} className={`${STICKY_FIRST_COL_TD_FRAME} ${stickyFirstColTdBgDataset(row.isBenign)} whitespace-nowrap px-3 py-2 font-mono text-xs ${row.isBenign ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  <td style={datasetColumnStyle('label')} className={`${STICKY_FIRST_COL_TD_FRAME} ${stickyFirstColTdBgDataset(row.isBenign)} whitespace-nowrap px-3 py-2 font-mono text-xs ${row.isBenign ? 'text-notion-success' : 'text-notion-danger'}`}>
                     {row.label}
                   </td>
                   <td style={datasetColumnStyle('count')} className="whitespace-nowrap px-3 py-2">{row.count.toLocaleString()}</td>
                   <td style={datasetColumnStyle('ratio')} className="whitespace-nowrap px-3 py-2">
                     <div className="flex items-center gap-2">
                       <div
-                        className="h-2.5 w-36 overflow-hidden rounded-full bg-slate-200"
+                        className="h-2.5 w-36 overflow-hidden rounded-full bg-notion-surface-hover"
                         title={`${(row.ratio * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}
                       >
                         <div
-                          className={`h-full rounded-full ${row.isBenign ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                          className={`h-full rounded-full ${row.isBenign ? 'bg-notion-success-bg0' : 'bg-notion-danger-bg0'}`}
                           style={{ width: `${Math.max(0, Math.min(100, row.ratio * 100))}%` }}
                         />
                       </div>
-                      <span className={`text-xs ${row.isBenign ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      <span className={`text-xs ${row.isBenign ? 'text-notion-success' : 'text-notion-danger'}`}>
                         {(row.ratio * 100).toFixed(METRIC_DECIMAL_PLACES)}%
                       </span>
                     </div>
                   </td>
                   <td style={datasetColumnStyle('type')} className="whitespace-nowrap px-3 py-2">
-                    <span className={row.isBenign ? 'rounded-md bg-emerald-100 px-2 py-1 text-emerald-700' : 'rounded-md bg-rose-100 px-2 py-1 text-rose-700'}>
+                    <span className={row.isBenign ? 'rounded-md bg-notion-success-bg px-2 py-1 text-notion-success' : 'rounded-md bg-notion-danger-bg px-2 py-1 text-notion-danger'}>
                       {row.isBenign ? 'BENIGN' : 'ATTACK'}
                     </span>
                   </td>
                   <td style={datasetColumnStyle('yearTag')} className="whitespace-nowrap px-3 py-2">{row.yearTag}</td>
                   <td style={datasetColumnStyle('baseLabel')} className="whitespace-nowrap px-3 py-2">{row.baseLabel}</td>
                   <td style={datasetColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-2">
-                    <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-700">{row.protocolType}</span>
+                    <span className="rounded-md bg-notion-surface-hover px-2 py-1 text-notion-text">{row.protocolType}</span>
                   </td>
                   <td style={datasetColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-2">{(row.protocolConcentration * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
-                  <td style={datasetColumnStyle('protocolTcpRatio')} className="whitespace-nowrap px-3 py-2 text-emerald-700">{(row.protocolTcpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
-                  <td style={datasetColumnStyle('protocolUdpRatio')} className="whitespace-nowrap px-3 py-2 text-sky-700">{(row.protocolUdpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
+                  <td style={datasetColumnStyle('protocolTcpRatio')} className="whitespace-nowrap px-3 py-2 text-notion-success">{(row.protocolTcpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
+                  <td style={datasetColumnStyle('protocolUdpRatio')} className="whitespace-nowrap px-3 py-2 text-notion-info">{(row.protocolUdpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
                   {visibleDatasetMetricDisplayColumns.map((col) => (
                     <td
                       key={`${row.label}-${col.id}`}
@@ -2366,12 +2366,12 @@ export default function GraphAnalysisPage() {
                 </tr>
               ))}
             </tbody>
-            <tfoot className="border-t-2 border-slate-300 bg-slate-100 text-[11px] text-slate-800">
+            <tfoot className="border-t-2 border-notion-border-strong bg-notion-surface-hover text-[11px] text-notion-text">
               {TABLE_COLUMN_STAT_ROWS.map(({ field: statField, label: statLabel }) => (
                 <tr key={`ds-foot-${statField}`}>
                   <td
                     style={datasetColumnStyle('label')}
-                    className={`${STICKY_FIRST_COL_TD_FRAME} sticky-table-bg-slate whitespace-nowrap px-3 py-1.5 font-medium text-slate-600`}
+                    className={`${STICKY_FIRST_COL_TD_FRAME} sticky-table-bg-neutral whitespace-nowrap px-3 py-1.5 font-medium text-notion-secondary`}
                   >
                     {statLabel}
                   </td>
@@ -2381,12 +2381,12 @@ export default function GraphAnalysisPage() {
                   <td style={datasetColumnStyle('ratio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
                     {formatColumnStatField(datasetTableColumnStats.ratio, statField)}
                   </td>
-                  <td style={datasetColumnStyle('type')} className="whitespace-nowrap px-3 py-1.5 text-slate-400">—</td>
+                  <td style={datasetColumnStyle('type')} className="whitespace-nowrap px-3 py-1.5 text-notion-tertiary">—</td>
                   <td style={datasetColumnStyle('yearTag')} className="whitespace-nowrap px-3 py-1.5 font-mono">
                     {formatColumnStatField(datasetTableColumnStats.yearTag, statField)}
                   </td>
-                  <td style={datasetColumnStyle('baseLabel')} className="whitespace-nowrap px-3 py-1.5 text-slate-400">—</td>
-                  <td style={datasetColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-1.5 text-slate-400">—</td>
+                  <td style={datasetColumnStyle('baseLabel')} className="whitespace-nowrap px-3 py-1.5 text-notion-tertiary">—</td>
+                  <td style={datasetColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-1.5 text-notion-tertiary">—</td>
                   <td style={datasetColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-1.5 font-mono">
                     {formatColumnStatField(datasetTableColumnStats.protocolConcentration, statField)}
                   </td>
@@ -2413,10 +2413,10 @@ export default function GraphAnalysisPage() {
       </section>
 
       <section className="panel">
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">
           决策树可解释性（标签 / 学习器）
         </h2>
-        <p className="mb-4 text-xs text-slate-500">
+        <p className="mb-4 text-xs text-notion-secondary">
           主流程在 run 结束时自动训练决策树：区分数据集标签（良性 vs 攻击、base_label 多类）与学习器（attack_ratio 阈值、极性三分类、协议簇）。
           指标为分层 5 折交叉验证 OOF；二分类任务展示 FPR/FNR。
         </p>
@@ -2425,21 +2425,21 @@ export default function GraphAnalysisPage() {
 
       <section className="grid gap-4 xl:grid-cols-2">
         <article className="panel">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">Learner 趋势</h2>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">Learner 趋势</h2>
           <ReactECharts option={learnerTrendOption} style={{ height: 300 }} />
         </article>
         <article className="panel">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">Unknown Buffer 趋势</h2>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">Unknown Buffer 趋势</h2>
           <ReactECharts option={unknownTrendOption} style={{ height: 300 }} />
         </article>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
         <article className="panel">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">
             簇特征 vs attack_ratio 相关性（Top24）
           </h2>
-          <div className="mb-2 text-xs text-slate-500">
+          <div className="mb-2 text-xs text-notion-secondary">
             正相关为红色，负相关为绿色；已过滤 `count` / `ratio`，并排除一切标准差与 Std 画像相关指标列；数据来自{' '}
             <span className="font-mono">learner_feature_attack_ratio_correlation.json</span>
           </div>
@@ -2447,7 +2447,7 @@ export default function GraphAnalysisPage() {
         </article>
         <article className="panel">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-600">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-notion-secondary">
               学习器 Top5 相关特征雷达图
             </h2>
             <Popover
@@ -2460,27 +2460,27 @@ export default function GraphAnalysisPage() {
               content={(
                 <div className="w-[320px] space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-600">
+                    <span className="text-xs text-notion-secondary">
                       已选 {effectiveLearnerRadarNames.length} / {allLearnerRows.length}
                     </span>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
-                        className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                        className="rounded border border-notion-border-strong px-2 py-1 text-xs text-notion-text hover:bg-notion-surface-alt"
                         onClick={() => setLearnerRadarNameSelection(null)}
                       >
                         全选
                       </button>
                       <button
                         type="button"
-                        className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                        className="rounded border border-notion-border-strong px-2 py-1 text-xs text-notion-text hover:bg-notion-surface-alt"
                         onClick={() => setLearnerRadarNameSelection([])}
                       >
                         清空
                       </button>
                     </div>
                   </div>
-                  <div className="max-h-72 overflow-y-auto rounded border border-slate-200 p-2">
+                  <div className="max-h-72 overflow-y-auto rounded border border-notion-border p-2">
                     <Checkbox.Group
                       value={effectiveLearnerRadarNames}
                       onChange={(vals) => setLearnerRadarNameSelection((vals as string[]).map((v) => String(v)))}
@@ -2491,10 +2491,10 @@ export default function GraphAnalysisPage() {
                         .sort((a, b) => b.attackRatio - a.attackRatio || b.samples - a.samples)
                         .map((row) => (
                           <Checkbox key={`learner-radar-${row.name}`} value={row.name}>
-                            <span className={row.attackRatio >= 0.5 ? 'text-rose-700' : 'text-emerald-700'}>
+                            <span className={row.attackRatio >= 0.5 ? 'text-notion-danger' : 'text-notion-success'}>
                               {row.name}
                             </span>
-                            <span className="ml-1 text-[11px] text-slate-500">
+                            <span className="ml-1 text-[11px] text-notion-secondary">
                               （攻击占比 {(row.attackRatio * 100).toFixed(2)}% · 主导 {row.dominantLabel} ·{' '}
                               {row.samples.toLocaleString()} 样本）
                             </span>
@@ -2505,12 +2505,12 @@ export default function GraphAnalysisPage() {
                 </div>
               )}
             >
-              <button type="button" className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">
+              <button type="button" className="rounded border border-notion-border-strong px-2 py-1 text-xs text-notion-text hover:bg-notion-surface-alt">
                 选择展示学习器
               </button>
             </Popover>
           </div>
-          <div className="mb-2 text-xs text-slate-500">
+          <div className="mb-2 text-xs text-notion-secondary">
             默认展示全部学习器；悬浮可查看流量类型（恶意倾向/良性倾向）与 attack_ratio
           </div>
           <ReactECharts option={learnerTopFeatureRadarOption} style={{ height: 560 }} />
@@ -2519,22 +2519,36 @@ export default function GraphAnalysisPage() {
 
       <section className="grid gap-4 xl:grid-cols-2">
         <article className="panel">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">Learner 创建样本量 Top15</h2>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">Learner 创建样本量 Top15</h2>
           <ReactECharts option={creationOption} style={{ height: 340 }} />
         </article>
         <article className="panel">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">学习器重训次数 Top10</h2>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">学习器重训次数 Top10</h2>
           <ReactECharts option={retrainTopOption} style={{ height: 340 }} />
         </article>
       </section>
 
       <section className="panel">
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-slate-600">
-          学习器内部网络拓扑（IP / 端口）
-        </h2>
-        <p className="mb-3 text-xs text-slate-500">
-          按学习器聚合其分配到的流；与下方关系图选中节点可联动。绿/红边表示该流在数据集中的真实良性/攻击标签。
-        </p>
+        <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-notion-secondary">
+              学习器内部网络拓扑（IP / 端口）
+            </h2>
+            <p className="mt-1 text-xs text-notion-secondary">
+              默认网格展示全部学习器（左 IP / 右 IP:端口）；可切换单学习器模式。绿/红边为真实标签。分组审计指标见「学习器详情」。
+            </p>
+          </div>
+          <Link
+            to={
+              selectedRunId
+                ? `/learner-detail/${encodeURIComponent(selectedRunId)}${selectedNodeId ? `?learner=${encodeURIComponent(selectedNodeId)}` : ''}`
+                : '/learner-detail'
+            }
+            className="btn-secondary shrink-0 text-sm"
+          >
+            学习器详情（审计指标）→
+          </Link>
+        </div>
         <LearnerInternalTopologyPanel
           data={learnerNetworkTopology}
           learnerOptions={allLearnerRows.map((r) => ({
@@ -2549,7 +2563,7 @@ export default function GraphAnalysisPage() {
 
       <section className="panel">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-600">学习器效果总览（全部）</h2>
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-notion-secondary">学习器效果总览（全部）</h2>
         </div>
         <div className="mb-3 flex flex-wrap items-start gap-3">
           <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -2589,22 +2603,22 @@ export default function GraphAnalysisPage() {
           </div>
         </div>
 
-        <div className="mb-2 text-xs leading-relaxed text-slate-500">
+        <div className="mb-2 text-xs leading-relaxed text-notion-secondary">
           <span className="block">
             固定列之外的字段来自{' '}
             <span className="font-mono">learner_label_distribution.csv</span>：
-            <span className="font-semibold text-slate-700">增量样本(post_creation)、dominant_count、protocol_other_ratio、label_distribution_json 以及全部</span>{' '}
+            <span className="font-semibold text-notion-text">增量样本(post_creation)、dominant_count、protocol_other_ratio、label_distribution_json 以及全部</span>{' '}
             <span className="font-mono">__mean/__cv</span> 等聚合指标列均已追加（同一指标 μ 与 CV 同格展示；标准差列与 Std 画像特征族不在本页展示）。
           </span>
-          <span className="mt-0.5 block text-slate-400">
+          <span className="mt-0.5 block text-notion-tertiary">
             共 {learnerRows.length} 条学习器 · 筛选后 {allLearnerRows.length} 条
           </span>
         </div>
 
-        <div className="max-h-[520px] overflow-x-auto overflow-y-auto rounded-lg border border-slate-200">
+        <div className="max-h-[520px] overflow-x-auto overflow-y-auto rounded-lg border border-notion-border">
           <table className="w-full min-w-[1380px] whitespace-nowrap text-sm">
-            <thead className="sticky top-0 bg-slate-50">
-              <tr className="border-b border-slate-200 text-left text-slate-600">
+            <thead className="sticky top-0 bg-notion-surface-alt">
+              <tr className="border-b border-notion-border text-left text-notion-secondary">
                 <th style={learnerColumnStyle('name')} className={`whitespace-nowrap px-3 py-2 ${STICKY_FIRST_COL_TH}`}><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('name')}>Learner <span className="text-xs">{sortIndicator(learnerSortBy === 'name', learnerSortDir)}</span></button></th>
                 <th style={learnerColumnStyle('attackRatio')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('attackRatio')}>Attack Ratio <span className="text-xs">{sortIndicator(learnerSortBy === 'attackRatio', learnerSortDir)}</span></button></th>
                 <th style={learnerColumnStyle('samples')} className="whitespace-nowrap px-3 py-2"><button type="button" className={TABLE_SORT_HEAD_BTN_CLASS} onClick={() => toggleLearnerSort('samples')}>总样本 <span className="text-xs">{sortIndicator(learnerSortBy === 'samples', learnerSortDir)}</span></button></th>
@@ -2633,15 +2647,15 @@ export default function GraphAnalysisPage() {
             <tbody>
               {allLearnerRows.map((row) => (
                 <tr key={row.name} className={learnerTableRowClassFromAttackRatio(row.attackRatio)}>
-                  <td style={learnerColumnStyle('name')} className={`${STICKY_FIRST_COL_TD_FRAME} ${stickyFirstColTdBgLearner(row.attackRatio)} whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-700`}>{row.name}</td>
+                  <td style={learnerColumnStyle('name')} className={`${STICKY_FIRST_COL_TD_FRAME} ${stickyFirstColTdBgLearner(row.attackRatio)} whitespace-nowrap px-3 py-2 font-mono text-xs text-notion-text`}>{row.name}</td>
                   <td style={learnerColumnStyle('attackRatio')} className="whitespace-nowrap px-3 py-2">
                     <span
                       className={
                         row.attackRatio > 0.7
-                          ? 'rounded-md bg-rose-100 px-2 py-1 text-rose-700'
+                          ? 'rounded-md bg-notion-danger-bg px-2 py-1 text-notion-danger'
                           : row.attackRatio < 0.3
-                            ? 'rounded-md bg-emerald-100 px-2 py-1 text-emerald-700'
-                            : 'rounded-md border border-yellow-400 bg-yellow-50 px-2 py-1 text-yellow-700'
+                            ? 'rounded-md bg-notion-success-bg px-2 py-1 text-notion-success'
+                            : 'rounded-md border border-notion-warning bg-notion-warning-bg px-2 py-1 text-notion-warning'
                       }
                     >
                       {(row.attackRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%
@@ -2651,19 +2665,19 @@ export default function GraphAnalysisPage() {
                   <td style={learnerColumnStyle('creationSamples')} className="whitespace-nowrap px-3 py-2">{row.creationSamples.toLocaleString()}</td>
                   <td style={learnerColumnStyle('retrainCount')} className="whitespace-nowrap px-3 py-2">{row.retrainCount.toLocaleString()}</td>
                   <td style={learnerColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-2">
-                    <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-700">{row.protocolType}</span>
+                    <span className="rounded-md bg-notion-surface-hover px-2 py-1 text-notion-text">{row.protocolType}</span>
                   </td>
                   <td style={learnerColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-2">{(row.protocolConcentration * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
-                  <td style={learnerColumnStyle('tcpRatio')} className="whitespace-nowrap px-3 py-2 text-emerald-700">{(row.tcpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
-                  <td style={learnerColumnStyle('udpRatio')} className="whitespace-nowrap px-3 py-2 text-sky-700">{(row.udpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
+                  <td style={learnerColumnStyle('tcpRatio')} className="whitespace-nowrap px-3 py-2 text-notion-success">{(row.tcpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
+                  <td style={learnerColumnStyle('udpRatio')} className="whitespace-nowrap px-3 py-2 text-notion-info">{(row.udpRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%</td>
                   <td style={learnerColumnStyle('dominantLabel')} className="whitespace-nowrap px-3 py-2">
                     <span
                       className={
                         row.attackRatio > 0.7
-                          ? 'text-rose-700'
+                          ? 'text-notion-danger'
                           : row.attackRatio < 0.3
-                            ? 'text-emerald-700'
-                            : 'text-yellow-700'
+                            ? 'text-notion-success'
+                            : 'text-notion-warning'
                       }
                     >
                       {row.dominantLabel}
@@ -2706,12 +2720,12 @@ export default function GraphAnalysisPage() {
                 </tr>
               ))}
             </tbody>
-            <tfoot className="border-t-2 border-slate-300 bg-slate-100 text-[11px] text-slate-800">
+            <tfoot className="border-t-2 border-notion-border-strong bg-notion-surface-hover text-[11px] text-notion-text">
               {TABLE_COLUMN_STAT_ROWS.map(({ field: statField, label: statLabel }) => (
                 <tr key={`lr-foot-${statField}`}>
                   <td
                     style={learnerColumnStyle('name')}
-                    className={`${STICKY_FIRST_COL_TD_FRAME} sticky-table-bg-slate whitespace-nowrap px-3 py-1.5 font-medium text-slate-600`}
+                    className={`${STICKY_FIRST_COL_TD_FRAME} sticky-table-bg-neutral whitespace-nowrap px-3 py-1.5 font-medium text-notion-secondary`}
                   >
                     {statLabel}
                   </td>
@@ -2727,7 +2741,7 @@ export default function GraphAnalysisPage() {
                   <td style={learnerColumnStyle('retrainCount')} className="whitespace-nowrap px-3 py-1.5 font-mono">
                     {formatColumnStatField(learnerTableColumnStats.retrainCount, statField)}
                   </td>
-                  <td style={learnerColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-1.5 text-slate-400">—</td>
+                  <td style={learnerColumnStyle('protocolType')} className="whitespace-nowrap px-3 py-1.5 text-notion-tertiary">—</td>
                   <td style={learnerColumnStyle('protocolConcentration')} className="whitespace-nowrap px-3 py-1.5 font-mono">
                     {formatColumnStatField(learnerTableColumnStats.protocolConcentration, statField)}
                   </td>
@@ -2737,7 +2751,7 @@ export default function GraphAnalysisPage() {
                   <td style={learnerColumnStyle('udpRatio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
                     {formatColumnStatField(learnerTableColumnStats.udpRatio, statField)}
                   </td>
-                  <td style={learnerColumnStyle('dominantLabel')} className="whitespace-nowrap px-3 py-1.5 text-slate-400">—</td>
+                  <td style={learnerColumnStyle('dominantLabel')} className="whitespace-nowrap px-3 py-1.5 text-notion-tertiary">—</td>
                   <td style={learnerColumnStyle('dominantRatio')} className="whitespace-nowrap px-3 py-1.5 font-mono">
                     {formatColumnStatField(learnerTableColumnStats.dominantRatio, statField)}
                   </td>
@@ -2763,7 +2777,7 @@ export default function GraphAnalysisPage() {
         </article>
         <aside className="space-y-4">
           <article className="panel">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-slate-600">图谱配置</h2>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-notion-secondary">图谱配置</h2>
             <div className="space-y-3">
               <div>
                 <label className="field-label">阈值 {threshold.toFixed(METRIC_DECIMAL_PLACES)}</label>
@@ -2803,10 +2817,10 @@ export default function GraphAnalysisPage() {
           </article>
 
           <article className="panel">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-slate-600">详情面板</h2>
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-notion-secondary">详情面板</h2>
             {selectedEdge ? (
-              <div className="space-y-1 text-sm text-slate-700">
-                <p className="font-semibold text-slate-900">边: {selectedEdge.source} ↔ {selectedEdge.target}</p>
+              <div className="space-y-1 text-sm text-notion-text">
+                <p className="font-semibold text-notion-text">边: {selectedEdge.source} ↔ {selectedEdge.target}</p>
                 <p>Jaccard: {selectedEdge.value.toFixed(METRIC_DECIMAL_PLACES)}</p>
                 <p>交集: {selectedEdge.intersectionCount}</p>
                 <p>并集: {selectedEdge.unionCount}</p>
@@ -2815,28 +2829,28 @@ export default function GraphAnalysisPage() {
               </div>
             ) : null}
             {!selectedEdge && selectedDetail ? (
-              <div className="space-y-1 text-sm text-slate-700">
-                <p className="font-semibold text-slate-900">节点: {selectedDetail.learnerName}</p>
+              <div className="space-y-1 text-sm text-notion-text">
+                <p className="font-semibold text-notion-text">节点: {selectedDetail.learnerName}</p>
                 <p>attack_ratio: {selectedDetail.attackRatio == null ? 'N/A' : selectedDetail.attackRatio.toFixed(METRIC_DECIMAL_PLACES)}</p>
                 <p>总样本数: {selectedDetail.totalSamples}</p>
                 <p>主导标签: {selectedDetail.dominantLabel}</p>
                 <p>主导占比: {selectedDetail.dominantRatio == null ? 'N/A' : selectedDetail.dominantRatio.toFixed(METRIC_DECIMAL_PLACES)}</p>
                 {selectedCreationPreview && selectedCreationPreview.flows_preview.length > 0 ? (
-                  <div className="mt-3 border-t border-slate-200 pt-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">创建时流预览</p>
-                    <p className="mt-1 text-[11px] text-slate-500">
+                  <div className="mt-3 border-t border-notion-border pt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-notion-secondary">创建时流预览</p>
+                    <p className="mt-1 text-[11px] text-notion-secondary">
                       来源 <span className="font-mono">{selectedCreationPreview.creation_source}</span>
                       ，窗口 [<span className="font-mono">{selectedCreationPreview.window_left}</span>
                       , <span className="font-mono">{selectedCreationPreview.window_right}</span>
                       )，簇大小 <span className="font-mono">{selectedCreationPreview.cluster_size}</span>
                       ，至多 {creationFlowPreview?.preview_flow_count ?? '—'} 条
                     </p>
-                    <div className="mt-2 max-h-72 overflow-auto rounded border border-slate-200 bg-slate-50/80">
+                    <div className="mt-2 max-h-72 overflow-auto rounded border border-notion-border bg-notion-surface-alt/80">
                       <table className="min-w-max border-collapse text-left text-[11px]">
-                        <thead className="sticky top-0 bg-slate-100 text-[10px] uppercase tracking-wide text-slate-600">
+                        <thead className="sticky top-0 bg-notion-surface-hover text-[10px] uppercase tracking-wide text-notion-secondary">
                           <tr>
                             {orderedCreationPreviewDisplayColumns(selectedCreationPreview.flows_preview).map((col) => (
-                              <th key={`cp-col-${col.id}`} className="border-b border-slate-200 px-2 py-1.5 whitespace-nowrap">
+                              <th key={`cp-col-${col.id}`} className="border-b border-notion-border px-2 py-1.5 whitespace-nowrap">
                                 {col.kind === 'mean_cv' ? (
                                   <MetricMeanCvColumnHeader base={col.base} />
                                 ) : (
@@ -2848,11 +2862,11 @@ export default function GraphAnalysisPage() {
                         </thead>
                         <tbody>
                           {selectedCreationPreview.flows_preview.map((flow, fi) => (
-                            <tr key={`cp-flow-${selectedDetail.learnerName}-${fi}`} className="odd:bg-white even:bg-slate-50">
+                            <tr key={`cp-flow-${selectedDetail.learnerName}-${fi}`} className="odd:bg-notion-surface even:bg-notion-surface-alt">
                               {orderedCreationPreviewDisplayColumns(selectedCreationPreview.flows_preview).map((col) => (
                                 <td
                                   key={`cp-cell-${fi}-${col.id}`}
-                                  className="border-b border-slate-100 px-2 py-1.5 whitespace-normal font-mono"
+                                  className="border-b border-notion-border px-2 py-1.5 whitespace-normal font-mono"
                                 >
                                   {col.kind === 'mean_cv' ? (
                                     formatMeanCvCombinedCell(
@@ -2873,18 +2887,18 @@ export default function GraphAnalysisPage() {
                   </div>
                 ) : null}
                 {selectedDetail && !selectedCreationPreview && creationFlowPreview ? (
-                  <p className="mt-3 border-t border-slate-200 pt-3 text-[11px] text-slate-400">
+                  <p className="mt-3 border-t border-notion-border pt-3 text-[11px] text-notion-tertiary">
                     该学习器暂无创建流预览条目。
                   </p>
                 ) : null}
                 {selectedDetail && !creationFlowPreview ? (
-                  <p className="mt-3 border-t border-slate-200 pt-3 text-[11px] text-slate-400">
+                  <p className="mt-3 border-t border-notion-border pt-3 text-[11px] text-notion-tertiary">
                     未加载 learner_creation_flow_previews.json（旧 run 或未生成）。
                   </p>
                 ) : null}
               </div>
             ) : null}
-            {!selectedEdge && !selectedDetail ? <p className="text-sm text-slate-500">点击图谱节点或边查看详情。</p> : null}
+            {!selectedEdge && !selectedDetail ? <p className="text-sm text-notion-secondary">点击图谱节点或边查看详情。</p> : null}
           </article>
         </aside>
       </section>

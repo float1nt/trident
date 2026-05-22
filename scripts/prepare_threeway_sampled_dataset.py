@@ -38,7 +38,13 @@ RENAME_2019_TO_2017: Dict[str, str] = {
 }
 
 FILES_2017 = ["monday.csv", "tuesday.csv", "wednesday.csv", "thursday.csv", "friday.csv"]
-BENIGN_BY_YEAR = {"2017": "benign_2017", "2019": "benign_2019", "2026": "benign_type"}
+def _benign_label(year_tag: str, original_label: str) -> str:
+    """Emit Trident-compatible year-prefixed labels (e.g. 2017|BENIGN)."""
+    if year_tag == "2026":
+        sub = str(original_label).strip()
+        if sub and sub.upper() not in {"BENIGN", "BENIGN_TYPE"}:
+            return f"{year_tag}|BENIGN|{sub.upper()}"
+    return f"{year_tag}|BENIGN"
 
 
 def detect_label_column(columns: List[str]) -> str:
@@ -136,7 +142,9 @@ def process_file(
         benign_remaining = max(0, benign_cap - kept_benign[year_tag]) if benign_cap > 0 else -1
         if benign_cap <= 0 or benign_remaining > 0:
             benign_rows = chunk.loc[benign_mask, common_features].copy()
-            benign_rows["Label"] = BENIGN_BY_YEAR[year_tag]
+            benign_rows["Label"] = [
+                _benign_label(year_tag, ol) for ol in raw_label.loc[benign_mask].to_numpy()
+            ]
             benign_rows["year_tag"] = year_tag
             benign_rows["original_label"] = raw_label.loc[benign_mask].to_numpy()
             benign_rows["benign_type"] = np.where(
@@ -172,7 +180,8 @@ def process_file(
                     picked = sample_subset(group, remaining, rng=rng).copy()
                 if picked.empty:
                     continue
-                picked["Label"] = attack_label
+                base = str(attack_label).strip().upper().replace(" ", "_")
+                picked["Label"] = f"{year_tag}|{base}"
                 picked["year_tag"] = year_tag
                 picked["original_label"] = attack_label
                 picked["benign_type"] = ""
@@ -185,9 +194,9 @@ def process_file(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sample and align CICIDS2017/2019/2026 into one dataset.")
-    parser.add_argument("--dir-2017", default="/home/data/2017")
-    parser.add_argument("--dir-2019", default="/home/data/2019")
-    parser.add_argument("--file-2026", default="/home/data/cicids2026.csv")
+    parser.add_argument("--dir-2017", default="data/cic2017")
+    parser.add_argument("--dir-2019", default="data/cicids2019")
+    parser.add_argument("--file-2026", default="data/cicids2026.csv")
     parser.add_argument("--output-csv", default="data/aligned_2017_2019_2026_sampled.csv")
     parser.add_argument("--report-json", default="data/aligned_2017_2019_2026_sampled.report.json")
     parser.add_argument("--benign-per-year", type=int, default=100000)
@@ -280,7 +289,7 @@ def main() -> None:
             "benign_per_year": args.benign_per_year,
             "attack_per_type": args.attack_per_type,
             "benign_multiplier": float(args.benign_multiplier),
-            "benign_label_mapping": BENIGN_BY_YEAR,
+            "benign_label_mapping": "year_tag|BENIGN",
         },
         "totals_before_sampling": {
             "benign_by_year": total_benign,

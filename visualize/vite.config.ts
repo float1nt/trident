@@ -88,6 +88,7 @@ function runDataApiPlugin(): Plugin {
           'decision_tree_visualization.json',
           'dataset_network_topology.json',
           'learner_network_topology.json',
+          'learner_topology_metric_audit.json',
         ])
         if (!allowed.has(fileName)) {
           sendJson(res, 400, { error: `Unsupported file: ${fileName}` })

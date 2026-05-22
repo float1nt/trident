@@ -1,7 +1,11 @@
 import argparse
+import os
 import re
 from datetime import datetime
 from pathlib import Path
+
+# Writable cache when ~/.matplotlib is not accessible (e.g. sandboxed terminal).
+os.environ.setdefault("MPLCONFIGDIR", str(Path("/tmp/mplconfig-trident").resolve()))
 
 from trident_stream.config import build_logger, load_config
 from trident_stream.experiment import TridentStreamingExperiment

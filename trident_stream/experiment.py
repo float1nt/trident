@@ -5,6 +5,10 @@ import json
 from datetime import datetime
 from itertools import combinations
 from time import perf_counter
+
+import matplotlib
+
+matplotlib.use("Agg")  # headless / nohup: avoid macOS NSApplication crash on plt.figure
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -1265,6 +1269,135 @@ class TridentStreamingExperiment:
             return pd.DataFrame(columns=["row_index", "assigned_learner"])
         out_rows = [{"row_index": ri, "assigned_learner": row_owner[ri]} for ri in sorted(row_owner)]
         return pd.DataFrame(out_rows)
+
+    def _build_assignment_export_df(self, data_len: int) -> pd.DataFrame:
+        """
+        Canonical row→learner map for artifacts: stream preds plus creation-row fills.
+        """
+        extended = self._build_extended_assignment_index_df(data_len)
+        if extended.empty:
+            return pd.DataFrame(
+                columns=["row_index", "assigned_learner", "phase", "timestamp"],
+            )
+
+        stream_owner: Dict[int, str] = {}
+        stream_ts: Dict[int, str] = {}
+        for rec in self.sample_assignments:
+            if str(rec.get("phase", "")) != "stream":
+                continue
+            try:
+                ri = int(rec["row_index"])
+            except (TypeError, ValueError):
+                continue
+            stream_owner[ri] = str(rec["assigned_learner"])
+            stream_ts[ri] = str(rec.get("timestamp", "") or "")
+
+        phases: List[str] = []
+        timestamps: List[str] = []
+        for _, row in extended.iterrows():
+            ri = int(row["row_index"])
+            ln = str(row["assigned_learner"])
+            if stream_owner.get(ri) == ln:
+                phases.append("stream")
+                timestamps.append(stream_ts.get(ri, ""))
+            else:
+                phases.append("creation_fill")
+                timestamps.append("")
+        out = extended.copy()
+        out["phase"] = phases
+        out["timestamp"] = timestamps
+        return out
+
+    def _build_profile_rows_from_assignment_df(
+        self,
+        data: pd.DataFrame,
+        assign_df: pd.DataFrame,
+    ) -> List[Dict[str, object]]:
+        """Build learner_label_distribution rows from canonical assignments + labels."""
+        if assign_df.empty or data.empty:
+            return []
+
+        flow = data.copy()
+        flow["row_index"] = np.arange(len(flow), dtype=np.int64)
+        label_col = "LabelNorm" if "LabelNorm" in flow.columns else "Label"
+        merged = assign_df.merge(
+            flow[["row_index", label_col]],
+            on="row_index",
+            how="inner",
+        )
+        if merged.empty:
+            return []
+
+        rows: List[Dict[str, object]] = []
+        for learner_name, grp in merged.groupby("assigned_learner", sort=False):
+            ln = str(learner_name)
+            labels = grp[label_col].astype(str).to_numpy()
+            dist = self._label_distribution(labels)
+            total = int(len(labels))
+            benign_count = int(
+                sum(int(n) for label, n in dist.items() if is_benign_label(str(label)))
+            )
+            attack_count = int(max(total - benign_count, 0))
+            attack_ratio = float(attack_count / total) if total > 0 else 0.0
+            if "phase" in grp.columns:
+                creation_sample_count = int(
+                    (grp["phase"].astype(str) == "creation_fill").sum()
+                )
+            else:
+                creation_sample_count = int(
+                    len(self._learner_creation_row_indices.get(ln, set()))
+                )
+            post_creation_added_samples = int(max(total - creation_sample_count, 0))
+            if total == 0:
+                dominant_label = ""
+                dominant_count = 0
+                dominant_ratio = 0.0
+            else:
+                dominant_label = max(dist, key=dist.get)
+                dominant_count = int(dist[dominant_label])
+                dominant_ratio = float(dominant_count / total)
+            rows.append(
+                {
+                    "attack_ratio": attack_ratio,
+                    "learner_name": ln,
+                    "total_assigned_samples": total,
+                    "creation_sample_count": creation_sample_count,
+                    "post_creation_added_samples": post_creation_added_samples,
+                    "dominant_label": dominant_label,
+                    "dominant_count": dominant_count,
+                    "dominant_ratio": dominant_ratio,
+                    "label_distribution_json": json.dumps(dist, ensure_ascii=False),
+                }
+            )
+        rows.sort(
+            key=lambda r: (
+                -float(r.get("attack_ratio", 0.0)),
+                -int(r.get("total_assigned_samples", 0)),
+            )
+        )
+        return rows
+
+    def _log_assignment_consistency(self, data_len: int, assign_export_df: pd.DataFrame) -> None:
+        """Warn when legacy cumulative counts diverge from canonical assignment rows."""
+        if assign_export_df.empty:
+            return
+        canonical_counts = (
+            assign_export_df.groupby("assigned_learner").size().astype(int).to_dict()
+        )
+        mismatches: List[str] = []
+        for learner_name, dist in self.learner_cumulative_counts.items():
+            legacy_total = int(sum(dist.values()))
+            canonical_total = int(canonical_counts.get(str(learner_name), 0))
+            if legacy_total != canonical_total:
+                mismatches.append(
+                    f"{learner_name}: legacy={legacy_total} canonical={canonical_total}"
+                )
+        if mismatches:
+            self.logger.warning(
+                "[AssignmentConsistency] %d learner(s) differ (using canonical for export): %s",
+                len(mismatches),
+                "; ".join(mismatches[:8]),
+            )
 
     def _build_learner_feature_stats_df(
         self,
@@ -4323,7 +4456,9 @@ class TridentStreamingExperiment:
             ).drop(columns=["stage_rank"])
         fit_loss_df.to_csv(fit_loss_profile_path, index=False)
         profile_path = self.output_dir / "learner_label_distribution.csv"
-        cumulative_rows = self._build_cumulative_profile_rows()
+        assign_export_df = self._build_assignment_export_df(len(data))
+        self._log_assignment_consistency(len(data), assign_export_df)
+        cumulative_rows = self._build_profile_rows_from_assignment_df(data, assign_export_df)
         profile_df = pd.DataFrame(cumulative_rows)
         learner_feature_stats_df = self._build_learner_feature_stats_df(
             data=data,
@@ -4722,12 +4857,28 @@ class TridentStreamingExperiment:
         with open(perf_path, "w", encoding="utf-8") as f:
             json.dump(perf_summary, f, ensure_ascii=False, indent=2)
         assignment_path = self.output_dir / "sample_learner_assignments.csv"
-        pd.DataFrame(self.sample_assignments).to_csv(assignment_path, index=False)
+        if assign_export_df.empty:
+            pd.DataFrame(
+                columns=["row_index", "assigned_learner", "phase", "timestamp"],
+            ).to_csv(assignment_path, index=False)
+        else:
+            assign_export_df.to_csv(assignment_path, index=False)
+        creation_idx_path = self.output_dir / "learner_creation_row_indices.json"
+        with open(creation_idx_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    str(k): sorted(int(x) for x in v)
+                    for k, v in self._learner_creation_row_indices.items()
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
         learner_topology_path = self.output_dir / "learner_network_topology.json"
         try:
             from trident_stream.dataset_topology import save_learner_network_topology
 
-            assign_index_df = self._build_extended_assignment_index_df(len(data))
+            assign_index_df = assign_export_df[["row_index", "assigned_learner"]].copy()
             if save_learner_network_topology(data, assign_index_df, learner_topology_path):
                 self.logger.info("Done. LEARNER_NETWORK_TOPOLOGY=%s", learner_topology_path)
         except Exception:

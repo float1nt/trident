@@ -1,4 +1,10 @@
+.DS_Store
+**/__pycache__/
+*.pyc
 data/*
 outputs/*
+# Raw CIC datasets (large CSVs; avoid Cursor/git diff scanning)
+cic2017/
+cicids2019/
 trident_stream/__pycache__/*
 __pycache__/*
