@@ -2,12 +2,9 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import App from "@/App";
 import LoginView from "@/views/LoginView";
 import NavPlaceholder from "@/views/NavPlaceholder";
+import RiskTaskList from "@/views/risk/RiskTaskList";
+import RiskDetailPlaceholder from "@/views/risk/RiskDetailPlaceholder";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import RiskLayout from "@/modules/risk/RiskLayout";
-import RunsComparePage from "@/modules/risk/pages/RunsComparePage";
-import GraphAnalysisPage from "@/modules/risk/pages/GraphAnalysisPage";
-import LearnerDetailPage from "@/modules/risk/pages/LearnerDetailPage";
-import { riskPaths } from "@/modules/risk/riskPaths";
 
 export const router = createBrowserRouter([
     {
@@ -44,37 +41,11 @@ export const router = createBrowserRouter([
             },
             {
                 path: "risk",
-                element: <RiskLayout />,
-                children: [
-                    {
-                        index: true,
-                        element: <Navigate to={riskPaths.runsCompare} replace />,
-                    },
-                    {
-                        path: "runs-compare",
-                        element: <RunsComparePage />,
-                    },
-                    {
-                        path: "run-detail",
-                        element: <GraphAnalysisPage />,
-                    },
-                    {
-                        path: "learner-detail",
-                        element: <LearnerDetailPage />,
-                    },
-                    {
-                        path: "learner-detail/:runId",
-                        element: <LearnerDetailPage />,
-                    },
-                    {
-                        path: "graph-analysis",
-                        element: <Navigate to={riskPaths.runDetail} replace />,
-                    },
-                    {
-                        path: "run/:runId",
-                        element: <GraphAnalysisPage />,
-                    },
-                ],
+                element: <RiskTaskList />,
+            },
+            {
+                path: "risk/detail",
+                element: <RiskDetailPlaceholder />,
             },
             {
                 path: "governance",

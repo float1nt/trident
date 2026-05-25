@@ -45,7 +45,7 @@ const MENU: {
     // { id: "posture", label: "态势", path: "/posture", off: postureOff, on: postureOn },
     // { id: "property", label: "资产", path: "/property", off: propertyOff, on: propertyOn },
     // { id: "user", label: "用户", path: "/user", off: userOff, on: userOn },
-    // // { id: "audit", label: "审计", path: "/audit", off: auditOff, on: auditOn },
+    // { id: "audit", label: "审计", path: "/audit", off: auditOff, on: auditOn },
     { id: "risk", label: "风险", path: "/risk", off: riskOff, on: riskOn },
     // { id: "governance", label: "治理", path: "/governance", off: governanceOff, on: governanceOn },
     // { id: "tactics", label: "策略", path: "/tactics", off: tacticsOff, on: tacticsOn },

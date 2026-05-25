@@ -1,5 +1,6 @@
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Fragment } from "react";
+import { getMockTaskById } from "@/mock/riskTasks";
 
 const COLOR_LINK = "#666666";
 const COLOR_MUTED = "#A6A6A6";
@@ -19,33 +20,27 @@ const SIDE_PLACEHOLDER: Record<string, string> = {
   lab: "实验室",
 };
 
-const RISK_SUB_LABEL: Record<string, string> = {
-  "runs-compare": "Run 对比",
-  "run-detail": "Run 详情",
-  "learner-detail": "学习器详情",
-  run: "Run 详情",
-  "graph-analysis": "Run 详情",
-};
-
 type Crumb = { label: string; to?: string };
 
-function buildCrumbs(pathname: string): Crumb[] {
+function buildCrumbs(pathname: string, taskId: string | null): Crumb[] {
   const path = pathname.replace(/\/$/, "") || "/";
   const segments = path === "/" ? [] : path.slice(1).split("/");
-  const first = segments[0];
+  const first = segments[0] ?? "";
 
   if (path === "/" || path === "") return [{ label: "总览" }];
 
-  const sideLabel = first ? SIDE_PLACEHOLDER[first] : undefined;
-  if (sideLabel && first === "risk") {
-    const sub = segments[1];
-    const subLabel = sub ? RISK_SUB_LABEL[sub] : undefined;
-    if (subLabel) {
-      return [{ label: sideLabel, to: "/risk" }, { label: subLabel }];
+  if (first === "risk") {
+    if (segments[1] === "detail") {
+      const task = taskId ? getMockTaskById(Number(taskId)) : undefined;
+      return [
+        { label: "风险", to: "/risk" },
+        { label: task?.name || "任务详情" },
+      ];
     }
-    return [{ label: sideLabel }];
+    return [{ label: "风险" }];
   }
 
+  const sideLabel = first ? SIDE_PLACEHOLDER[first] : undefined;
   if (sideLabel) return [{ label: sideLabel }];
 
   return [{ label: "总览", to: "/" }];
@@ -54,7 +49,8 @@ function buildCrumbs(pathname: string): Crumb[] {
 const BreadcrumbNav = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const crumbs = buildCrumbs(location.pathname);
+  const [searchParams] = useSearchParams();
+  const crumbs = buildCrumbs(location.pathname, searchParams.get("id"));
 
   return (
     <nav className="flex items-center text-[12px] leading-[18px] min-w-0" aria-label="面包屑">
