@@ -1,0 +1,220 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 设置页面最小宽度，小于此宽度时出现横向滚动条 */
+html,
+body {
+  min-width: 1024px;
+  overflow-x: auto;
+}
+
+#root {
+  min-width: 1024px;
+}
+
+/* 统一分级 Tag 样式 - 确保所有分级 tag 样式一致，高度与 small Select 一致 */
+.ant-tag.ant-tag-lime,
+.ant-tag.ant-tag-cyan,
+.ant-tag.ant-tag-gold,
+.ant-tag.ant-tag-orange,
+.ant-tag.ant-tag-red,
+.ant-tag.ant-tag-green,
+.ant-tag.ant-tag-blue,
+.ant-tag.ant-tag-default {
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 0 8px;
+  margin: 0;
+  border: 1px solid;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  height: 24px;
+  line-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+/* 分级 Tag 颜色统一处理 - 使用更浅的颜色 */
+.ant-tag.ant-tag-lime {
+  background-color: #f6ffed;
+  border-color: #b7eb8f;
+  color: #389e0d;
+}
+
+.ant-tag.ant-tag-cyan {
+  background-color: #e6fffb;
+  border-color: #87e8de;
+  color: #08979c;
+}
+
+.ant-tag.ant-tag-gold {
+  background-color: #fffbe6;
+  border-color: #ffe58f;
+  color: #d48806;
+}
+
+.ant-tag.ant-tag-orange {
+  background-color: #fff2e8;
+  border-color: #ffbb96;
+  color: #d4380d;
+}
+
+/* 数据标注页面 Header 区域样式 */
+.label-header-container {
+  width: 100%;
+}
+
+.label-segmented {
+  font-weight: 500;
+}
+
+.label-quick-action {
+  transition: all 0.3s ease;
+}
+
+.label-quick-action:hover {
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.15);
+  border-color: #91caff;
+}
+
+.label-header-tag {
+  font-weight: 500;
+  border-radius: 4px;
+  margin: 0 !important;
+  height: 24px;
+  line-height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+/* 星星选择器横向滚动条样式 */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #e7e7e7 transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #e7e7e7;
+  border-radius: 2px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #c5c5c5;
+}
+
+/* 数据标注按钮样式 */
+.label-btn-primary {
+  border-radius: 6px;
+  font-weight: 500;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  background: #1890ff;
+  border: none;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.label-btn-primary:hover:not(:disabled) {
+  background-color: #40a9ff;
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+}
+
+.label-btn-primary:active:not(:disabled) {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+.label-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.label-btn-default {
+  border-radius: 6px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+  border: 1px solid #d9d9d9;
+  background: #ffffff;
+}
+
+.label-btn-default:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: #40a9ff;
+  color: #40a9ff;
+  box-shadow: 0 4px 8px rgba(24, 144, 255, 0.15);
+}
+
+.label-btn-default:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #e7e7e7;
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #c5c5c5;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: #999999;
+}
+
+
+/* 表格的滚动条 */
+.ant-table-content,
+.ant-table-body {
+    scrollbar-width: auto !important;
+    scrollbar-color: auto !important;
+
+    &::-webkit-scrollbar {
+        display: block !important;
+        width: 6px !important;
+        height: 6px !important;
+        -webkit-appearance: none !important;
+    }
+
+    &::-webkit-scrollbar-track {
+        background-color: transparent !important;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        cursor: pointer !important;
+        border-radius: 6px !important;
+        background-color: #e7e7e7 !important;
+        transition: all 0.3s !important;
+    }
+
+    &::-webkit-scrollbar-thumb:active {
+        background-color: #c5c5c5 !important;
+    }
+
+    &::-webkit-scrollbar-thumb:hover {
+        background-color: #c5c5c5 !important;
+    }
+}
