@@ -688,10 +688,19 @@ function TableSortTag({
   )
 }
 
+type OverviewTimeRange = '24h' | '7d' | '1w'
+
+const OVERVIEW_TIME_RANGE_OPTIONS: Array<{ value: OverviewTimeRange; label: string }> = [
+  { value: '24h', label: '最近24小时' },
+  { value: '7d', label: '最近7天' },
+  { value: '1w', label: '最近一周' },
+]
+
 export default function GraphAnalysisPage() {
   const params = useParams<{ runId?: string }>()
   const routeRunId = params.runId ? decodeURIComponent(params.runId) : ''
   const detailMode = Boolean(routeRunId)
+  const [timeRange, setTimeRange] = useState<OverviewTimeRange>('24h')
 
   const chartRef = useRef<HTMLDivElement | null>(null)
   const chartInstanceRef = useRef<echarts.ECharts | null>(null)
@@ -2079,18 +2088,30 @@ export default function GraphAnalysisPage() {
   return (
     <div className="space-y-5 bg-[#f6faff]  h-full w-full rounded-[8px]">
       <section className="panel">
-        <p className="eyebrow">Threat Relationship Intelligence</p>
-        <h1 className="text-2xl font-semibold tracking-wide text-notion-text">
-        总览
-        </h1>
-        <p className="mt-1 text-sm text-notion-secondary">
-          {detailMode ? `当前路由: ${overviewPaths.run(routeRunId)}` : ''}
-        </p>
-        {detailMode ? (
-          <p className="mt-2 text-xs text-notion-secondary">
-            <Link to={overviewPaths.runDetail} className="hover:underline text-notion-accent">返回总览</Link>
-          </p>
-        ) : null}
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="eyebrow">Threat Relationship Intelligence</p>
+            <h1 className="text-2xl font-semibold tracking-wide text-notion-text">
+              总览
+            </h1>
+            <p className="mt-1 text-sm text-notion-secondary">
+              {detailMode ? `当前路由: ${overviewPaths.run(routeRunId)}` : ''}
+            </p>
+            {detailMode ? (
+              <p className="mt-2 text-xs text-notion-secondary">
+                <Link to={overviewPaths.runDetail} className="hover:underline text-notion-accent">返回总览</Link>
+              </p>
+            ) : null}
+          </div>
+          {!detailMode ? (
+            <Select
+              value={timeRange}
+              onChange={setTimeRange}
+              options={OVERVIEW_TIME_RANGE_OPTIONS}
+              className="ml-auto w-[132px] shrink-0"
+            />
+          ) : null}
+        </div>
       </section>
 
       <section className="panel space-y-3">

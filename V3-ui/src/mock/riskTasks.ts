@@ -107,6 +107,9 @@ export interface MockRiskListParams {
   limit: number;
   offset: number;
   name?: string;
+  subjectIp?: string;
+  description?: string;
+  triggerTime?: string;
 }
 
 export interface MockRiskListResult {
@@ -120,11 +123,30 @@ export function fetchMockRiskList(
 ): Promise<MockRiskListResult> {
   return new Promise((resolve) => {
     setTimeout(() => {
-      const keyword = (params.name ?? "").trim().toLowerCase();
+      const name = (params.name ?? "").trim().toLowerCase();
+      const subjectIp = (params.subjectIp ?? "").trim().toLowerCase();
+      const description = (params.description ?? "").trim().toLowerCase();
+      const triggerTime = (params.triggerTime ?? "").trim().toLowerCase();
+
       let filtered = mockRisks;
-      if (keyword) {
-        filtered = mockRisks.filter((r) =>
-          r.name.toLowerCase().includes(keyword)
+      if (name) {
+        filtered = filtered.filter((r) =>
+          r.name.toLowerCase().includes(name)
+        );
+      }
+      if (subjectIp) {
+        filtered = filtered.filter((r) =>
+          r.subjectIp.toLowerCase().includes(subjectIp)
+        );
+      }
+      if (description) {
+        filtered = filtered.filter((r) =>
+          r.description.toLowerCase().includes(description)
+        );
+      }
+      if (triggerTime) {
+        filtered = filtered.filter((r) =>
+          r.triggerTime.toLowerCase().includes(triggerTime)
         );
       }
       const total = filtered.length;

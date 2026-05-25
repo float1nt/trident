@@ -8,9 +8,24 @@ import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { fetchMockRiskList } from "@/mock/riskTasks";
 import "./RiskTaskList.css";
 
+type RiskSearchForm = {
+  name: string;
+  subjectIp: string;
+  description: string;
+  triggerTime: string;
+};
+
+const EMPTY_SEARCH: RiskSearchForm = {
+  name: "",
+  subjectIp: "",
+  description: "",
+  triggerTime: "",
+};
+
 const RiskTaskList = () => {
   const navigate = useNavigate();
-  const [inputValue, setInputValue] = useState("");
+  const [searchInputs, setSearchInputs] = useState<RiskSearchForm>(EMPTY_SEARCH);
+  const [filters, setFilters] = useState<RiskSearchForm>(EMPTY_SEARCH);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
@@ -19,17 +34,20 @@ const RiskTaskList = () => {
 
   useEffect(() => {
     void getListData();
-  }, [page]);
+  }, [page, filters]);
 
-  const getListData = async (opts?: { name?: string; page?: number }) => {
+  const getListData = async (opts?: { page?: number; nextFilters?: RiskSearchForm }) => {
     const curPage = opts?.page ?? page;
-    const curName = (opts?.name ?? inputValue).trim();
+    const curFilters = opts?.nextFilters ?? filters;
     setLoading(true);
     try {
       const response = await fetchMockRiskList({
         limit: pageSize,
         offset: (curPage - 1) * pageSize,
-        name: curName,
+        name: curFilters.name,
+        subjectIp: curFilters.subjectIp,
+        description: curFilters.description,
+        triggerTime: curFilters.triggerTime,
       });
       setListdata(response.risks);
       setTotal(response.total);
@@ -48,8 +66,18 @@ const RiskTaskList = () => {
   };
 
   const handleSearch = () => {
+    setFilters({ ...searchInputs });
     setPage(1);
-    if (page === 1) void getListData({ name: inputValue.trim(), page: 1 });
+  };
+
+  const handleReset = () => {
+    setSearchInputs(EMPTY_SEARCH);
+    setFilters(EMPTY_SEARCH);
+    setPage(1);
+  };
+
+  const updateSearchInput = (key: keyof RiskSearchForm, value: string) => {
+    setSearchInputs((prev) => ({ ...prev, [key]: value }));
   };
 
   const columns: ColumnsType<RiskItem> = [
@@ -136,33 +164,47 @@ const RiskTaskList = () => {
     <div className="task-list-page bg-[#f6faff] p-[12px] h-full w-full rounded-[8px]">
       <div
         className="h-full w-full grid gap-[12px]"
-        style={{ gridTemplateRows: "60px 1fr" }}
+        style={{ gridTemplateRows: "auto 1fr" }}
       >
-        <div className="flex flex-row items-center bg-[#fff] rounded-[8px] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-          <div className="basis-1/3 max-w-1/3">
-            <Input
-              className="w-full"
-              prefix="风险名称"
-              placeholder="请输入"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-            />
+        <div className="bg-[#fff] rounded-[8px] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+          <div className="grid grid-cols-3 gap-3 lg:grid-cols-4">
+          <Input
+            className="w-full"
+            prefix="风险名称"
+            placeholder="请输入"
+            value={searchInputs.name}
+            onChange={(e) => updateSearchInput("name", e.target.value)}
+          />
+          <Input
+            className="w-full"
+            prefix="风险主体（IP）"
+            placeholder="请输入"
+            value={searchInputs.subjectIp}
+            onChange={(e) => updateSearchInput("subjectIp", e.target.value)}
+          />
+          <Input
+            className="w-full"
+            prefix="触发时间"
+            placeholder="请输入"
+            value={searchInputs.triggerTime}
+            onChange={(e) => updateSearchInput("triggerTime", e.target.value)}
+          />
+          <Input
+            className="w-full"
+            prefix="风险说明"
+            placeholder="请输入"
+            value={searchInputs.description}
+            onChange={(e) => updateSearchInput("description", e.target.value)}
+          />
           </div>
-          <Space className="basis-2/3 flex justify-end">
-            <Button
-              onClick={() => {
-                const nextValue = "";
-                setInputValue(nextValue);
-                if (page === 1) void getListData({ name: nextValue, page: 1 });
-                else setPage(1);
-              }}
-            >
-              重置
-            </Button>
-            <Button type="primary" onClick={handleSearch}>
-              查询
-            </Button>
-          </Space>
+          <div className="mt-3 flex justify-end">
+            <Space>
+              <Button onClick={handleReset}>重置</Button>
+              <Button type="primary" onClick={handleSearch}>
+                查询
+              </Button>
+            </Space>
+          </div>
         </div>
         <div className="bg-[#fff] rounded-[8px] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)] w-full">
           <div style={{ width: "100%", display: "grid", gridRowGap: "16px" }}>
@@ -180,7 +222,7 @@ const RiskTaskList = () => {
                 showTotal: (t) => `共 ${t} 条`,
                 onChange: setPage,
               }}
-              scroll={{ x: 1100, y: "calc(100vh - 364px)" }}
+              scroll={{ x: 1100, y: "calc(100vh - 420px)" }}
               bordered
             />
           </div>
