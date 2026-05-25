@@ -2,6 +2,8 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import App from "@/App";
 import LoginView from "@/views/LoginView";
 import NavPlaceholder from "@/views/NavPlaceholder";
+import OverviewPage from "@/views/OverviewPage";
+import LearnerDetailView from "@/views/LearnerDetailView";
 import RiskTaskList from "@/views/risk/RiskTaskList";
 import RiskDetailPlaceholder from "@/views/risk/RiskDetailPlaceholder";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -21,7 +23,19 @@ export const router = createBrowserRouter([
         children: [
             {
                 index: true,
-                element: <NavPlaceholder title="总览" layout="risk" />,
+                element: <OverviewPage />,
+            },
+            {
+                path: "run/:runId",
+                element: <OverviewPage />,
+            },
+            {
+                path: "learner-detail",
+                element: <LearnerDetailView />,
+            },
+            {
+                path: "learner-detail/:runId",
+                element: <LearnerDetailView />,
             },
             {
                 path: "posture",

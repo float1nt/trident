@@ -14,10 +14,12 @@ export default function NavPlaceholder({
   if (layout === "risk") {
     return (
       <div className="bg-[#f6faff] p-[12px] h-full w-full rounded-[8px]">
-        {content}
+        <div className="bg-white rounded-[8px] p-8 min-h-[400px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+          {content}
+        </div>
       </div>
     );
   }
 
-  return <div className="p-6">{content}</div>;
+  return content;
 }

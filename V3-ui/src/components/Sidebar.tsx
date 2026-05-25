@@ -3,24 +3,10 @@ import { useState } from "react";
 import logoImg from "@/assets/top-svg/logo3.0.png";
 import homeOff from "@/assets/svg/navigation-only-home-off.svg";
 import homeOn from "@/assets/svg/navigation-only-home-on.svg";
-import postureOff from "@/assets/svg/navigation-only-posture-off.svg";
-import postureOn from "@/assets/svg/navigation-only-posture-on.svg";
-import propertyOff from "@/assets/svg/navigation-only-property-off.svg";
-import propertyOn from "@/assets/svg/navigation-only-property-on.svg";
-import userOff from "@/assets/svg/navigation-only-user-off.svg";
-import userOn from "@/assets/svg/navigation-only-user-on.svg";
-import auditOff from "@/assets/svg/navigation-only-audit-off.svg";
-import auditOn from "@/assets/svg/navigation-only-audit-on.svg";
 import riskOff from "@/assets/svg/navigation-only-risk-off.svg";
 import riskOn from "@/assets/svg/navigation-only-risk-on.svg";
-import governanceOff from "@/assets/svg/navigation-only-governance-off.svg";
-import governanceOn from "@/assets/svg/navigation-only-governance-on.svg";
-import tacticsOff from "@/assets/svg/navigation-only-tactics-off.svg";
-import tacticsOn from "@/assets/svg/navigation-only-tactics-on.svg";
 import settingOff from "@/assets/svg/navigation-only-setting-off.svg";
 import settingOn from "@/assets/svg/navigation-only-setting-on.svg";
-import labOff from "@/assets/svg/navigation-only-lab-off.svg";
-import labOn from "@/assets/svg/navigation-only-lab-on.svg";
 
 type NavId =
   | "home"
@@ -54,7 +40,10 @@ const MENU: {
   ];
 
 function isHomePath(pathname: string): boolean {
-  return pathname === "/" || pathname === "";
+  if (pathname === "/" || pathname === "") return true;
+  if (pathname.startsWith("/run/")) return true;
+  if (pathname.startsWith("/learner-detail")) return true;
+  return false;
 }
 
 function pathMatchesMenu(pathname: string, item: (typeof MENU)[number]): boolean {

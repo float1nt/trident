@@ -29,6 +29,20 @@ function buildCrumbs(pathname: string, taskId: string | null): Crumb[] {
 
   if (path === "/" || path === "") return [{ label: "总览" }];
 
+  if (first === "run" && segments[1]) {
+    return [
+      { label: "总览", to: "/" },
+      { label: `Run ${segments[1]}` },
+    ];
+  }
+
+  if (first === "learner-detail") {
+    return [
+      { label: "总览", to: "/" },
+      { label: "学习器详情" },
+    ];
+  }
+
   if (first === "risk") {
     if (segments[1] === "detail") {
       const risk = taskId ? getMockRiskById(Number(taskId)) : undefined;
