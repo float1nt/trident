@@ -1,5 +1,18 @@
 # Trident Streaming AE（CICIDS2017）
 
+## Demo 快速入口（推荐）
+
+主流程已整理到 [`trident_demo/`](trident_demo/README.md)，**一条命令**跑通 batch / replay / benchmark / viz-demo，与原 `trident_stream/` 解耦（复制重组，逻辑一致）：
+
+```bash
+python3 -m trident_demo run --profile batch
+python3 -m trident_demo run --profile replay --max-rows 10000
+```
+
+详见 [`trident_demo/README.md`](trident_demo/README.md)。
+
+---
+
 这个项目实现了一个简化版的流式异常检测与新类发现流程，核心思想是：
 
 - 已知类：用一类自编码器（AE）建模

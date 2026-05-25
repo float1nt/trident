@@ -3,6 +3,7 @@
 *.pyc
 data/*
 outputs/*
+trident_demo/outputs/*
 # Raw CIC datasets (large CSVs; avoid Cursor/git diff scanning)
 cic2017/
 cicids2019/
