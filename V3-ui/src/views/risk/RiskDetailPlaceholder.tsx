@@ -1,14 +1,14 @@
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
-import { getMockTaskById } from "@/mock/riskTasks";
+import { getMockRiskById } from "@/mock/riskTasks";
 
-/** 风险任务详情占位页 */
+/** 风险详情占位页 */
 export default function RiskDetailPlaceholder() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const taskId = searchParams.get("id");
-  const task = taskId ? getMockTaskById(Number(taskId)) : undefined;
+  const riskId = searchParams.get("id");
+  const risk = riskId ? getMockRiskById(Number(riskId)) : undefined;
 
   return (
     <div className="bg-[#f6faff] p-[12px] h-full w-full rounded-[8px]">
@@ -22,19 +22,19 @@ export default function RiskDetailPlaceholder() {
           返回列表
         </Button>
         <h2 className="text-lg font-medium text-[#333] mb-2">
-          任务详情（占位）
+          风险详情（占位）
         </h2>
-        {task ? (
+        {risk ? (
           <p className="text-[#666] text-sm mb-4">
-            任务 ID：{task.id}，名称：{task.name}
+            风险主体：{risk.subjectIp}，名称：{risk.name}
           </p>
         ) : (
           <p className="text-[#666] text-sm mb-4">
-            {taskId ? `未找到任务 ID：${taskId}` : "未指定任务 ID"}
+            {riskId ? `未找到风险 ID：${riskId}` : "未指定风险 ID"}
           </p>
         )}
         <p className="text-[#8c8c8c] text-sm">
-          详情页功能开发中，后续将接入完整标注流程。
+          详情页功能开发中，后续将接入完整风险处置流程。
         </p>
       </div>
     </div>

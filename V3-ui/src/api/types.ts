@@ -53,6 +53,21 @@ export interface LlmInferenceStatus {
   description?: StepStatusItem;
 }
 
+/** 风险列表行 */
+export interface RiskItem {
+  id: number;
+  /** 风险主体 IP */
+  subjectIp: string;
+  /** 风险名称 */
+  name: string;
+  /** 触发时间（展示用） */
+  triggerTime: string;
+  /** 风险说明 */
+  description: string;
+  /** 风险特征 */
+  features: string;
+}
+
 /** 风险任务列表行（结构对齐 react-ui Task） */
 export interface Task {
   id: number;

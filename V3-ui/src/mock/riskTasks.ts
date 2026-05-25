@@ -1,198 +1,126 @@
-import { Status, type Task } from "@/api/types";
+import type { RiskItem } from "@/api/types";
 
-const completedImport = {
-  importStatus: { status: Status.COMPLETED, message: "导入完成" },
-};
-
-const runningLlm = {
-  classification: { status: Status.RUNNING, message: "" },
-  grading: { status: Status.IDLE, message: "" },
-  dataLabel: { status: Status.IDLE, message: "" },
-  description: { status: Status.IDLE, message: "" },
-};
-
-const idleLlm = {
-  classification: { status: Status.IDLE, message: "" },
-  grading: { status: Status.IDLE, message: "" },
-  dataLabel: { status: Status.IDLE, message: "" },
-  description: { status: Status.IDLE, message: "" },
-};
-
-/** 内存 mock 任务库（列表页读写） */
-let mockTasks: Task[] = [
+const mockRisks: RiskItem[] = [
   {
     id: 1,
-    name: "客户信息库分类分级",
-    description: "对 CRM 客户主数据进行智能分类分级",
-    dataFileName: "crm_customer_main.xlsx",
-    categories: [
-      {
-        id: 101,
-        name: "个人信息",
-        originalName: "个人信息",
-        description: "",
-        grading: "3",
-        children: [],
-        fields: [],
-      },
-    ],
-    createdAt: new Date("2026-05-20T10:30:00"),
-    creator: { id: 1, username: "admin" },
-    importStepStatus: completedImport,
-    labelStepStatus: {
-      garbledStatus: { status: Status.COMPLETED },
-      similarityStatus: { status: Status.COMPLETED },
-      llmInferenceStatus: { status: Status.RUNNING },
-    },
-    llmInferenceStatus: runningLlm,
-    trainingStepStatus: {
-      classifierTraining: { status: Status.IDLE },
-      classifierPrediction: { status: Status.IDLE },
-    },
-    lastStep: 2,
+    subjectIp: "10.12.45.88",
+    name: "异常外联至境外 C2",
+    triggerTime: "2026-05-25 09:12:33",
+    description: "内网主机持续向境外可疑 IP 发起 HTTPS 长连接，流量特征与已知 C2 通信一致。",
+    features: "高频外联、TLS 指纹异常、非业务时段活跃",
   },
   {
     id: 2,
-    name: "订单交易数据标注",
-    description: "订单表字段自动标注与模型训练",
-    dataFileName: "order_transaction_2025.csv",
-    categories: [
-      {
-        id: 201,
-        name: "交易数据",
-        originalName: "交易数据",
-        description: "",
-        children: [],
-        fields: [],
-      },
-    ],
-    createdAt: new Date("2026-05-18T14:20:00"),
-    creator: { id: 2, username: "zhangsan" },
-    importStepStatus: completedImport,
-    labelStepStatus: {
-      garbledStatus: { status: Status.COMPLETED },
-      similarityStatus: { status: Status.COMPLETED },
-      llmInferenceStatus: { status: Status.COMPLETED },
-    },
-    llmInferenceStatus: idleLlm,
-    trainingStepStatus: {
-      classifierTraining: { status: Status.COMPLETED },
-      classifierPrediction: { status: Status.RUNNING },
-      graderTraining: { status: Status.IDLE },
-    },
-    lastStep: 3,
+    subjectIp: "172.16.8.23",
+    name: "暴力破解 SSH 服务",
+    triggerTime: "2026-05-24 22:41:07",
+    description: "同一源地址在 10 分钟内对 SSH 端口发起超 500 次认证失败尝试。",
+    features: "认证失败激增、固定目标端口、字典口令特征",
   },
   {
     id: 3,
-    name: "日志审计字段预测",
-    description: "安全审计日志字段分类预测任务",
-    dataFileName: "audit_log_fields.xlsx",
-    categories: [
-      {
-        id: 301,
-        name: "日志信息",
-        originalName: "日志信息",
-        description: "",
-        grading: "2",
-        children: [],
-        fields: [],
-      },
-    ],
-    createdAt: new Date("2026-05-15T09:00:00"),
-    creator: { id: 1, username: "admin" },
-    importStepStatus: completedImport,
-    labelStepStatus: {
-      garbledStatus: { status: Status.COMPLETED },
-      similarityStatus: { status: Status.COMPLETED },
-      llmInferenceStatus: { status: Status.COMPLETED },
-    },
-    llmInferenceStatus: idleLlm,
-    trainingStepStatus: {
-      classifierTraining: { status: Status.COMPLETED },
-      classifierPrediction: { status: Status.COMPLETED },
-      graderTraining: { status: Status.COMPLETED },
-      graderPrediction: { status: Status.COMPLETED },
-    },
-    predictionStepStatus: {
-      classifierPrediction: { status: Status.COMPLETED },
-      graderPrediction: { status: Status.COMPLETED },
-    },
-    lastStep: 4,
+    subjectIp: "192.168.3.156",
+    name: "敏感文件批量下载",
+    triggerTime: "2026-05-24 16:28:19",
+    description: "办公网账号短时间内从文档库拉取大量含「客户合同」标签的文件。",
+    features: "批量下载、敏感标签命中、偏离基线行为",
   },
   {
     id: 4,
-    name: "人力资源表导入",
-    description: "HR 系统人员表，导入中",
-    dataFileName: "hr_employee.xlsx",
-    categories: [],
-    createdAt: new Date("2026-05-25T08:15:00"),
-    creator: { id: 3, username: "lisi" },
-    importStepStatus: {
-      importStatus: { status: Status.RUNNING, message: "导入中" },
-    },
-    lastStep: 1,
+    subjectIp: "10.8.19.4",
+    name: "横向移动扫描行为",
+    triggerTime: "2026-05-23 11:05:44",
+    description: "主机对网段内多台服务器 445/135/3389 端口进行顺序探测。",
+    features: "端口扫描、内网横向、短时间多目标",
   },
   {
     id: 5,
-    name: "财务报表字段分级",
-    description: "财务科目与字段智能分级",
-    dataFileName: "finance_report_q1.xlsx",
-    categories: [
-      {
-        id: 501,
-        name: "财务数据",
-        originalName: "财务数据",
-        description: "",
-        grading: "4",
-        children: [],
-        fields: [],
-      },
-    ],
-    createdAt: new Date("2026-05-10T16:45:00"),
-    creator: { id: 2, username: "zhangsan" },
-    importStepStatus: completedImport,
-    labelStepStatus: {
-      garbledStatus: { status: Status.COMPLETED },
-      similarityStatus: { status: Status.FAILED },
-    },
-    llmInferenceStatus: idleLlm,
-    lastStep: 2,
+    subjectIp: "203.0.113.17",
+    name: "Web 应用 SQL 注入尝试",
+    triggerTime: "2026-05-23 08:33:51",
+    description: "对外业务站点收到携带 union select 等特征的恶意请求。",
+    features: "注入关键字、WAF 告警、同一 UA 重复出现",
+  },
+  {
+    id: 6,
+    subjectIp: "10.20.6.91",
+    name: "挖矿进程驻留",
+    triggerTime: "2026-05-22 19:17:02",
+    description: "Linux 主机 CPU 持续高位，发现伪装系统服务的 xmrig 相关进程。",
+    features: "CPU 异常、矿池域名解析、可疑进程名",
+  },
+  {
+    id: 7,
+    subjectIp: "192.168.12.77",
+    name: "钓鱼邮件点击",
+    triggerTime: "2026-05-22 14:02:18",
+    description: "用户点击仿冒财务通知邮件中的短链，浏览器访问了恶意落地页。",
+    features: "邮件网关告警、短链跳转、新注册域名",
+  },
+  {
+    id: 8,
+    subjectIp: "10.5.33.102",
+    name: "特权账号异常登录",
+    triggerTime: "2026-05-21 23:58:40",
+    description: "域管账号在非工作时间从陌生地理位置成功登录 VPN。",
+    features: "异地登录、非工作时段、高权限账号",
+  },
+  {
+    id: 9,
+    subjectIp: "172.31.0.44",
+    name: "DNS 隧道数据传输",
+    triggerTime: "2026-05-21 10:44:29",
+    description: "客户端对同一域名发起异常高频 TXT 查询，载荷长度显著高于正常业务。",
+    features: "TXT 记录异常、子域随机化、高熵请求",
+  },
+  {
+    id: 10,
+    subjectIp: "10.15.2.8",
+    name: "勒索软件文件加密",
+    triggerTime: "2026-05-20 17:33:12",
+    description: "文件服务器出现大量扩展名被批量修改，并生成 README_FOR_DECRYPT 说明文件。",
+    features: "批量改扩展名、赎金说明文件、SMB 写入异常",
+  },
+  {
+    id: 11,
+    subjectIp: "192.168.50.19",
+    name: "API 密钥泄露利用",
+    triggerTime: "2026-05-20 09:21:55",
+    description: "云平台访问日志显示已撤销密钥仍被用于对象存储枚举与下载。",
+    features: "密钥复用、云 API 异常调用、大量 List 操作",
+  },
+  {
+    id: 12,
+    subjectIp: "10.9.88.201",
+    name: "供应链依赖投毒",
+    triggerTime: "2026-05-19 13:09:37",
+    description: "构建流水线拉取了与官方校验和不一致的第三方 npm 包版本。",
+    features: "校验和不匹配、构建环境告警、非官方源",
   },
 ];
 
-function formatTime(date: Date): string {
-  return date.toLocaleString("zh-CN");
-}
-
-function withDisplayTime(tasks: Task[]): Task[] {
-  return tasks.map((t) => ({
-    ...t,
-    time: formatTime(t.createdAt),
-  }));
-}
-
-export interface MockTaskListParams {
+export interface MockRiskListParams {
   limit: number;
   offset: number;
   name?: string;
 }
 
-export interface MockTaskListResult {
+export interface MockRiskListResult {
   total: number;
-  tasks: Task[];
+  risks: RiskItem[];
 }
 
 /** 模拟分页查询 */
-export function fetchMockTaskList(
-  params: MockTaskListParams
-): Promise<MockTaskListResult> {
+export function fetchMockRiskList(
+  params: MockRiskListParams
+): Promise<MockRiskListResult> {
   return new Promise((resolve) => {
     setTimeout(() => {
       const keyword = (params.name ?? "").trim().toLowerCase();
-      let filtered = mockTasks;
+      let filtered = mockRisks;
       if (keyword) {
-        filtered = mockTasks.filter((t) =>
-          t.name.toLowerCase().includes(keyword)
+        filtered = mockRisks.filter((r) =>
+          r.name.toLowerCase().includes(keyword)
         );
       }
       const total = filtered.length;
@@ -200,81 +128,16 @@ export function fetchMockTaskList(
         params.offset,
         params.offset + params.limit
       );
-      resolve({ total, tasks: withDisplayTime(slice) });
+      resolve({ total, risks: slice });
     }, 200);
   });
 }
 
-export function getMockTaskById(id: number): Task | undefined {
-  return mockTasks.find((t) => t.id === id);
+export function getMockRiskById(id: number): RiskItem | undefined {
+  return mockRisks.find((r) => r.id === id);
 }
 
-export function updateMockTask(
-  id: number,
-  patch: Partial<Pick<Task, "name" | "description" | "dataFileName">> & {
-    classificationRootName?: string;
-  }
-): void {
-  mockTasks = mockTasks.map((t) => {
-    if (t.id !== id) return t;
-    const next = { ...t, ...patch };
-    if (patch.classificationRootName && t.categories.length > 0) {
-      next.categories = [
-        {
-          ...t.categories[0],
-          name: patch.classificationRootName,
-          originalName: patch.classificationRootName,
-        },
-        ...t.categories.slice(1),
-      ];
-    }
-    return next;
-  });
-}
-
-export function deleteMockTask(id: number): void {
-  mockTasks = mockTasks.filter((t) => t.id !== id);
-}
-
-export function batchDeleteMockTasks(ids: number[]): {
-  success: number[];
-  failed: number[];
-} {
-  const success: number[] = [];
-  const failed: number[] = [];
-  for (const id of ids) {
-    if (mockTasks.some((t) => t.id === id)) {
-      deleteMockTask(id);
-      success.push(id);
-    } else {
-      failed.push(id);
-    }
-  }
-  return { success, failed };
-}
-
-export function stopMockTaskOperations(id: number): void {
-  mockTasks = mockTasks.map((t) => {
-    if (t.id !== id) return t;
-    const idle = { status: Status.IDLE, message: "" };
-    return {
-      ...t,
-      llmInferenceStatus: t.llmInferenceStatus
-        ? {
-            classification: idle,
-            grading: idle,
-            dataLabel: idle,
-            description: idle,
-          }
-        : t.llmInferenceStatus,
-      trainingStepStatus: t.trainingStepStatus
-        ? {
-            classifierTraining: idle,
-            classifierPrediction: idle,
-            graderTraining: idle,
-            graderPrediction: idle,
-          }
-        : t.trainingStepStatus,
-    };
-  });
+/** @deprecated 使用 getMockRiskById */
+export function getMockTaskById(id: number): RiskItem | undefined {
+  return getMockRiskById(id);
 }

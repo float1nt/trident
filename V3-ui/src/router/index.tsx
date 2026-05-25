@@ -21,7 +21,7 @@ export const router = createBrowserRouter([
         children: [
             {
                 index: true,
-                element: <NavPlaceholder title="总览" />,
+                element: <NavPlaceholder title="总览" layout="risk" />,
             },
             {
                 path: "posture",
@@ -57,7 +57,7 @@ export const router = createBrowserRouter([
             },
             {
                 path: "setting",
-                element: <NavPlaceholder title="设置" />,
+                element: <NavPlaceholder title="设置" layout="risk" />,
             },
             {
                 path: "lab",
