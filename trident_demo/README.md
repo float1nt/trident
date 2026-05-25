@@ -16,6 +16,9 @@ python3 -m trident_demo run --profile benchmark --max-rows 10000
 
 # Viz demo：数据准备 + 跑实验（替代 learner_qualification/run_aligned_viz_pipeline.sh）
 python3 -m trident_demo run --profile viz-demo
+
+# 独立 E2E 压测：tcpreplay → Suricata → Redis → Trident demo benchmark
+python3 -m trident_demo.stress trident_demo/stress/configs/e2e.yaml
 ```
 
 ## 常用选项
@@ -42,6 +45,29 @@ python3 -m trident_demo run --profile viz-demo
 - `live_run_status.json`（replay / Redis 流式）
 
 可视化：`cd visualize && npm run dev`，选择对应 run_id。
+
+## E2E 压测
+
+压测逻辑单独放在 `trident_demo/stress/`，结果单独写入
+`trident_demo/stress_outputs/<run_id>/`，不混入普通 demo run。
+
+入口：
+
+```bash
+python3 -m trident_demo.stress trident_demo/stress/configs/e2e.yaml
+```
+
+压测脚本不会构建 Suricata 镜像，只会验证 `suricata-cic-live:local`
+存在且动态库完整。每轮会强制重建 Suricata 容器以刷新 `IFACE` 和
+`REDIS_STREAM`，然后并行运行 Trident benchmark 与 `tcpreplay`。
+
+主要产物：
+
+- `stress_summary.json` / `stress_summary.md`
+- `redis_metrics.json`、`docker_metrics.json`、`suricata_metrics.json`
+- `replay.log`、`commands.log`
+- `suricata.log`、`stats.log`
+- `trident/<trident_run_id>/trident_performance_benchmark.json`
 
 ## 架构
 

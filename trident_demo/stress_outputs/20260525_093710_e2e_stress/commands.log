@@ -1,0 +1,88 @@
+$ docker image inspect suricata-cic-live:local
+[
+    {
+        "Id": "sha256:595a06af869301e13579b4eec104532c7b8dd6f83b8a3dcb9a18f5b065b7bc99",
+        "RepoTags": [
+            "suricata-cic-live:local"
+        ],
+        "RepoDigests": [],
+        "Parent": "",
+        "Comment": "buildkit.dockerfile.v0",
+        "Created": "2026-05-25T09:15:00.994239496Z",
+        "DockerVersion": "",
+        "Author": "",
+        "Config": {
+            "Hostname": "",
+            "Domainname": "",
+            "User": "",
+            "AttachStdin": false,
+            "AttachStdout": false,
+            "AttachStderr": false,
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "DEBIAN_FRONTEND=noninteractive"
+            ],
+            "Cmd": null,
+            "Image": "",
+            "Volumes": null,
+            "WorkingDir": "",
+            "Entrypoint": [
+                "/usr/local/bin/suricata-cic-entrypoint"
+            ],
+            "OnBuild": null,
+            "Labels": {
+                "org.opencontainers.image.version": "22.04"
+            }
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 388149719,
+        "GraphDriver": {
+            "Data": {
+                "LowerDir": "/var/lib/docker/overlay2/0zhrecpoqos7raw3e22m164xc/diff:/var/lib/docker/overlay2/w9byad0h4rzk07rxfzv3x7v31/diff:/var/lib/docker/overlay2/9lcirmset07c5qa117m10db3l/diff:/var/lib/docker/overlay2/nnl9kwef5ijxip2rcd3gicfk4/diff:/var/lib/docker/overlay2/uvt739g1dyt95y1qhtsar1yet/diff:/var/lib/docker/overlay2/0a5f4a307543bdb071225d927242c5dac4f1c8730eaa021a4946550e99be007e/diff",
+                "MergedDir": "/var/lib/docker/overlay2/zdacc2777xi1dt3a9sbg4idil/merged",
+                "UpperDir": "/var/lib/docker/overlay2/zdacc2777xi1dt3a9sbg4idil/diff",
+                "WorkDir": "/var/lib/docker/overlay2/zdacc2777xi1dt3a9sbg4idil/work"
+            },
+            "Name": "overlay2"
+        },
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:8bba68e7621928237aa6d6e2c680cb9572c942ee23c2adabd22016bb67cb938d",
+                "sha256:a18ffe1475087ce2a145b5962aefaf981cbf377424592e60347b1db4cd092c04",
+                "sha256:952ca627a2cb8e535d6c51d58e77b368b095e2ba45c2759db75766e9971faa8f",
+                "sha256:5a5a307d4146540abb19f10c3dc36a01014f5f48219c8f102c1f86f5ed5793e0",
+                "sha256:ae13e37d8a1462c589526ad3fac3226c4cf6338cfae3475f4076fefeb7d282a9",
+                "sha256:3d2bdd68216140d0748cf52ad2c00ad737e73b8c8c70779fca04328a7c9ec41f",
+                "sha256:f294bcca44d1c591a6792b598d557f60abc41d4beea95ca7e2bec4983d465257"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-05-25T09:15:01.560739077Z"
+        }
+    }
+]
+exit_code=0 elapsed_seconds=0.042439
+
+$ docker compose up -d redis
+ Container cic-redis  Starting
+ Container cic-redis  Started
+exit_code=0 elapsed_seconds=0.160013
+
+$ docker compose up -d --force-recreate suricata-cic
+ Container suricata-cic-live  Recreate
+ Container suricata-cic-live  Recreated
+ Container cic-redis  Starting
+ Container cic-redis  Started
+ Container suricata-cic-live  Starting
+ Container suricata-cic-live  Started
+exit_code=0 elapsed_seconds=2.248439
+
+$ docker inspect -f {{.State.Running}} suricata-cic-live
+true
+exit_code=0 elapsed_seconds=0.034839
+

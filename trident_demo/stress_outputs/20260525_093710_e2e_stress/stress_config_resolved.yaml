@@ -1,0 +1,35 @@
+runtime:
+  run_id: 20260525_093710_e2e_stress
+  output_root: trident_demo/stress_outputs
+  baseline_seconds: 3
+  sample_interval_seconds: 1
+  wait_after_replay_seconds: 30
+redis:
+  url: redis://127.0.0.1:6379/0
+  stream: suricata:cic_flow:20260525_093710_e2e_stress
+  stream_maxlen: 1000000
+  clear_stream: true
+  max_messages: 100000
+  idle_timeout_seconds: 180
+suricata:
+  compose_dir: /home/trident-more/trident/suricata-cic-redis-live
+  image: suricata-cic-live:local
+  service: suricata-cic
+  container: suricata-cic-live
+  iface: ens33
+  start: true
+  force_recreate: true
+  stop_after_run: false
+tcpreplay:
+  pcap: /home/Suricata/data/benign_realweb.pcap
+  iface: ens33
+  mbps: 500
+  pps: 0
+  multiplier: 0
+  loop: 1
+  mtu_trunc: auto
+trident:
+  profile: benchmark
+  config: trident_demo/configs/benchmark.yaml
+  max_rows: 100000
+  timeout_seconds: 86400

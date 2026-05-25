@@ -1,0 +1,14 @@
+$ tcpreplay -i ens33 --mbps 500.0 /home/Suricata/data/benign_realweb.pcap
+Warning in send_packets.c:send_packets() line 486:
+Unable to send packet: Error with PF_PACKET send() [10]: Message too long (errno = 90)
+Actual: 9 packets (1099 bytes) sent in 0.000477 seconds
+Rated: 2303983.2 Bps, 18.43 Mbps, 18867.92 pps
+Flows: 2 flows, 4192.87 fps, 6 flow packets, 4 non-flow
+Statistics for network device: ens33
+	Successful packets:        9
+	Failed packets:            1
+	Truncated packets:         0
+	Retried packets (ENOBUFS): 0
+	Retried packets (EAGAIN):  0
+exit_code=0 elapsed_seconds=0.102186
+
