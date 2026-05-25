@@ -1,16 +1,21 @@
 import { useMemo, type ReactNode } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { Button, Tag } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { useSearchParams } from "react-router-dom";
+import { Tag } from "antd";
 import ReactECharts from "echarts-for-react";
+import { TopologyChartPane } from "@/modules/overview/components/NetworkTopologyPanel";
 import {
   getMockProtocolDistribution,
   getMockRiskById,
+  getMockRiskNetworkTopology,
 } from "@/mock/riskTasks";
 import {
   CHART_TEXT_PRIMARY,
   CHART_TEXT_SECONDARY,
 } from "@/modules/overview/theme/notionTheme";
+
+const CHART_HEIGHT = 320;
+const TOPOLOGY_REPULSION = 70;
+const TOPOLOGY_MIN_EDGE_FLOWS = 1;
 
 const PROTOCOL_COLORS = [
   "#4368f0",
@@ -36,10 +41,15 @@ function InfoItem({ label, children }: { label: string; children: ReactNode }) {
 
 /** 风险详情页 */
 export default function RiskDetailPlaceholder() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const riskId = searchParams.get("id");
   const risk = riskId ? getMockRiskById(Number(riskId)) : undefined;
+
+  const networkTopology = useMemo(
+    () => (riskId ? getMockRiskNetworkTopology(Number(riskId)) : null),
+    [riskId]
+  );
+  const topologyView = networkTopology?.views.__combined__;
 
   const protocolDistribution = useMemo(
     () => (riskId ? getMockProtocolDistribution(Number(riskId)) : []),
@@ -141,11 +151,45 @@ export default function RiskDetailPlaceholder() {
               </div>
             </div>
 
-            <div className="rounded-[8px] border border-[#e8eaed] p-[16px] bg-[#fff]">
-              <h3 className="text-[14px] font-medium text-[#333] mb-[12px]">
-                协议分布占比
-              </h3>
-              <ReactECharts option={protocolPieOption} style={{ height: 320 }} />
+            <div className="flex flex-col gap-[16px]">
+            <div className="min-w-0 rounded-[8px] border border-[#e8eaed] p-[16px] bg-[#fff]">
+                <h3 className="text-[14px] font-medium text-[#333] mb-[12px]">
+                  网络拓扑（IP / 端口）
+                </h3>
+                {topologyView ? (
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    <TopologyChartPane
+                      title="IP（主机）"
+                      graph={topologyView.host}
+                      viewIsBenign={topologyView.is_benign}
+                      repulsion={TOPOLOGY_REPULSION}
+                      minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+                      chartHeight={CHART_HEIGHT}
+                    />
+                    <TopologyChartPane
+                      title="IP:端口（服务）"
+                      graph={topologyView.endpoint}
+                      viewIsBenign={topologyView.is_benign}
+                      repulsion={TOPOLOGY_REPULSION}
+                      minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+                      chartHeight={CHART_HEIGHT}
+                    />
+                  </div>
+                ) : (
+                  <p className="text-[#8c8c8c] text-sm">暂无拓扑数据</p>
+                )}
+              </div>
+              <div className="min-w-0 rounded-[8px] border border-[#e8eaed] p-[16px] bg-[#fff]">
+                <h3 className="text-[14px] font-medium text-[#333] mb-[12px]">
+                  协议分布占比
+                </h3>
+                <ReactECharts
+                  option={protocolPieOption}
+                  style={{ height: CHART_HEIGHT }}
+                />
+              </div>
+
+          
             </div>
           </>
         )}

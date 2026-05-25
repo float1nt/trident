@@ -334,7 +334,7 @@ export function TopologyChartPane({
 export function NetworkTopologyPanel({ data, labelOptions }: Props) {
   const [selectedLabel, setSelectedLabel] = useState<string>('')
   const [viewMode, setViewMode] = useState<TopologyViewMode>('grid')
-  const [repulsion, setRepulsion] = useState(180)
+  const [repulsion, setRepulsion] = useState(120)
   const [minEdgeFlows, setMinEdgeFlows] = useState(1)
 
   const aggregateViews = useMemo(() => {
@@ -447,6 +447,7 @@ export function NetworkTopologyPanel({ data, labelOptions }: Props) {
             viewIsBenign={view?.is_benign}
             repulsion={repulsion}
             minEdgeFlows={minEdgeFlows}
+            compact
           />
           <TopologyChartPane
             title="IP:端口（服务）"
@@ -454,6 +455,7 @@ export function NetworkTopologyPanel({ data, labelOptions }: Props) {
             viewIsBenign={view?.is_benign}
             repulsion={repulsion}
             minEdgeFlows={minEdgeFlows}
+            compact
           />
         </div>
       ) : (
