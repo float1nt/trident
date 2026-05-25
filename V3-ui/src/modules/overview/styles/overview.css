@@ -61,7 +61,7 @@
 .overview-module .metric-card {
   @apply rounded-[8px] p-3;
   border: 1px solid var(--notion-border);
-  background: var(--notion-surface-alt);
+  background: #fff;
 }
 
 .overview-module .metric-label {

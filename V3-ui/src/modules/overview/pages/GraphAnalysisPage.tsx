@@ -2077,11 +2077,11 @@ export default function GraphAnalysisPage() {
     selectedNodeId && !selectedEdge ? creationPreviewByLearner.get(selectedNodeId) ?? null : null
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 bg-[#f6faff]  h-full w-full rounded-[8px]">
       <section className="panel">
         <p className="eyebrow">Threat Relationship Intelligence</p>
         <h1 className="text-2xl font-semibold tracking-wide text-notion-text">
-          Run 详情
+        总览
         </h1>
         <p className="mt-1 text-sm text-notion-secondary">
           {detailMode ? `当前路由: ${overviewPaths.run(routeRunId)}` : ''}

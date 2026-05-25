@@ -137,6 +137,63 @@ export function getMockRiskById(id: number): RiskItem | undefined {
   return mockRisks.find((r) => r.id === id);
 }
 
+export interface ProtocolDistributionItem {
+  name: string;
+  value: number;
+}
+
+const defaultProtocolDistribution: ProtocolDistributionItem[] = [
+  { name: "TCP", value: 35 },
+  { name: "UDP", value: 18 },
+  { name: "HTTPS", value: 28 },
+  { name: "HTTP", value: 12 },
+  { name: "DNS", value: 5 },
+  { name: "其他", value: 2 },
+];
+
+/** 按风险 ID 返回略有差异的协议分布 mock 数据 */
+const mockProtocolByRiskId: Partial<Record<number, ProtocolDistributionItem[]>> = {
+  1: [
+    { name: "HTTPS", value: 62 },
+    { name: "TCP", value: 22 },
+    { name: "DNS", value: 9 },
+    { name: "其他", value: 7 },
+  ],
+  2: [
+    { name: "TCP", value: 78 },
+    { name: "SSH", value: 15 },
+    { name: "其他", value: 7 },
+  ],
+  3: [
+    { name: "HTTPS", value: 54 },
+    { name: "HTTP", value: 31 },
+    { name: "TCP", value: 10 },
+    { name: "其他", value: 5 },
+  ],
+  4: [
+    { name: "TCP", value: 48 },
+    { name: "UDP", value: 21 },
+    { name: "SMB", value: 18 },
+    { name: "其他", value: 13 },
+  ],
+  5: [
+    { name: "HTTP", value: 66 },
+    { name: "HTTPS", value: 24 },
+    { name: "其他", value: 10 },
+  ],
+  9: [
+    { name: "DNS", value: 71 },
+    { name: "UDP", value: 19 },
+    { name: "其他", value: 10 },
+  ],
+};
+
+export function getMockProtocolDistribution(
+  riskId: number
+): ProtocolDistributionItem[] {
+  return mockProtocolByRiskId[riskId] ?? defaultProtocolDistribution;
+}
+
 /** @deprecated 使用 getMockRiskById */
 export function getMockTaskById(id: number): RiskItem | undefined {
   return getMockRiskById(id);
