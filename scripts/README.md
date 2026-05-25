@@ -9,6 +9,7 @@
 | Task | Command |
 | --- | --- |
 | Run Trident | `python3 main.py --config configs/config.yaml` |
+| Benchmark stage timings + flows/s throughput | `python3 scripts/benchmark_trident_performance.py --config configs/config.yaml` |
 | Rebuild visualization artifacts for an old run | `python3 learner_qualification/export_visualization_artifacts.py outputs/runs/<run_id>` |
 | Viz demo pipeline (aligned data + run) | `bash learner_qualification/run_aligned_viz_pipeline.sh` |
 

@@ -25,7 +25,7 @@
 | 证据链可读 | 人工按「边分散/集中 → 端点 hub → 端口熵 → 单向性 → 时间」顺序核对，而非看一个总分 |
 | 指标去冗余 | v4 核心集 22 项；与 Top1、熵、hub 强度单调相关的指标已剔除（见 `trident_stream/metric_audit_catalog.py` 中 `REMOVED_METRICS`） |
 | 语义中性 | `score_0_100` 表示特征强度；`semantic_tag` / `semantic_text` 说明「高分/低分各意味着什么」 |
-| 规则可溯源 | CICIDS 参考规则阈值来自对 `2017\|` / `2019\|` 真实标签的类级指标画像统计（`docs/cicids_learner_metric_reference_rules.md`） |
+| 规则可溯源 | 规则阈值来自历史公开数据集的类级指标画像统计；运行时只输出攻击形态/攻击族标签，不输出数据集年份或原始标签 |
 | 产物可落盘 | 每次 run 自动生成 `learner_topology_metric_audit.json`，前端与学习器内部拓扑同屏展示 |
 
 ---
@@ -44,13 +44,13 @@
 
 | 形态族 | 典型指标特征 | 代表标签 |
 |--------|----------------|----------|
-| 正常参考 | 边熵高、Top1 边极低、目的端口非全局扫散、流内单向性中等 | `2017\|BENIGN`, `2019\|BENIGN` |
-| 2017 固定目的服务冲击 | 目的端口熵≈0、Top1 端口≈100、目的 endpoint/入向 hub 极强；边熵可仍很高（多变化源） | DDOS, DOS_HULK, PATATOR, BOTNET, WEB_ATTACK 等 |
-| 2017 端口扫描 | 目的端口熵极高、目的 endpoint 分散、Top1 端口极低 | PORTSCAN, INFILTRATION_-_PORTSCAN |
-| 2019 高分散单向冲击 | 目的/源端口极分散、边接近一次性、流内极强单向 | DRDOS_*, SYN, TFTP, UDP-LAG |
-| 边界 | 多类 DoS/Web 在拓扑上不可精确区分 | 规则只给**候选标签族**，不做细粒度分类 |
+| 正常参考 | 边熵高、Top1 边极低、目的端口非全局扫散、流内单向性中等 | BENIGN |
+| 固定目的服务冲击 | 目的端口熵≈0、Top1 端口≈100、目的 endpoint/入向 hub 极强；边熵可仍很高（多变化源） | DDOS, DOS_HULK, PATATOR, BOTNET, WEB_ATTACK 等 |
+| 端口扫描 | 目的端口熵极高、目的 endpoint 分散、Top1 端口极低 | PORTSCAN, INFILTRATION_-_PORTSCAN |
+| 高分散单向冲击 | 目的/源端口极分散、边接近一次性、流内极强单向 | DRDOS_*, SYN, TFTP, UDP-LAG |
+| 边界 | 多类 DoS/Web 在拓扑上不可精确区分 | 规则只给**形态/攻击族标签**，不做细粒度分类 |
 
-上述画像直接驱动第 6 节 CICIDS 参考规则阈值，以及第 5 节形态提示（qualitative hints）的阈值选取。
+上述画像直接驱动第 6 节数据集无关规则阈值，以及第 5 节形态提示（qualitative hints）的阈值选取。
 
 ---
 
@@ -66,7 +66,7 @@ flowchart LR
   D --> E[METRIC_CATALOG 语义映射]
   E --> F[JSON + 前端条形图]
   E --> G[qualitative_hints]
-  E --> H[CICIDS 参考规则匹配]
+  E --> H[数据集无关规则匹配]
 ```
 
 1. **输入**：`assigned_learner` 关联的流字段（`Src IP`, `Dst IP`, `Src Port`, `Dst Port`, 可选 `Timestamp`, `Total Fwd Packet`, `Total Bwd packets`）。
@@ -190,29 +190,28 @@ flowchart LR
 | **Single-service-like** | `dst_port_top1_concentration` ≥ 80 **且** (`top1_endpoint_edge_share` ≥ 60 **或** `endpoint_edge_entropy` ≤ 35) | 固定服务端口 + 少数边，偏服务打击或固定访问 |
 | **Benign-like** | `endpoint_edge_entropy` ≥ 60 **且** `top1_endpoint_edge_share` ≤ 30 **且** `low_reciprocity` ≤ 60 **且** `temporal_burst` ≤ 50 **且** `temporal_global_spread` ≥ 35 | 边分散、无单边支配、突发弱、全局时间较分散 |
 
-### 5.3 与 CICIDS 参考规则的关系
+### 5.3 与规则层的关系
 
 - **qualitative_hints**：跨数据集的**粗粒度形态**（Flood/Scan/Benign 等），写入 JSON，前端以信息条展示。
-- **CICIDS 参考规则**（下一节）：在粗形态之上，对齐 **2017/2019 已知攻击族** 的细粒度参考标签，仅在前端规则层匹配，不写回 JSON。
+- **数据集无关规则层**（下一节）：在粗形态之上，对齐攻击族的拓扑行为画像，仅在前端规则层匹配，不写回 JSON。历史公开数据集只用于阈值标定，不作为运行时标签输出。
 
 ---
 
-## 6. CICIDS 参考规则层：规则匹配怎么做
+## 6. 数据集无关规则层：规则匹配怎么做
 
 ### 6.1 定位
 
 - 实现：`visualize/src/lib/learnerReferenceRules.ts` → `evaluateLearnerReferenceRules(metrics)`
-- 文档：`docs/cicids_learner_metric_reference_rules.md`
+- 文档：`LEARNER_METRIC_AND_RULE_FORMULAS.md`
 - 展示：`LearnerMetricAuditPanel` 中「规则层匹配结果」区块
 
-规则表达：**当前学习器的指标形态，与本地 CICIDS2017/2019 中哪类流量的类级指标画像相近**。输出包括：
+规则表达：**当前学习器的指标形态，与哪类攻击族或正常流量形态相近**。输出包括：
 
-- `name`：中文形态名（如「固定目的服务冲击形态」）
+- `name`：前端规则标签名。能收敛到攻击族时使用攻击名（如「PortScan 类攻击参考匹配」）；拓扑上不可细分时使用候选族名（如「DoS/DDoS 等固定服务攻击族」）
 - `semantic`：规则语义说明
-- `referenceLabels`：候选 CICIDS 标签列表（如 `2017|DDOS`, `2017|DOS_HULK`, …）
 - `tone`：`benign` | `attack` | `caution`（仅 UI 配色，非结论）
 
-**明确不输出**：预测攻击类别、最终结论、综合风险分。
+**明确不输出**：数据集年份、原始数据集标签、预测攻击类别、最终结论、综合风险分。
 
 ### 6.2 匹配算法
 
@@ -220,15 +219,15 @@ flowchart LR
 1. 将 metrics[] 转为 scores: Record<metric_key, score_0_100>
 2. 遍历 REFERENCE_RULES 常量数组（固定顺序）
 3. 对每条规则执行 rule.match(scores) → boolean
-4. 为 true 的规则收集 { key, name, dataset, tone, semantic, referenceLabels }
+4. 为 true 的规则收集 { key, name, tone, semantic }
 5. 全部命中规则返回（可多选）
 ```
 
-辅助谓词：`atLeast` / `atMost` / `between`；复合形态如 `isFixedTarget2017` = 核心端口/边条件 **且** 至少一项主机汇聚证据。
+辅助谓词：`atLeast` / `atMost` / `between`；复合形态如 `isFixedTargetServiceAttack` = 核心端口/边条件 **且** 至少一项主机汇聚证据。
 
 ### 6.3 参考规则清单与阈值
 
-#### 6.3.1 自然分散流量形态（benign）
+#### 6.3.1 正常流量参考匹配（benign）
 
 ```text
 endpoint_edge_entropy >= 82
@@ -241,9 +240,9 @@ low_reciprocity <= 70
 max_out_degree_ratio <= 15
 ```
 
-参考标签：`2017|BENIGN`, `2019|BENIGN`
+标定依据：历史良性流量画像的共性。
 
-#### 6.3.2 固定目的服务冲击形态（2017 攻击族）
+#### 6.3.2 DoS/DDoS 等固定服务攻击族
 
 **核心**（须全部满足）：
 
@@ -263,14 +262,14 @@ dst_host_concentration >= 65
 或 host_max_in_degree_ratio >= 75
 ```
 
-参考标签：DDOS, DOS_HULK, DOS_GOLDENEYE, FTP/SSH-PATATOR, BOTNET, WEB_ATTACK_* 等
+标定依据：固定目的服务冲击/固定服务访问类画像的共性。
 
-#### 6.3.3 固定目的慢速冲击形态
+#### 6.3.3 Slow DoS 类攻击参考匹配
 
 在 6.3.2 基础上增加：`low_reciprocity >= 68`  
-参考：DOS_SLOWHTTPTEST, DOS_SLOWLORIS
+标定依据：慢速固定服务冲击画像的共性。
 
-#### 6.3.4 端口扫描形态
+#### 6.3.4 PortScan 类攻击参考匹配
 
 ```text
 dst_port_entropy >= 90
@@ -281,9 +280,9 @@ endpoint_edge_entropy >= 90
 low_reciprocity <= 75
 ```
 
-参考：PORTSCAN, INFILTRATION_-_PORTSCAN
+标定依据：端口扫描类画像的共性。
 
-#### 6.3.5 固定单边小样本形态（caution）
+#### 6.3.5 Heartbleed 小样本参考匹配（caution）
 
 ```text
 endpoint_edge_entropy <= 20
@@ -292,9 +291,9 @@ dst_port_top1_concentration >= 95
 src_port_entropy <= 25
 ```
 
-参考：HEARTBLEED（仅人工复核提示）
+标定依据：小样本固定边异常画像的共性，仅人工复核提示。
 
-#### 6.3.6 高分散单向冲击形态（2019 攻击族）
+#### 6.3.6 DRDoS/UDP/SYN 单向攻击族
 
 ```text
 dst_port_entropy >= 90
@@ -305,17 +304,17 @@ edge_reuse_ratio <= 25
 low_reciprocity >= 85
 ```
 
-参考：DRDOS_*, SYN, TFTP, UDP-LAG 等
+标定依据：高分散单向冲击画像的共性。
 
-**源端口子形态**（在 6.3.6 命中前提下叠加，缩小候选）：
+**源端口子形态**（在 6.3.6 命中前提下叠加，用于说明端口展开强度）：
 
-| 条件 | 候选标签 |
+| 条件 | 子形态语义 |
 |------|----------|
-| `src_port_entropy` 65–85 | DRDOS_DNS/LDAP/MSSQL/NETBIOS/NTP |
-| `src_port_entropy` 85–98 | DRDOS_SNMP/SSDP, TFTP |
-| `src_port_entropy` >= 98 | DRDOS_UDP, SYN, UDP-LAG |
+| `src_port_entropy` 65–85 | 中高源端口分散度 |
+| `src_port_entropy` 85–98 | 高源端口分散度 |
+| `src_port_entropy` >= 98 | 极高源端口分散度 |
 
-#### 6.3.7 双向 Hub 服务冲击形态（caution）
+#### 6.3.7 WebDDoS 类攻击参考匹配（caution）
 
 ```text
 dst_port_entropy between 35 and 65
@@ -325,7 +324,7 @@ max_out_degree_ratio >= 80
 endpoint_edge_entropy >= 90
 ```
 
-参考：`2019|WEBDDOS`
+标定依据：双向 hub 服务冲击画像的共性。
 
 ### 6.4 人工阅读顺序（推荐）
 
@@ -384,19 +383,19 @@ flowchart TB
 
 | 规则 | 命中标签数 | 其中 BENIGN | 其中攻击 | 说明 |
 |------|------------|-------------|----------|------|
-| 自然分散流量形态 | 2 | 2 | 0 | 2017/2019 BENIGN 均命中；攻击零误命中 |
-| 固定目的服务冲击形态 | 16 | 0 | 16 | 覆盖 DDOS, DOS_HULK/GOLDENEYE, SLOW*, PATATOR, BOTNET, WEB_ATTACK 等 2017 族 |
-| 端口扫描形态 | 13 | 0 | 13 | PORTSCAN, INFILTRATION_-_PORTSCAN 等 |
-| 高分散单向冲击形态 | 11 | 0 | 11 | 2019 DRDOS_*, SYN, TFTP, UDP-LAG；**SYN 的 low_reciprocity≈90.7 临界通过** |
+| 正常流量参考匹配 | 2 | 2 | 0 | 良性画像均命中；攻击零误命中 |
+| DoS/DDoS 等固定服务攻击族 | 16 | 0 | 16 | 覆盖 DDOS, DOS_HULK/GOLDENEYE, SLOW*, PATATOR, BOTNET, WEB_ATTACK 等固定服务冲击族 |
+| PortScan 类攻击参考匹配 | 13 | 0 | 13 | PORTSCAN, INFILTRATION_-_PORTSCAN 等 |
+| DRDoS/UDP/SYN 单向攻击族 | 11 | 0 | 11 | DRDOS_*, SYN, TFTP, UDP-LAG；**SYN 的 low_reciprocity≈90.7 临界通过** |
 | 固定目的慢速冲击 | 0 | — | — | 在当前采样口径下未单独命中（慢速 DoS 多落入固定目的服务规则） |
-| 双向 Hub（WEBDDOS） | 0 | — | — | `2019|WEBDDOS` 样本仅 439 条，且指标未达阈值（低互惠≈60，边复用≈20） |
+| 双向 Hub（WebDDoS） | 0 | — | — | WebDDoS 标定样本较少，且指标未达阈值（低互惠≈60，边复用≈20） |
 
 **结论（标签级）**：
 
 - **正常参考规则**：对 BENIGN 召回完整（2/2），对攻击类零 FP，适合作为「形态像正常」的强约束参考。
-- **2017 攻击族**：固定目的服务 + 端口扫描规则可覆盖绝大多数 2017 攻击标签；与文档 §2.2「多类 DoS 拓扑相似」一致。
-- **2019 攻击族**：高分散单向规则对 DRDoS/UDP/SYN 等族召回良好；WEBDDOS 需单独规则且对样本量敏感。
-- **不能精确区分的边界**（文档已声明）：2017 多种 DoS/PATATOR/Web、2019 多种 DRDOS_* 之间**不应**靠拓扑规则强行细分；规则输出候选列表供人工或 LLM 二次研判。
+- **固定服务攻击族**：固定目的服务 + 端口扫描规则可覆盖绝大多数对应攻击画像；与文档 §2.2「多类 DoS 拓扑相似」一致。
+- **高分散单向攻击族**：高分散单向规则对 DRDoS/UDP/SYN 等族召回良好；WebDDoS 需单独规则且对样本量敏感。
+- **不能精确区分的边界**（文档已声明）：多种 DoS/PATATOR/Web、DRDOS_* 之间**不应**靠拓扑规则强行细分；规则输出形态标签供人工或 LLM 二次研判。
 
 ### 8.3 qualitative_hints 在标签级的表现
 
@@ -409,7 +408,7 @@ flowchart TB
 | Single-service-like | 0 | 0 | — |
 | Benign-like | 2 | 28 | **过宽**：攻击类常满足「边熵高、Top1 低、突发不高」；仅适合作弱提示，不能作 benign 判定 |
 
-**结论**：`qualitative_hints` 面向**真实 Trident 学习器**（聚类后的子集流）更有效；在**整类标签全集**上 Benign-like 会过命中，符合其设计定位——「辅助扫读」而非分类器。运维时应优先看 **CICIDS 参考规则 + 指标证据**，hints 作补充。
+**结论**：`qualitative_hints` 面向**真实 Trident 学习器**（聚类后的子集流）更有效；在**整类标签全集**上 Benign-like 会过命中，符合其设计定位——「辅助扫读」而非分类器。运维时应优先看 **数据集无关规则层 + 指标证据**，hints 作补充。
 
 ### 8.4 行为启发式规则（历史 run 审计）
 
@@ -438,7 +437,7 @@ python3 learner_qualification/analyze_learner_internal_topology.py \
 | 能力 | 效果 | 局限 |
 |------|------|------|
 | 指标 + 语义 | 稳定输出 22 维可解释特征，支持人工/LLM | 不输出风险总分；高分需读 semantic |
-| CICIDS 参考规则 | BENIGN 高精确；2017/2019 主攻击族高召回 | 细分类不可行；WEBDDOS/小样本弱 |
+| 数据集无关规则层 | BENIGN 高精确；主要攻击族高召回 | 细分类不可行；WebDDoS/小样本弱 |
 | qualitative_hints | 在学习器级可快速标 Flood/Scan 倾向 | 标签全集上 Benign-like 过宽 |
 | 与拓扑图联动 | 指标与图形态互证 | 依赖 min_samples、assignment 质量 |
 
@@ -458,9 +457,8 @@ python3 learner_qualification/analyze_learner_internal_topology.py \
   "qualitative_hints": [ "…" ],
   "reference_rule_matches": [
     {
-      "name": "固定目的服务冲击形态",
-      "semantic": "…",
-      "referenceLabels": ["2017|DDOS", "…"]
+      "name": "DoS/DDoS 等固定服务攻击族",
+      "semantic": "…"
     }
   ],
   "topology_summary": "可选：节点数、边数、可视化 URL"
@@ -471,7 +469,7 @@ Prompt 设计建议：
 
 - 明确要求模型**引用 metric_key 与分数**作为证据；
 - 声明规则为**参考**而非真值；
-- 对多规则命中要求列出**主要矛盾**（如边熵高 + 目的端口 Top1 高 → 2017 固定目的多源展开）；
+- 对多规则命中要求列出**主要矛盾**（如边熵高 + 目的端口 Top1 高 → 固定目的多源展开）；
 - 输出结构化：`morphology_guess`、`confidence`、`evidence[]`、`open_questions[]`。
 
 ---
@@ -491,7 +489,7 @@ Prompt 设计建议：
 | 资源 | 路径 |
 |------|------|
 | 指标审计设计（详细公式） | `docs/learner_topology_metric_audit_design.md` |
-| CICIDS 参考规则说明 | `docs/cicids_learner_metric_reference_rules.md` |
+| 规则公式说明 | `LEARNER_METRIC_AND_RULE_FORMULAS.md` |
 | 指标实现 | `trident_stream/learner_metric_audit.py` |
 | 语义目录 | `trident_stream/metric_audit_catalog.py` |
 | 前端规则 | `visualize/src/lib/learnerReferenceRules.ts` |
@@ -501,4 +499,4 @@ Prompt 设计建议：
 
 ---
 
-*文档版本：与代码 METRIC_AUDIT_VERSION=4 及 CICIDS 参考规则前端实现同步（2026-05）。*
+*文档版本：与代码 METRIC_AUDIT_VERSION=4 及数据集无关规则前端实现同步（2026-05）。*

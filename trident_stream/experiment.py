@@ -485,6 +485,14 @@ class TridentStreamingExperiment:
             "new_learner_count": 0.0,
             "incremental_update_count": 0.0,
         }
+        from trident_stream.performance_recorder import PerformanceRecorder
+
+        self._perf_recorder = PerformanceRecorder(
+            enabled=bool(cfg.get("runtime", {}).get("performance_benchmark", False))
+        )
+        self._perf_recorder.configure_device(str(self.device))
+        self._stream_start_idx: int = 0
+        self._qualification_profile: Dict[str, Any] = {}
 
     def _log_hyperparameters(self) -> None:
         self.logger.info("[RunID] %s", self.run_id)
@@ -3441,6 +3449,10 @@ class TridentStreamingExperiment:
         return filtered
 
     def _load_dataset(self) -> Tuple[pd.DataFrame, np.ndarray, List[str]]:
+        rec = self._perf_recorder
+        if rec.enabled:
+            rec.start("io_load_total")
+            rec.start("io_csv_read")
         data_dir = Path(self.cfg["paths"]["data_dir"])
         input_files = self.cfg["paths"].get("input_files")
         files = ordered_data_files(data_dir, input_files=input_files)
@@ -3477,6 +3489,9 @@ class TridentStreamingExperiment:
                         int(missing_year_mask.sum()),
                     )
             dfs.append(chunk)
+        if rec.enabled:
+            rec.stop("io_csv_read")
+            rec.start("io_preprocess")
         data = pd.concat(dfs, ignore_index=True)
         ts_raw = data["Timestamp"]
         try:
@@ -3502,6 +3517,9 @@ class TridentStreamingExperiment:
         if max_rows > 0 and len(data) > max_rows:
             data = data.iloc[:max_rows].reset_index(drop=True)
 
+        if rec.enabled:
+            rec.stop("io_preprocess")
+            rec.start("io_feature_matrix")
         feat_df, feature_cols = preprocess_features(data, feature_profile=self.feature_profile)
         x_all = feat_df.values.astype(np.float32)
         if self.pca_n_components > 0 and self.pca_n_components < x_all.shape[1]:
@@ -3519,6 +3537,9 @@ class TridentStreamingExperiment:
             len(feature_cols),
             self.feature_profile,
         )
+        if rec.enabled:
+            rec.stop("io_feature_matrix")
+            rec.stop("io_load_total")
         return data, x_all, feature_cols
 
     def _build_initial_learners(self, data: pd.DataFrame, x_all: np.ndarray) -> int:
@@ -3669,6 +3690,8 @@ class TridentStreamingExperiment:
             self.logger.exception("Decision tree analysis failed (non-fatal).")
 
     def run(self) -> None:
+        if self._perf_recorder.enabled:
+            self._perf_recorder.start_wall()
         self._log_hyperparameters()
         self._learner_creation_flow_previews.clear()
         self._learner_creation_row_indices.clear()
@@ -3774,10 +3797,22 @@ class TridentStreamingExperiment:
             dataset_label_corr_fig_path,
             len(dataset_label_rows),
         )
+        if self._perf_recorder.enabled:
+            self._perf_recorder.start("init_learners")
         start_idx = self._build_initial_learners(data, x_all)
+        self._stream_start_idx = int(start_idx)
+        if self._perf_recorder.enabled:
+            self._perf_recorder.stop("init_learners")
         window_size = self.cfg["stream"]["window_size"]
 
         time_series = []
+        if self._perf_recorder.enabled and self._perf_recorder.resources._gpu_available:
+            try:
+                import torch
+
+                torch.cuda.reset_peak_memory_stats()
+            except Exception:
+                pass
 
         for left in range(start_idx, len(data), window_size):
             t_window_start = perf_counter()
@@ -3790,6 +3825,11 @@ class TridentStreamingExperiment:
             accepted_meta_by_learner: Dict[str, List[Dict[str, object]]] = {k: [] for k in self.tsieve.learners}
 
             t_detect_start = perf_counter()
+            cpu_detect_start = (
+                self._perf_recorder.resources.current_process_cpu_seconds()
+                if self._perf_recorder.enabled
+                else 0.0
+            )
             if self.debug_overlap_enabled:
                 debug_rows = self.tsieve.classify_batch_debug(chunk_x)
                 self.debug_overlap_stream_samples += len(debug_rows)
@@ -3853,13 +3893,33 @@ class TridentStreamingExperiment:
                     )
             t_detect_end = perf_counter()
             detect_seconds = t_detect_end - t_detect_start
+            if self._perf_recorder.enabled:
+                cpu_now = self._perf_recorder.resources.current_process_cpu_seconds()
+                self._perf_recorder.resources.add_stage_cpu(
+                    "stream_inference", cpu_now - cpu_detect_start
+                )
 
             t_cluster_start = perf_counter()
+            cpu_cluster_start = (
+                self._perf_recorder.resources.current_process_cpu_seconds()
+                if self._perf_recorder.enabled
+                else 0.0
+            )
             clusters = self.tmagnifier.pop_new_class_clusters()
             t_cluster_end = perf_counter()
             cluster_seconds = t_cluster_end - t_cluster_start
+            if self._perf_recorder.enabled:
+                cpu_now = self._perf_recorder.resources.current_process_cpu_seconds()
+                self._perf_recorder.resources.add_stage_cpu(
+                    "stream_cluster", cpu_now - cpu_cluster_start
+                )
             create_seconds = 0.0
             retrain_seconds_window = 0.0
+            cpu_create_start = (
+                self._perf_recorder.resources.current_process_cpu_seconds()
+                if self._perf_recorder.enabled
+                else 0.0
+            )
             create_seconds += self._create_new_learners_from_clusters(
                 clusters=clusters,
                 data=data,
@@ -3880,6 +3940,11 @@ class TridentStreamingExperiment:
                 accepted_labels_by_learner=accepted_labels_by_learner,
                 accepted_meta_by_learner=accepted_meta_by_learner,
             )
+            if self._perf_recorder.enabled:
+                cpu_now = self._perf_recorder.resources.current_process_cpu_seconds()
+                self._perf_recorder.resources.add_stage_cpu(
+                    "stream_create_learner", cpu_now - cpu_create_start
+                )
 
             for name, accepted_labels in accepted_labels_by_learner.items():
                 if not accepted_labels:
@@ -4242,6 +4307,11 @@ class TridentStreamingExperiment:
                     float(np.quantile(before_losses, 0.95)) if len(before_losses) > 0 else float("nan")
                 )
                 t_retrain_start = perf_counter()
+                cpu_retrain_start = (
+                    self._perf_recorder.resources.current_process_cpu_seconds()
+                    if self._perf_recorder.enabled
+                    else 0.0
+                )
                 increment_epoch_losses = self.tsieve.learners[name].fit_incremental(
                     arr_update,
                     epochs=self.cfg["tsieve"]["increment_epochs"],
@@ -4270,6 +4340,11 @@ class TridentStreamingExperiment:
                     self.tsieve.refresh_threshold(name, arr_update)
                 t_retrain_end = perf_counter()
                 retrain_seconds = t_retrain_end - t_retrain_start
+                if self._perf_recorder.enabled:
+                    cpu_now = self._perf_recorder.resources.current_process_cpu_seconds()
+                    self._perf_recorder.resources.add_stage_cpu(
+                        "stream_retrain", cpu_now - cpu_retrain_start
+                    )
                 retrain_seconds_window += retrain_seconds
                 self.perf_stats["retrain_seconds_total"] += retrain_seconds
                 self.perf_stats["incremental_update_count"] += 1
@@ -4416,6 +4491,20 @@ class TridentStreamingExperiment:
                 retrain_seconds_window,
                 window_seconds,
             )
+
+        if self._perf_recorder.enabled and self._perf_recorder.resources._gpu_available:
+            try:
+                import torch
+
+                peak = float(torch.cuda.max_memory_allocated())
+                prev = self._perf_recorder.resources.stage_gpu_peak_bytes.get(
+                    "stream_inference", 0.0
+                )
+                self._perf_recorder.resources.stage_gpu_peak_bytes["stream_inference"] = max(
+                    prev, peak
+                )
+            except Exception:
+                pass
 
         ts_df = pd.DataFrame(time_series)
         self._finalize_unknown_assignments()
@@ -4782,10 +4871,12 @@ class TridentStreamingExperiment:
                         "accept_rate_b_to_a": self._safe_div(inter, count_b),
                     }
                 )
-            overlap_df = pd.DataFrame(rows).sort_values(
-                by=["jaccard_acceptance", "intersection_count"],
-                ascending=False,
-            )
+            overlap_df = pd.DataFrame(rows)
+            if not overlap_df.empty:
+                overlap_df = overlap_df.sort_values(
+                    by=["jaccard_acceptance", "intersection_count"],
+                    ascending=False,
+                )
             overlap_df.to_csv(overlap_pairs_path, index=False)
             overlap_fig_path = self.output_dir / "learner_true_overlap_network.png"
             overlap_min_jaccard = float(self.cfg["runtime"].get("debug_overlap_min_jaccard", 0.10))
@@ -4837,6 +4928,8 @@ class TridentStreamingExperiment:
                 int(agg_meta.get("aggregate_count", 0)),
             )
         perf_path = self.output_dir / "performance_metrics.json"
+        if self._perf_recorder.enabled:
+            self._perf_recorder.start("export_run_artifacts")
         windows_count = int(self.perf_stats["windows_count"])
         perf_summary = {
             **self.perf_stats,
@@ -4876,21 +4969,76 @@ class TridentStreamingExperiment:
             )
         visualization_artifacts: Dict[str, Path] = {}
         try:
-            from trident_stream.visualization_artifacts import export_visualization_artifacts
-
             viz_cfg = self.cfg.get("visualization", {})
-            visualization_artifacts = export_visualization_artifacts(
-                data=data,
-                assignments=assign_export_df,
-                label_distribution=profile_df,
-                output_dir=self.output_dir,
-                # The dataset-only graph is emitted immediately after dataset load.
-                export_dataset_topology=False,
-                metric_audit_min_samples=int(viz_cfg.get("metric_audit_min_samples", 50)),
-                metric_audit_max_learners=int(viz_cfg.get("metric_audit_max_learners", 60)),
-            )
-            for artifact_name, artifact_path in visualization_artifacts.items():
-                self.logger.info("Done. %s=%s", artifact_name.upper(), artifact_path)
+            metric_audit_min_samples = int(viz_cfg.get("metric_audit_min_samples", 50))
+            metric_audit_max_learners = int(viz_cfg.get("metric_audit_max_learners", 60))
+            if self._perf_recorder.enabled:
+                self._perf_recorder.start("export_visualization")
+                from trident_stream.dataset_topology import save_learner_network_topology
+                from trident_stream.qualification_benchmark import profile_learner_qualification
+
+                learner_topology_path = self.output_dir / "learner_network_topology.json"
+                assign_index = (
+                    assign_export_df[["row_index", "assigned_learner"]].copy()
+                    if not assign_export_df.empty
+                    and {"row_index", "assigned_learner"} <= set(assign_export_df.columns)
+                    else pd.DataFrame(columns=["row_index", "assigned_learner"])
+                )
+                t_topo = perf_counter()
+                if save_learner_network_topology(data, assign_index, learner_topology_path):
+                    visualization_artifacts["learner_network_topology"] = learner_topology_path
+                self._perf_recorder.add("export_topology_json", perf_counter() - t_topo)
+
+                t_qual = perf_counter()
+                payload, qual_profile = profile_learner_qualification(
+                    data=data,
+                    assignments=assign_export_df,
+                    label_distribution=profile_df,
+                    min_samples=metric_audit_min_samples,
+                    max_learners=metric_audit_max_learners,
+                )
+                self._qualification_profile = qual_profile
+                audit_path = self.output_dir / "learner_topology_metric_audit.json"
+                audit_path.write_text(
+                    json.dumps(payload, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                visualization_artifacts["learner_topology_metric_audit"] = audit_path
+                self._perf_recorder.add("qualification_total", perf_counter() - t_qual)
+                self._perf_recorder.add(
+                    "qualification_metrics",
+                    float(qual_profile.get("qualification_metrics_seconds", 0.0)),
+                )
+                self._perf_recorder.add(
+                    "qualification_hints",
+                    float(qual_profile.get("qualification_hints_seconds", 0.0)),
+                )
+                self._perf_recorder.add(
+                    "qualification_reference_rules",
+                    float(qual_profile.get("qualification_reference_rules_seconds", 0.0)),
+                )
+                self._perf_recorder.set_counter(
+                    "qualification_flow_count",
+                    float(qual_profile.get("audited_flow_count", 0)),
+                )
+                self._perf_recorder.stop("export_visualization")
+                for artifact_name, artifact_path in visualization_artifacts.items():
+                    self.logger.info("Done. %s=%s", artifact_name.upper(), artifact_path)
+            else:
+                from trident_stream.visualization_artifacts import export_visualization_artifacts
+
+                visualization_artifacts = export_visualization_artifacts(
+                    data=data,
+                    assignments=assign_export_df,
+                    label_distribution=profile_df,
+                    output_dir=self.output_dir,
+                    # The dataset-only graph is emitted immediately after dataset load.
+                    export_dataset_topology=False,
+                    metric_audit_min_samples=metric_audit_min_samples,
+                    metric_audit_max_learners=metric_audit_max_learners,
+                )
+                for artifact_name, artifact_path in visualization_artifacts.items():
+                    self.logger.info("Done. %s=%s", artifact_name.upper(), artifact_path)
         except Exception:
             self.logger.exception("Visualization artifact export failed (non-fatal).")
         accept_trace_path = self.output_dir / "learner_accept_trace.csv"
@@ -4919,6 +5067,43 @@ class TridentStreamingExperiment:
         with open(summary_path, "w", encoding="utf-8") as f:
             for k, v in summary.items():
                 f.write(f"{k}: {v}\n")
+
+        if self._perf_recorder.enabled:
+            self._perf_recorder.stop("export_run_artifacts")
+            self._perf_recorder.finish_wall()
+            stream_flow_count = max(0, len(data) - int(self._stream_start_idx))
+            perf_summary_for_report = {
+                **perf_summary,
+                "windows_count": windows_count,
+                "new_learner_count": self.perf_stats.get("new_learner_count", 0.0),
+                "incremental_update_count": self.perf_stats.get("incremental_update_count", 0.0),
+            }
+            benchmark_report = self._perf_recorder.build_report(
+                run_id=self.run_id,
+                flow_count=len(data),
+                stream_flow_count=stream_flow_count,
+                perf_stats=perf_summary_for_report,
+                qualification_stats=self._qualification_profile,
+            )
+            benchmark_paths = self._perf_recorder.write(self.output_dir, benchmark_report)
+            self.logger.info(
+                "Done. TRIDENT_PERFORMANCE_BENCHMARK_JSON=%s",
+                benchmark_paths["json"],
+            )
+            self.logger.info(
+                "Done. TRIDENT_PERFORMANCE_BENCHMARK_MD=%s",
+                benchmark_paths["markdown"],
+            )
+            infer_fps = benchmark_report.get("throughput_flows_per_second", {}).get(
+                "flows_per_second_inference"
+            )
+            if infer_fps is not None:
+                self.logger.info(
+                    "Benchmark inference throughput: %.2f flows/s (%d stream flows / %.4fs detect)",
+                    float(infer_fps),
+                    stream_flow_count,
+                    float(self.perf_stats["detect_seconds_total"]),
+                )
 
         self.logger.info("Done. CSV=%s", csv_path)
         self.logger.info("Done. LEARNER_CREATION_PROFILE=%s", creation_profile_path)

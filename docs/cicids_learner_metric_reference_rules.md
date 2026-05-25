@@ -1,11 +1,11 @@
-# CICIDS Learner Metric Reference Rules
+# Learner Metric Topology Family Rules
 
-本文档把学习器详情页中的 v4 拓扑审计指标，映射为 CICIDS2017 与 CICIDS2019 的**参考规则标签**。
+本文档把学习器详情页中的 v4 拓扑审计指标，映射为**数据集无关的拓扑形态/攻击族参考规则标签**。
 
 这些规则用于人工研判，不是真值标签，也不是组合风险分。规则只说明：
 
 ```text
-某学习器的指标形态与本地 CICIDS2017 / CICIDS2019 中某类流量形态相近。
+某学习器的指标形态与哪类正常流量形态、攻击形态或攻击族相近。
 ```
 
 ## 1. 分析口径
@@ -22,7 +22,7 @@ data/aligned_2017_2019_2026_sampled_x5_yeartagged_for_main.csv
 Label 以 2017| 或 2019| 开头的流
 ```
 
-该 aligned 文件由项目内 CICIDS2017 与 CICIDS2019 原始 CSV 对齐后生成，也是当前 Trident run 与 `visualize` 页面常用的数据口径。每个真实 `Label` 被临时当作一个“类学习器”，使用当前代码中的 audit 指标计算指标画像：
+该 aligned 文件由项目内公开数据集原始 CSV 对齐后生成，也是当前 Trident run 与 `visualize` 页面常用的数据口径。每个真实 `Label` 被临时当作一个“类学习器”，使用当前代码中的 audit 指标计算指标画像：
 
 ```text
 dst_port_entropy
@@ -190,7 +190,7 @@ UDP-LAG
 
 下列规则已经以同样语义接入 `visualize` 学习器详情页。变量均为当前 audit 指标分数。
 
-### 4.1 正常参考
+### 4.1 正常流量参考匹配
 
 ```text
 endpoint_edge_entropy >= 82
@@ -210,14 +210,13 @@ max_out_degree_ratio <= 15
 流内单向性也未达到 2019 UDP/反射攻击的极端水平。
 ```
 
-参考标签：
+标定依据：
 
 ```text
-2017|BENIGN
-2019|BENIGN
+历史良性流量画像的共性。
 ```
 
-### 4.2 2017 固定目的服务攻击
+### 4.2 DoS/DDoS 等固定服务攻击族
 
 ```text
 dst_port_entropy <= 12
@@ -239,22 +238,16 @@ dst_host_concentration >= 65
 主机层指标用于提供汇聚支撑证据，不再作为全部固定服务形态的一票否决条件。
 ```
 
-参考候选：
+标定依据：
 
 ```text
-2017|DDOS
-2017|DOS_HULK
-2017|DOS_GOLDENEYE
-2017|FTP-PATATOR
-2017|SSH-PATATOR
-2017|BOTNET
-2017|WEB_ATTACK_*
+固定目的服务冲击/固定服务访问类画像的共性。
 ```
 
-### 4.3 2017 固定目的慢速 DoS
+### 4.3 Slow DoS 类攻击参考匹配
 
 ```text
-命中 2017 固定目的服务攻击
+命中 DoS/DDoS 等固定服务攻击族
 low_reciprocity >= 68
 ```
 
@@ -265,14 +258,13 @@ low_reciprocity >= 68
 该规则更接近 SlowHTTPTest / Slowloris 的一部分样本。
 ```
 
-参考候选：
+标定依据：
 
 ```text
-2017|DOS_SLOWHTTPTEST
-2017|DOS_SLOWLORIS
+慢速固定服务冲击画像的共性。
 ```
 
-### 4.4 2017 端口扫描
+### 4.4 PortScan 类攻击参考匹配
 
 ```text
 dst_port_entropy >= 90
@@ -290,14 +282,13 @@ low_reciprocity <= 75
 其单向性在当前数据口径下通常弱于 2019 UDP/反射攻击族。
 ```
 
-参考候选：
+标定依据：
 
 ```text
-2017|PORTSCAN
-2017|INFILTRATION_-_PORTSCAN
+端口扫描类画像的共性。
 ```
 
-### 4.5 2017 固定单边小样本参考
+### 4.5 Heartbleed 小样本参考匹配
 
 ```text
 endpoint_edge_entropy <= 20
@@ -313,13 +304,13 @@ src_port_entropy <= 25
 该标签只能作为人工复核提示。
 ```
 
-参考候选：
+标定依据：
 
 ```text
-2017|HEARTBLEED
+小样本固定边异常画像的共性，仅人工复核提示。
 ```
 
-### 4.6 2019 高分散单向攻击
+### 4.6 DRDoS/UDP/SYN 单向攻击族
 
 ```text
 dst_port_entropy >= 90
@@ -334,68 +325,50 @@ low_reciprocity >= 85
 
 ```text
 目的端口高度分散，边接近一次性，流记录内强单向；
-这是本地 2019 多数 DRDoS / UDP / SYN / TFTP 类的共同形态。
+这是多数 DRDoS / UDP / SYN / TFTP 类的共同形态。
 ```
 
-参考候选：
+标定依据：
 
 ```text
-2019|DRDOS_DNS
-2019|DRDOS_LDAP
-2019|DRDOS_MSSQL
-2019|DRDOS_NETBIOS
-2019|DRDOS_NTP
-2019|DRDOS_SNMP
-2019|DRDOS_SSDP
-2019|DRDOS_UDP
-2019|SYN
-2019|TFTP
-2019|UDP-LAG
+高分散单向冲击画像的共性。
 ```
 
-### 4.7 2019 高分散单向攻击的源端口子族
+### 4.7 高分散单向攻击的源端口子形态
 
-子族只缩小候选，不替代上一条共同规则。
+子形态只解释源端口展开强度，不替代上一条共同规则。
 
 ```text
 src_port_entropy between 65 and 85
 ```
 
-参考候选：
+子形态语义：
 
 ```text
-2019|DRDOS_DNS
-2019|DRDOS_LDAP
-2019|DRDOS_MSSQL
-2019|DRDOS_NETBIOS
-2019|DRDOS_NTP
+中高源端口分散度。
 ```
 
 ```text
 src_port_entropy between 85 and 98
 ```
 
-参考候选：
+子形态语义：
 
 ```text
-2019|DRDOS_SNMP
-2019|DRDOS_SSDP
-2019|TFTP
+高源端口分散度。
 ```
 
 ```text
 src_port_entropy >= 98
 ```
 
-参考候选：
+子形态语义：
 
 ```text
-2019|DRDOS_UDP
-2019|SYN
-2019|UDP-LAG
+极高源端口分散度。
 ```
 
-### 4.8 2019 WebDDoS 参考
+### 4.8 WebDDoS 类攻击参考匹配
 
 ```text
 dst_port_entropy between 35 and 65
@@ -409,13 +382,13 @@ endpoint_edge_entropy >= 90
 
 ```text
 目的端口没有反射族那样极端分散，但入向和出向 hub 同时明显，
-更接近当前 2019 WebDDoS 小类画像。
+更接近 WebDDoS 类画像。
 ```
 
-参考候选：
+标定依据：
 
 ```text
-2019|WEBDDOS
+双向 hub 服务冲击画像的共性。
 ```
 
 ## 5. 前端展示约束
@@ -425,7 +398,6 @@ endpoint_edge_entropy >= 90
 ```text
 参考规则标签
 规则语义
-参考候选 CICIDS 标签
 ```
 
 不要显示：
@@ -440,7 +412,7 @@ endpoint_edge_entropy >= 90
 
 ```text
 命中参考规则：2019 高分散单向攻击
-候选：DRDOS_DNS / DRDOS_LDAP / ... / UDP-LAG
+命中参考规则：DRDoS/UDP/SYN 单向攻击族
 语义：目的端口高度分散，边接近一次性，流记录内强单向。
 ```
 
