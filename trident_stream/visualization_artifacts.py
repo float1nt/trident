@@ -14,7 +14,7 @@ import pandas as pd
 
 from .dataset_topology import save_dataset_network_topology, save_learner_network_topology
 from .learner_metric_audit import compute_learner_metrics, compute_qualitative_hints
-from .learner_reference_rules import evaluate_learner_reference_rules
+from .learner_reference_rules import REFERENCE_RULES_VERSION, evaluate_learner_reference_rules
 from .metric_audit_catalog import CORE_METRIC_KEYS, METRIC_AUDIT_VERSION, REMOVED_METRICS
 
 
@@ -161,6 +161,7 @@ def build_learner_metric_audit_payload(
 
     return {
         "version": METRIC_AUDIT_VERSION,
+        "reference_rules_version": REFERENCE_RULES_VERSION,
         "metric_count": len(CORE_METRIC_KEYS),
         "core_metric_keys": list(CORE_METRIC_KEYS),
         "removed_metrics": REMOVED_METRICS,

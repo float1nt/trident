@@ -3,6 +3,8 @@ import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { Select } from 'antd'
 import { LearnerInternalTopologyPanel } from '../components/LearnerInternalTopologyPanel'
 import { LearnerMetricAuditPanel } from '../components/LearnerMetricAuditPanel'
+import { useLiveTridentStream } from '../hooks/useLiveTridentStream'
+import { labelRowsToOptions } from '../lib/liveApi'
 import {
   fetchRunJsonOptional,
   fetchRuns,
@@ -39,6 +41,9 @@ export default function LearnerDetailPage() {
   const routeRunId = params.runId ? decodeURIComponent(params.runId) : ''
   const [searchParams, setSearchParams] = useSearchParams()
   const learnerFromUrl = searchParams.get('learner')?.trim() || ''
+  const liveMode = searchParams.get('live') === '1'
+
+  const live = useLiveTridentStream({ enabled: liveMode })
 
   const [runs, setRuns] = useState<RunInfo[]>([])
   const [selectedRunId, setSelectedRunId] = useState('')
@@ -68,6 +73,7 @@ export default function LearnerDetailPage() {
   }, [routeRunId])
 
   useEffect(() => {
+    if (liveMode) return
     if (!selectedRunId) return
     const load = async () => {
       setLoading(true)
@@ -105,7 +111,18 @@ export default function LearnerDetailPage() {
       }
     }
     load()
-  }, [selectedRunId])
+  }, [selectedRunId, liveMode])
+
+  useEffect(() => {
+    if (!liveMode) return
+    if (live.metricAudit) setMetricAudit(live.metricAudit)
+    if (live.labelDistributionRows.length) {
+      setLearnerMeta(labelRowsToOptions(live.labelDistributionRows))
+    }
+    if (live.runId) setSelectedRunId(live.runId)
+    if (live.error) setError(live.error)
+    setLoading(live.connecting)
+  }, [liveMode, live.metricAudit, live.labelDistributionRows, live.runId, live.error, live.connecting])
 
   const sortedLearnerOptions = useMemo(() => {
     const names = new Set<string>()
@@ -203,18 +220,41 @@ export default function LearnerDetailPage() {
           <h2 className="text-xl font-semibold text-notion-text">学习器详情</h2>
           <p className="mt-1 max-w-2xl text-sm text-notion-secondary">
             切换学习器查看内部网络拓扑与分组审计指标；指标分数仅表示单项强弱，需结合语义说明综合判断。
+            {liveMode ? (
+              <span className="ml-2 rounded-md bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800">
+                实时模式 · {live.connected ? '已连接磁盘产物' : '连接中…'}
+              </span>
+            ) : null}
           </p>
         </div>
-        <Link
-          to={selectedRunId ? `/run/${encodeURIComponent(selectedRunId)}` : '/run-detail'}
-          className="btn-secondary shrink-0 text-sm"
-        >
-          ← 返回 Run 详情
-        </Link>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {!liveMode ? (
+            <Link
+              to={`/learner-detail${selectedRunId ? `/${encodeURIComponent(selectedRunId)}` : ''}?live=1${learnerFromUrl ? `&learner=${encodeURIComponent(learnerFromUrl)}` : ''}`}
+              className="btn-secondary text-sm"
+            >
+              切换实时模式
+            </Link>
+          ) : (
+            <Link
+              to={selectedRunId ? `/learner-detail/${encodeURIComponent(selectedRunId)}` : '/learner-detail'}
+              className="btn-secondary text-sm"
+            >
+              切换历史 Run
+            </Link>
+          )}
+          <Link
+            to={selectedRunId ? `/run/${encodeURIComponent(selectedRunId)}` : '/run-detail'}
+            className="btn-secondary text-sm"
+          >
+            ← 返回 Run 详情
+          </Link>
+        </div>
       </div>
 
       <section className="panel space-y-3">
         <div className="grid gap-3 md:grid-cols-2">
+          {!liveMode ? (
           <div>
             <label className="field-label">Run</label>
             <select
@@ -229,6 +269,12 @@ export default function LearnerDetailPage() {
               ))}
             </select>
           </div>
+          ) : (
+          <div>
+            <label className="field-label">Live Run</label>
+            <div className="input-base w-full truncate font-mono text-xs">{selectedRunId || '等待 run_started…'}</div>
+          </div>
+          )}
           <div>
             <label className="field-label">学习器（按攻击占比降序）</label>
             <Select

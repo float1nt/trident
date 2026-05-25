@@ -62,6 +62,16 @@ python3 main.py --config configs/config.yaml
 - `paths.input_files`：读取顺序（当前为周一到周五）
 - `paths.output_dir`：输出目录（默认 `outputs`）
 - `paths.log_file`：日志文件名（默认 `run.log`）
+- `input.source`：数据源类型，默认 `csv`；设为 `redis` 时从 Redis 队列/Stream 拉取有限批量流记录后复用同一条 Trident 全流程
+- `input.redis.*`：Redis 输入配置，已对齐根目录 `suricata-cic-redis-live` 的默认 Redis Stream：`key=suricata:cic_flow`、`event_type=cic_flow`；也支持 `data_structure: list`。常用字段包括 `url`、`key`、`max_messages`、`idle_timeout_seconds`、`default_label`；Redis 输入默认跳过 `year_include`/攻击类型采样等离线数据集过滤，需复用这些过滤时显式设置 `apply_runtime_filters: true`。Live 流没有真值标签时，`allow_unlabeled_initial_learner: true` 会在没有 BENIGN 冷启动样本时用未标注流建立初始学习器。
+- `visualization.live_flush_*`：流式运行期间将产物**增量写入磁盘**（`outputs/runs/<run_id>/`），包括 `learner_count_over_time.csv`、`learner_topology_metric_audit.json`（含规则层 `reference_rules`）、`learner_label_distribution.csv`、`live_run_status.json`。`live_flush_enabled: auto` 在 `input.source=redis` 时自动开启。
+
+### 实时可视化（磁盘产物）
+
+1. Trident 运行时产物始终落在 `outputs/runs/<run_id>/`（与历史 Run 相同路径）。
+2. 流式场景下按窗口增量刷新上述文件；Run 结束写入 `live_run_status.json`（`status: finished`）。
+3. 在 `visualize/` 启动前端：`npm run dev`，打开 **实时监控**（`/live-monitor`）或 **学习器详情 → 实时模式**（`?live=1`）。
+4. Vite 开发服务器通过 SSE（`/api/live/events`）轮询磁盘文件变更并推送到浏览器；也可设置 `TRIDENT_LIVE_ARTIFACTS_ENABLED=1` 强制开启。
 
 ### 2) 运行控制
 

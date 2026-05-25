@@ -1,0 +1,4 @@
+logs/*
+!logs/.gitkeep
+.env
+runtime/bin/suricata

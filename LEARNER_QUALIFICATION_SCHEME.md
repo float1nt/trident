@@ -193,7 +193,7 @@ flowchart LR
 ### 5.3 与规则层的关系
 
 - **qualitative_hints**：跨数据集的**粗粒度形态**（Flood/Scan/Benign 等），写入 JSON，前端以信息条展示。
-- **数据集无关规则层**（下一节）：在粗形态之上，对齐攻击族的拓扑行为画像，仅在前端规则层匹配，不写回 JSON。历史公开数据集只用于阈值标定，不作为运行时标签输出。
+- **数据集无关规则层**（下一节）：在粗形态之上，对齐攻击族的拓扑行为画像，在后端 artifact 生成时匹配并写入 JSON。历史公开数据集只用于阈值标定，不作为运行时标签输出。
 
 ---
 
@@ -201,7 +201,7 @@ flowchart LR
 
 ### 6.1 定位
 
-- 实现：`visualize/src/lib/learnerReferenceRules.ts` → `evaluateLearnerReferenceRules(metrics)`
+- 实现：`trident_stream/learner_reference_rules.py` → `evaluate_learner_reference_rules(metrics)`
 - 文档：`LEARNER_METRIC_AND_RULE_FORMULAS.md`
 - 展示：`LearnerMetricAuditPanel` 中「规则层匹配结果」区块
 
@@ -209,6 +209,8 @@ flowchart LR
 
 - `name`：前端规则标签名。能收敛到攻击族时使用攻击名（如「PortScan 类攻击参考匹配」）；拓扑上不可细分时使用候选族名（如「DoS/DDoS 等固定服务攻击族」）
 - `semantic`：规则语义说明
+- `match_level`：`strong` | `weak` | `near`，表示强匹配、弱匹配、接近匹配
+- `evidence_met` / `evidence_total`：满足阈值证据数与总证据数
 - `tone`：`benign` | `attack` | `caution`（仅 UI 配色，非结论）
 
 **明确不输出**：数据集年份、原始数据集标签、预测攻击类别、最终结论、综合风险分。
@@ -217,13 +219,14 @@ flowchart LR
 
 ```text
 1. 将 metrics[] 转为 scores: Record<metric_key, score_0_100>
-2. 遍历 REFERENCE_RULES 常量数组（固定顺序）
-3. 对每条规则执行 rule.match(scores) → boolean
-4. 为 true 的规则收集 { key, name, tone, semantic }
+2. 遍历后端 _REFERENCE_RULES 常量数组（固定顺序）
+3. 对每条规则分别计算 strong 条件命中数与 weak 条件命中数
+4. required 条件必须至少满足 weak 阈值
+5. 根据 strong 全命中、weak_min、near_min 输出 { key, name, tone, match_level, evidence_met, evidence_total, semantic }
 5. 全部命中规则返回（可多选）
 ```
 
-辅助谓词：`atLeast` / `atMost` / `between`；复合形态如 `isFixedTargetServiceAttack` = 核心端口/边条件 **且** 至少一项主机汇聚证据。
+规则层只在后端 artifact 生成时计算；前端只读取 `learner_topology_metric_audit.json` 中的 `reference_rules`。
 
 ### 6.3 参考规则清单与阈值
 
@@ -311,7 +314,7 @@ low_reciprocity >= 85
 | 条件 | 子形态语义 |
 |------|----------|
 | `src_port_entropy` 65–85 | 中高源端口分散度 |
-| `src_port_entropy` 85–98 | 高源端口分散度 |
+| `src_port_entropy` >85 且 <98 | 高源端口分散度 |
 | `src_port_entropy` >= 98 | 极高源端口分散度 |
 
 #### 6.3.7 WebDDoS 类攻击参考匹配（caution）
@@ -347,7 +350,7 @@ flowchart TB
   end
   subgraph Frontend
     J --> P[LearnerMetricAuditPanel]
-    P --> Q[evaluateLearnerReferenceRules]
+    P --> Q[展示 reference_rules]
     P --> H[展示 qualitative_hints]
     T[learner_network_topology.json] --> G[LearnerInternalTopologyPanel]
   end
@@ -492,7 +495,7 @@ Prompt 设计建议：
 | 规则公式说明 | `LEARNER_METRIC_AND_RULE_FORMULAS.md` |
 | 指标实现 | `trident_stream/learner_metric_audit.py` |
 | 语义目录 | `trident_stream/metric_audit_catalog.py` |
-| 前端规则 | `visualize/src/lib/learnerReferenceRules.ts` |
+| 后端规则 | `trident_stream/learner_reference_rules.py` |
 | 审计面板 | `visualize/src/components/LearnerMetricAuditPanel.tsx` |
 | 可视化产物说明 | `learner_qualification/ARTIFACT_PIPELINE.md` |
 | 入口与命令 | `learner_qualification/README.md` |

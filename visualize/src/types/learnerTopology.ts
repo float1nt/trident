@@ -48,6 +48,18 @@ export type LearnerMetricHint = {
   hint_text: string
 }
 
+export type LearnerReferenceRuleMatchLevel = 'strong' | 'weak' | 'near'
+
+export type LearnerReferenceRuleMatch = {
+  key: string
+  name: string
+  tone: 'benign' | 'attack' | 'caution'
+  match_level?: LearnerReferenceRuleMatchLevel
+  evidence_met?: number
+  evidence_total?: number
+  semantic: string
+}
+
 export type LearnerMetricAuditView = {
   learner_name: string
   flow_count: number
@@ -56,6 +68,7 @@ export type LearnerMetricAuditView = {
   dominant_ratio?: number | null
   metrics: LearnerMetricAuditItem[]
   qualitative_hints?: LearnerMetricHint[]
+  reference_rules?: LearnerReferenceRuleMatch[]
 }
 
 export type LearnerSkippedEntry = {
@@ -67,6 +80,7 @@ export type LearnerSkippedEntry = {
 
 export type LearnerTopologyMetricAuditJson = {
   version: number
+  reference_rules_version?: string
   learners: LearnerMetricAuditView[]
   learners_skipped?: LearnerSkippedEntry[]
   export_filters?: {

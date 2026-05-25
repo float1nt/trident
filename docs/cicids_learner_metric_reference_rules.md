@@ -349,7 +349,7 @@ src_port_entropy between 65 and 85
 ```
 
 ```text
-src_port_entropy between 85 and 98
+85 < src_port_entropy < 98
 ```
 
 子形态语义：
@@ -391,12 +391,17 @@ endpoint_edge_entropy >= 90
 双向 hub 服务冲击画像的共性。
 ```
 
-## 5. 前端展示约束
+## 5. 展示约束
+
+规则层只在后端 `trident_stream/learner_reference_rules.py` 中计算，并随
+`learner_topology_metric_audit.json` 写出。学习器详情页只展示后端结果，不在前端重复计算规则。
 
 学习器详情页应把规则结果显示为：
 
 ```text
 参考规则标签
+强匹配 / 弱匹配 / 接近匹配
+证据命中数
 规则语义
 ```
 
@@ -411,8 +416,8 @@ endpoint_edge_entropy >= 90
 推荐展示话术：
 
 ```text
-命中参考规则：2019 高分散单向攻击
 命中参考规则：DRDoS/UDP/SYN 单向攻击族
+匹配强度：弱匹配，证据 5/6
 语义：目的端口高度分散，边接近一次性，流记录内强单向。
 ```
 

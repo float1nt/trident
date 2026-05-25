@@ -1,11 +1,12 @@
 import { useMemo } from 'react'
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
-import type { LearnerMetricAuditItem, LearnerMetricAuditView } from '../types/learnerTopology'
-import {
-  evaluateLearnerReferenceRules,
-  type LearnerReferenceRuleMatch,
-} from '../lib/learnerReferenceRules'
+import type {
+  LearnerMetricAuditItem,
+  LearnerMetricAuditView,
+  LearnerReferenceRuleMatch,
+  LearnerReferenceRuleMatchLevel,
+} from '../types/learnerTopology'
 import { metricBadgeStyle, metricBarColor } from '../theme/metricAuditTheme'
 import {
   CHART_AXIS_LINE,
@@ -116,15 +117,20 @@ function referenceRuleClasses(tone: LearnerReferenceRuleMatch['tone']): string {
   return 'border-notion-danger/30 bg-notion-danger-bg'
 }
 
+function referenceRuleLevelLabel(level?: LearnerReferenceRuleMatchLevel): string {
+  if (level === 'strong') return '强匹配'
+  if (level === 'weak') return '弱匹配'
+  if (level === 'near') return '接近匹配'
+  return '匹配'
+}
+
 export function LearnerMetricAuditPanel({ auditView }: Props) {
   const groups = useMemo(
     () => (auditView?.metrics?.length ? groupMetrics(auditView.metrics) : []),
     [auditView],
   )
-  const referenceRules = useMemo(
-    () => (auditView?.metrics?.length ? evaluateLearnerReferenceRules(auditView.metrics) : []),
-    [auditView],
-  )
+  const referenceRules = auditView?.reference_rules ?? []
+  const hasBackendReferenceRules = Array.isArray(auditView?.reference_rules)
 
   if (!auditView) {
     return (
@@ -158,7 +164,7 @@ export function LearnerMetricAuditPanel({ auditView }: Props) {
           <div>
             <h3 className="text-sm font-semibold text-notion-text">规则层匹配结果</h3>
             <p className="mt-0.5 text-[11px] leading-relaxed text-notion-secondary">
-              依据单项指标形态匹配参考规则，仅作人工研判提示，不是最终结论。
+              展示后端 artifact 中的规则层结果，仅作人工研判提示，不是最终结论。
             </p>
           </div>
           <span className="text-[11px] text-notion-secondary">
@@ -174,14 +180,26 @@ export function LearnerMetricAuditPanel({ auditView }: Props) {
               >
                 <div className="flex flex-wrap items-center gap-1.5">
                   <h4 className="text-xs font-semibold text-notion-text">{rule.name}</h4>
+                  <span className="rounded-md border border-current/20 px-1.5 py-0.5 text-[10px] text-notion-secondary">
+                    {referenceRuleLevelLabel(rule.match_level)}
+                  </span>
+                  {typeof rule.evidence_met === 'number' && typeof rule.evidence_total === 'number' ? (
+                    <span className="text-[10px] text-notion-secondary">
+                      证据 {rule.evidence_met}/{rule.evidence_total}
+                    </span>
+                  ) : null}
                 </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-notion-text">{rule.semantic}</p>
               </article>
             ))}
           </div>
-        ) : (
+        ) : hasBackendReferenceRules ? (
           <p className="rounded-lg border border-dashed border-notion-border bg-notion-surface-alt px-3 py-2 text-xs text-notion-secondary">
             当前指标未命中参考规则；请直接查看下方单项指标证据。
+          </p>
+        ) : (
+          <p className="rounded-lg border border-dashed border-notion-border bg-notion-surface-alt px-3 py-2 text-xs text-notion-secondary">
+            当前 artifact 尚未包含后端规则层结果；请重新导出可视化产物后查看。
           </p>
         )}
       </section>

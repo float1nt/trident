@@ -1,0 +1,44 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: cic-redis
+    network_mode: host
+    command:
+      - redis-server
+      - --bind
+      - 127.0.0.1
+      - --port
+      - "${REDIS_PORT:-6379}"
+      - --appendonly
+      - "yes"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  suricata-cic:
+    image: suricata-cic-live:local
+    container_name: suricata-cic-live
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    depends_on:
+      - redis
+    environment:
+      IFACE: "${IFACE:-eth0}"
+      REDIS_HOST: "127.0.0.1"
+      REDIS_PORT: "${REDIS_PORT:-6379}"
+      REDIS_STREAM: "${REDIS_STREAM:-suricata:cic_flow}"
+      REDIS_STREAM_MAXLEN: "${REDIS_STREAM_MAXLEN:-100000}"
+      CIC_MODE: "${CIC_MODE:-cic-flowmeter}"
+      CIC_FLOW_TIMEOUT_US: "${CIC_FLOW_TIMEOUT_US:-120000000}"
+      CIC_ACTIVE_IDLE_THRESHOLD_US: "${CIC_ACTIVE_IDLE_THRESHOLD_US:-5000000}"
+      SURICATA_RUNMODE: "${SURICATA_RUNMODE:-workers}"
+      SURICATA_EXTRA_ARGS: "${SURICATA_EXTRA_ARGS:-}"
+    volumes:
+      - ./logs:/var/log/suricata
+    restart: unless-stopped
+
+volumes:
+  redis-data:

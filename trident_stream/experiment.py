@@ -32,6 +32,7 @@ from .utils import (
     set_seed,
     split_year_label,
 )
+from .redis_input import load_redis_flows
 
 
 ENVIRONMENT_COLUMNS = {
@@ -493,6 +494,66 @@ class TridentStreamingExperiment:
         self._perf_recorder.configure_device(str(self.device))
         self._stream_start_idx: int = 0
         self._qualification_profile: Dict[str, Any] = {}
+        from trident_stream.live_artifacts import resolve_live_flush_settings
+
+        self._live_flush_settings = resolve_live_flush_settings(cfg)
+        self._live_windows_since_flush = 0
+
+    def _live_flush_enabled(self) -> bool:
+        return bool(self._live_flush_settings.get("enabled", False))
+
+    def _write_live_run_status(self, status: str, *, rows_used: int = 0) -> None:
+        if not self._live_flush_enabled():
+            return
+        from trident_stream.live_artifacts import write_live_run_status
+
+        write_live_run_status(
+            self.output_dir,
+            run_id=self.run_id,
+            status=status,
+            windows_count=int(self.perf_stats.get("windows_count", 0)),
+            rows_used=int(rows_used),
+            learner_count=int(len(self.tsieve.learners)),
+        )
+
+    def _maybe_flush_live_qualification(self, data: pd.DataFrame) -> None:
+        if not self._live_flush_enabled():
+            return
+        if not bool(self._live_flush_settings.get("flush_metric_audit", True)):
+            return
+        interval = int(self._live_flush_settings.get("interval_windows", 1) or 1)
+        if self._live_windows_since_flush < interval:
+            return
+        self._live_windows_since_flush = 0
+
+        from trident_stream.live_artifacts import flush_qualification_artifacts
+
+        assign_export_df = self._build_assignment_export_df(len(data))
+        profile_rows = self._build_profile_rows_from_assignment_df(data, assign_export_df)
+        profile_df = pd.DataFrame(profile_rows)
+        viz_cfg = self.cfg.get("visualization", {}) if isinstance(self.cfg.get("visualization"), dict) else {}
+        min_samples = int(viz_cfg.get("metric_audit_min_samples", 50) or 50)
+        max_learners = int(viz_cfg.get("metric_audit_max_learners", 60) or 60)
+        flush_qualification_artifacts(
+            self.output_dir,
+            data,
+            assign_export_df,
+            profile_df,
+            min_samples=min_samples,
+            max_learners=max_learners,
+            partial=True,
+            windows_processed=int(self.perf_stats.get("windows_count", 0)),
+        )
+
+    def _flush_live_window_artifacts(self, time_series: list, entry: Dict[str, Any]) -> None:
+        if not self._live_flush_enabled():
+            return
+        if bool(self._live_flush_settings.get("flush_window_csv", True)):
+            from trident_stream.live_artifacts import flush_learner_count_csv
+
+            flush_learner_count_csv(self.output_dir, time_series)
+        self._write_live_run_status("running")
+        self._live_windows_since_flush += 1
 
     def _log_hyperparameters(self) -> None:
         self.logger.info("[RunID] %s", self.run_id)
@@ -3452,47 +3513,66 @@ class TridentStreamingExperiment:
         rec = self._perf_recorder
         if rec.enabled:
             rec.start("io_load_total")
-            rec.start("io_csv_read")
-        data_dir = Path(self.cfg["paths"]["data_dir"])
-        input_files = self.cfg["paths"].get("input_files")
-        files = ordered_data_files(data_dir, input_files=input_files)
-        if not files:
-            raise FileNotFoundError(f"No CIC2017 files found in {data_dir}")
-        if input_files:
-            self.logger.info("Configured input files: %s", ", ".join(input_files))
-        dfs = []
-        for f in files:
-            self.logger.info("Load %s", f.name)
-            chunk = pd.read_csv(f, low_memory=False)
-            if "Label" not in chunk.columns:
-                raise ValueError(f"Input file missing required column: Label ({f})")
+            rec.start("io_source_read")
+        input_cfg = self.cfg.get("input", {}) if isinstance(self.cfg.get("input"), dict) else {}
+        source = str(input_cfg.get("source", input_cfg.get("type", "csv"))).strip().lower()
+        redis_cfg: Dict[str, Any] = {}
+        if source in {"redis", "redis_list", "redis_stream"}:
+            redis_cfg = dict(input_cfg.get("redis", {})) if isinstance(input_cfg.get("redis"), dict) else {}
+            if source == "redis_list":
+                redis_cfg.setdefault("data_structure", "list")
+            elif source == "redis_stream":
+                redis_cfg.setdefault("data_structure", "stream")
+            data = load_redis_flows(redis_cfg, logger=self.logger)
+        else:
+            data_dir = Path(self.cfg["paths"]["data_dir"])
+            input_files = self.cfg["paths"].get("input_files")
+            files = ordered_data_files(data_dir, input_files=input_files)
+            if not files:
+                raise FileNotFoundError(f"No input files found in {data_dir}")
+            if input_files:
+                self.logger.info("Configured input files: %s", ", ".join(input_files))
+            dfs = []
+            for f in files:
+                self.logger.info("Load %s", f.name)
+                chunk = pd.read_csv(f, low_memory=False)
+                if "Label" not in chunk.columns:
+                    raise ValueError(f"Input file missing required column: Label ({f})")
 
-            year_tag = infer_year_tag(f)
-            raw_labels = chunk["Label"].astype(str).str.strip()
-            missing_year_mask = ~raw_labels.map(has_year_prefix)
+                year_tag = infer_year_tag(f)
+                raw_labels = chunk["Label"].astype(str).str.strip()
+                missing_year_mask = ~raw_labels.map(has_year_prefix)
 
-            if missing_year_mask.any():
-                if year_tag != "0000":
-                    chunk.loc[missing_year_mask, "Label"] = (
-                        year_tag + "|" + raw_labels[missing_year_mask]
-                    )
-                    self.logger.info(
-                        "[YearTag] file=%s year=%s tagged_rows=%d",
-                        f.name,
-                        year_tag,
-                        int(missing_year_mask.sum()),
-                    )
-                else:
-                    self.logger.warning(
-                        "[YearTagSkip] file=%s unknown year, keep raw labels for %d rows",
-                        f.name,
-                        int(missing_year_mask.sum()),
-                    )
-            dfs.append(chunk)
+                if missing_year_mask.any():
+                    if year_tag != "0000":
+                        chunk.loc[missing_year_mask, "Label"] = (
+                            year_tag + "|" + raw_labels[missing_year_mask]
+                        )
+                        self.logger.info(
+                            "[YearTag] file=%s year=%s tagged_rows=%d",
+                            f.name,
+                            year_tag,
+                            int(missing_year_mask.sum()),
+                        )
+                    else:
+                        self.logger.warning(
+                            "[YearTagSkip] file=%s unknown year, keep raw labels for %d rows",
+                            f.name,
+                            int(missing_year_mask.sum()),
+                        )
+                dfs.append(chunk)
+            data = pd.concat(dfs, ignore_index=True)
         if rec.enabled:
-            rec.stop("io_csv_read")
+            rec.stop("io_source_read")
             rec.start("io_preprocess")
-        data = pd.concat(dfs, ignore_index=True)
+        if "Label" not in data.columns:
+            default_label = str(input_cfg.get("default_label", "0000|UNLABELED"))
+            data["Label"] = default_label
+            self.logger.warning("[InputLabelDefault] Label column missing; filled with %s", default_label)
+        if "Timestamp" not in data.columns:
+            base_ts = pd.Timestamp.utcnow()
+            data["Timestamp"] = pd.date_range(base_ts, periods=len(data), freq="us")
+            self.logger.warning("[InputTimestampDefault] Timestamp column missing; generated monotonic timestamps")
         ts_raw = data["Timestamp"]
         try:
             # pandas >= 2.0: mixed can parse heterogeneous timestamp formats safely.
@@ -3508,8 +3588,15 @@ class TridentStreamingExperiment:
             )
         data = data.dropna(subset=["Timestamp"]).sort_values("Timestamp").reset_index(drop=True)
         data["LabelNorm"] = data["Label"].map(normalize_label)
-        data = self._apply_runtime_filters(data)
-        data = self._apply_attack_sampling(data)
+        apply_runtime_filters = (
+            source not in {"redis", "redis_list", "redis_stream"}
+            or bool(redis_cfg.get("apply_runtime_filters", False))
+        )
+        if apply_runtime_filters:
+            data = self._apply_runtime_filters(data)
+            data = self._apply_attack_sampling(data)
+        else:
+            self.logger.info("[RedisInput] skip dataset-specific runtime filters and sampling")
         data = self._apply_missing_value_strategy(data)
         data = self._apply_drop_when_all_numeric_zero_rules(data)
 
@@ -3548,6 +3635,10 @@ class TridentStreamingExperiment:
         init_end = max(init_end, 5000)
         init_end = min(init_end, len(data) - 1)
         init_benign_count_cfg = int(self.cfg["stream"].get("init_benign_count", 0) or 0)
+        input_cfg = self.cfg.get("input", {}) if isinstance(self.cfg.get("input"), dict) else {}
+        source = str(input_cfg.get("source", input_cfg.get("type", "csv"))).strip().lower()
+        redis_cfg = dict(input_cfg.get("redis", {})) if isinstance(input_cfg.get("redis"), dict) else {}
+        redis_unlabeled_init_fallback = bool(redis_cfg.get("allow_unlabeled_initial_learner", True))
 
         if self.cfg["stream"]["init_known_mode"] == "benign_only" and init_benign_count_cfg > 0:
             full_mask = data["LabelNorm"].map(is_benign_label).values
@@ -3581,6 +3672,15 @@ class TridentStreamingExperiment:
                     init_benign_year,
                     int(mask.sum()),
                     len(mask),
+                )
+            if (
+                source in {"redis", "redis_list", "redis_stream"}
+                and int(mask.sum()) == 0
+                and redis_unlabeled_init_fallback
+            ):
+                mask = np.ones(len(df_init), dtype=bool)
+                self.logger.warning(
+                    "[RedisInitFallback] no benign labels in Redis batch; using unlabeled init rows as initial learner candidates"
                 )
             df_init = df_init[mask].reset_index(drop=True)
             x_init = x_init[mask]
@@ -3693,6 +3793,7 @@ class TridentStreamingExperiment:
         if self._perf_recorder.enabled:
             self._perf_recorder.start_wall()
         self._log_hyperparameters()
+        self._write_live_run_status("running")
         self._learner_creation_flow_previews.clear()
         self._learner_creation_row_indices.clear()
         data, x_all, feature_cols = self._load_dataset()
@@ -4491,6 +4592,8 @@ class TridentStreamingExperiment:
                 retrain_seconds_window,
                 window_seconds,
             )
+            self._flush_live_window_artifacts(time_series, entry)
+            self._maybe_flush_live_qualification(data)
 
         if self._perf_recorder.enabled and self._perf_recorder.resources._gpu_available:
             try:
@@ -5141,3 +5244,4 @@ class TridentStreamingExperiment:
         self.logger.info("Done. METRIC_CATALOG_JSON=%s", metric_catalog_path)
         self.logger.info("Done. FIG=%s", fig_path)
         self.logger.info("Done. SUMMARY=%s", summary_path)
+        self._write_live_run_status("finished", rows_used=len(data))

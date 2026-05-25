@@ -2,6 +2,7 @@ import './App.css'
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import GraphAnalysisPage from './pages/GraphAnalysisPage'
 import LearnerDetailPage from './pages/LearnerDetailPage'
+import LiveMonitorPage from './pages/LiveMonitorPage'
 import RunsComparePage from './pages/RunsComparePage'
 
 function App() {
@@ -27,6 +28,12 @@ function App() {
               Run 详情
             </NavLink>
             <NavLink
+              to="/live-monitor"
+              className={({ isActive }) => `nav-link ${isActive ? 'nav-link-active' : ''}`}
+            >
+              实时监控
+            </NavLink>
+            <NavLink
               to="/learner-detail"
               className={({ isActive }) => `nav-link ${isActive ? 'nav-link-active' : ''}`}
             >
@@ -38,6 +45,7 @@ function App() {
 
       <main className="mx-auto max-w-[1600px] px-6 py-5">
         <Routes>
+          <Route path="/live-monitor" element={<LiveMonitorPage />} />
           <Route path="/runs-compare" element={<RunsComparePage />} />
           <Route path="/run-detail" element={<GraphAnalysisPage />} />
           <Route path="/learner-detail" element={<LearnerDetailPage />} />

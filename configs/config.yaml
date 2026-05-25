@@ -8,12 +8,33 @@ decision_tree:
 visualization:
   metric_audit_min_samples: 50
   metric_audit_max_learners: 60
+  # Incrementally flush run artifacts to disk during streaming (auto-enabled when input.source=redis).
+  live_flush_enabled: auto
+  live_flush_interval_windows: 1
+  live_flush_window_csv: true
+  live_flush_metric_audit: true
 paths:
   data_dir: data
   input_files:
   - aligned_2017_2019_2026_sampled_x5_yeartagged_for_main.csv
   log_file: run.log
   output_dir: outputs
+# Data input source. Default is csv and keeps using paths.data_dir/input_files.
+# To drain a finite Redis queue/stream batch, set source: redis and configure input.redis.
+input:
+  source: csv
+  redis:
+    url: redis://localhost:6379/0
+    data_structure: stream # aligned with suricata-cic-redis-live
+    key: suricata:cic_flow
+    event_type: cic_flow
+    max_messages: 0        # 0 = drain until idle_timeout_seconds
+    block_timeout_seconds: 1
+    idle_timeout_seconds: 5
+    default_label: 0000|UNLABELED
+    require_label: false
+    apply_runtime_filters: false
+    allow_unlabeled_initial_learner: true
 runtime:
   aggregate_graph_algo: connected_components
   aggregate_max_edges: 80

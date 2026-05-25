@@ -9,7 +9,7 @@
 - 指标计算：`trident_stream/learner_metric_audit.py`
 - 指标语义：`trident_stream/metric_audit_catalog.py`
 - 可视化 artifact 导出：`trident_stream/visualization_artifacts.py`
-- 前端规则匹配：`visualize/src/lib/learnerReferenceRules.ts`
+- 后端规则匹配：`trident_stream/learner_reference_rules.py`
 
 重要约束：
 
@@ -704,37 +704,31 @@ s(endpoint_edge_entropy) >= 60
 
 ---
 
-## 5. 前端规则层匹配
+## 5. 后端规则层匹配
 
-前端规则实现：
+规则层实现：
 
 ```text
-visualize/src/lib/learnerReferenceRules.ts
+trident_stream/learner_reference_rules.py
 ```
 
 匹配流程：
 
 ```text
-1. metrics[] -> scores: Record<metric_key, score_0_100>
-2. 遍历 REFERENCE_RULES
-3. 对每条规则执行 match(scores)
-4. 返回所有 match 为 true 的规则
+1. metrics[] -> scores: Dict[metric_key, score_0_100]
+2. 遍历后端 _REFERENCE_RULES
+3. 对每条规则分别计算 strong 条件命中数与 weak 条件命中数
+4. 根据 required 条件、weak_min、near_min 输出 strong / weak / near
+5. 写入 learner_topology_metric_audit.json 的 learners[].reference_rules
 ```
 
-辅助谓词：
+前端职责：
 
 ```text
-atLeast(scores, key, min):
-  scores[key] 是有限数字 且 scores[key] >= min
-
-atMost(scores, key, max):
-  scores[key] 是有限数字 且 scores[key] <= max
-
-between(scores, key, min, max):
-  atLeast(scores, key, min) 且 atMost(scores, key, max)
+只展示后端 artifact 中的 reference_rules，不在浏览器内重新计算规则。
 ```
 
-若某规则依赖的指标不存在，则该条件为 false。
+若某规则依赖的指标不存在，则对应条件视为未命中。
 
 ---
 
@@ -1028,7 +1022,7 @@ DRDoS SNMP/SSDP/TFTP 类参考匹配
 
 ```text
 isDiffuseOneWayAttack(s)
-且 85 <= s(src_port_entropy) <= 98
+且 85 < s(src_port_entropy) < 98
 ```
 
 语义：
@@ -1119,6 +1113,9 @@ WebDDoS 类攻击参考匹配
   "key": "diffuse-one-way-drdos-udp-syn-family",
   "name": "DRDoS/UDP/SYN 单向攻击族",
   "tone": "attack",
+  "match_level": "weak",
+  "evidence_met": 5,
+  "evidence_total": 6,
   "semantic": "该形态与 DRDoS、UDP/SYN 冲击族相近：目的端口高度分散，边接近一次性，流记录内强单向。"
 }
 ```
@@ -1126,6 +1123,8 @@ WebDDoS 类攻击参考匹配
 前端当前展示：
 
 - `name`
+- `match_level`
+- `evidence_met / evidence_total`
 - `semantic`
 - 命中数量
 
