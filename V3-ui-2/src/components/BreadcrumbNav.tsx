@@ -1,6 +1,6 @@
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Fragment } from "react";
-import { getMockTaskById } from "@/mock/riskTasks";
+import { getMockRiskById } from "@/mock/riskTasks";
 
 const COLOR_LINK = "#666666";
 const COLOR_MUTED = "#A6A6A6";
@@ -31,10 +31,10 @@ function buildCrumbs(pathname: string, taskId: string | null): Crumb[] {
 
   if (first === "risk") {
     if (segments[1] === "detail") {
-      const task = taskId ? getMockTaskById(Number(taskId)) : undefined;
+      const risk = taskId ? getMockRiskById(Number(taskId)) : undefined;
       return [
         { label: "风险", to: "/risk" },
-        { label: task?.name || "任务详情" },
+        { label: risk?.name || "风险详情" },
       ];
     }
     return [{ label: "风险" }];

@@ -1,5 +1,5 @@
 // import { useSearchParams } from "react-router-dom";
-// import { getMockTaskById } from "@/mock/riskTasks";
+// import { getMockRiskById } from "@/mock/riskTasks";
 // import "./RiskDetailPlaceholder.css";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
 
