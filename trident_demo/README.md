@@ -2,6 +2,10 @@
 
 `trident_demo/` 是与原 `trident_stream/` **完全解耦**的 Demo 栈：代码为复制 + 重组，**不 import** 旧模块。
 
+**完整技术说明见 [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md)**（目录结构、运行流程、配置、产物、定性规则等）。
+
+**数据库设计（ClickHouse + PostgreSQL）见 [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md)**（主流程入库、V3-ui 对照）。
+
 ## 一条命令跑通
 
 ```bash
