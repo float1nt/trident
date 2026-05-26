@@ -2,7 +2,11 @@ import type {
   LearnerNetworkTopologyJson,
   LearnerTopologyView,
 } from "@/types/learnerTopology";
-import { getMockRiskNetworkTopology } from "@/mock/riskTasks";
+import {
+  getMockIpRiskEvents,
+  getMockRiskNetworkTopology,
+  type IpRiskEventItem,
+} from "@/mock/riskTasks";
 
 const LEARNER_META: Array<{
   name: string;
@@ -134,6 +138,65 @@ export function getMockEventLearnerTopology(
         (views[b]?.attack_ratio ?? 0) - (views[a]?.attack_ratio ?? 0) ||
         a.localeCompare(b),
     );
+
+  return {
+    version: 1,
+    learners,
+    default_learner: learners[0] ?? "",
+    views,
+  };
+}
+
+const IP_RISK_DOMINANT_LABELS = [
+  "HTTPS",
+  "SSH",
+  "DNS",
+  "SMB",
+  "HTTP",
+  "TLS",
+] as const;
+
+function buildIpRiskEventView(
+  event: IpRiskEventItem,
+  index: number,
+  viewKey: string,
+): LearnerTopologyView | null {
+  const topologyRiskId = event.id < 10000 ? event.id : (event.id % 12) + 1;
+  const topology = getMockRiskNetworkTopology(topologyRiskId);
+  const combined = topology?.views.__combined__;
+  if (!combined) return null;
+
+  return {
+    learner: viewKey,
+    risk_id: event.id < 10000 ? event.id : topologyRiskId,
+    risk_name: event.name,
+    risk_description: event.description,
+    trigger_time: event.triggerTime,
+    attack_ratio: Math.max(0.05, 0.38 - index * 0.055),
+    dominant_label: IP_RISK_DOMINANT_LABELS[index % IP_RISK_DOMINANT_LABELS.length],
+    dominant_ratio: 0.29 + (index % 3) * 0.08,
+    is_benign: null,
+    host: combined.host,
+    endpoint: combined.endpoint,
+  };
+}
+
+/** IP 详情 — 与 IP 关联的风险事件拓扑 mock */
+export function getMockIpRiskEventTopology(
+  ip: string,
+): LearnerNetworkTopologyJson {
+  const normalized = ip.trim();
+  const events = normalized ? getMockIpRiskEvents(normalized).slice(0, 6) : [];
+  const views: Record<string, LearnerTopologyView> = {};
+  const learners: string[] = [];
+
+  events.forEach((event, index) => {
+    const viewKey = `ip_risk_${event.id}`;
+    const view = buildIpRiskEventView(event, index, viewKey);
+    if (!view) return;
+    views[viewKey] = view;
+    learners.push(viewKey);
+  });
 
   return {
     version: 1,

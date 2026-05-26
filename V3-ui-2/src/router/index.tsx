@@ -5,6 +5,7 @@ import NavPlaceholder from "@/views/NavPlaceholder";
 import HomeView from "@/views/HomeView";
 import RiskTaskList from "@/views/risk/RiskTaskList";
 import RiskDetailPlaceholder from "@/views/risk/RiskDetailPlaceholder";
+import IpDetailPlaceholder from "@/views/risk/IpDetailPlaceholder";
 import ProtectedRoute from "@/components/ProtectedRoute";
 
 export const router = createBrowserRouter([
@@ -47,6 +48,10 @@ export const router = createBrowserRouter([
             {
                 path: "risk/detail",
                 element: <RiskDetailPlaceholder />,
+            },
+            {
+                path: "risk/ip-detail",
+                element: <IpDetailPlaceholder />,
             },
             {
                 path: "governance",

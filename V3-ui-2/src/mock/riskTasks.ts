@@ -577,3 +577,184 @@ export function getMockRiskTrafficLogs(riskId: number): RiskTrafficLogItem[] {
     };
   });
 }
+
+export interface IpDetailSummary {
+  ip: string;
+  description: string;
+  features: string;
+  riskEventCount: number;
+  latestTriggerTime: string;
+  isInternal: boolean;
+}
+
+export interface IpRiskEventItem {
+  id: number;
+  name: string;
+  triggerTime: string;
+  description: string;
+  features: string;
+}
+
+function ipToSeed(ip: string): number {
+  return ip
+    .split(".")
+    .reduce((acc, part, index) => acc + Number(part) * (index + 1), 0);
+}
+
+function compareTriggerTimeDesc(a: string, b: string): number {
+  return b.localeCompare(a);
+}
+
+export function getMockRisksByIp(ip: string): RiskItem[] {
+  const normalized = ip.trim();
+  return mockRisks.filter((risk) => risk.subjectIp === normalized);
+}
+
+/** IP 详情页顶栏摘要 */
+export function getMockIpSummary(ip: string): IpDetailSummary | undefined {
+  const normalized = ip.trim();
+  if (!normalized) return undefined;
+
+  const matched = getMockRisksByIp(normalized);
+  const seed = ipToSeed(normalized);
+  const riskEventCount = matched.length + 18 + (seed % 8);
+  const primary = matched[0];
+  const latestTriggerTime =
+    matched.length > 0
+      ? [...matched].sort((a, b) =>
+          compareTriggerTimeDesc(a.triggerTime, b.triggerTime),
+        )[0].triggerTime
+      : "2026-05-25 09:12:33";
+
+  const featureSet = new Set<string>();
+  matched.forEach((risk) => {
+    risk.features.split("、").forEach((item) => {
+      const trimmed = item.trim();
+      if (trimmed) featureSet.add(trimmed);
+    });
+  });
+  if (featureSet.size === 0) {
+    ["异常流量", "偏离基线", "非业务时段活跃"].forEach((item) =>
+      featureSet.add(item),
+    );
+  }
+
+  const description = primary
+    ? `${normalized} 作为风险主体共关联 ${riskEventCount} 次风险事件，最近一次为「${primary.name}」。`
+    : `${normalized} 在当前观测周期内共触发 ${riskEventCount} 次风险事件，建议结合拓扑与流量日志进一步研判。`;
+
+  return {
+    ip: normalized,
+    description,
+    features: [...featureSet].slice(0, 5).join("、"),
+    riskEventCount,
+    latestTriggerTime,
+    isInternal: isInternalIp(normalized),
+  };
+}
+
+/** IP 详情：网络拓扑 mock */
+export function getMockIpNetworkTopology(
+  ip: string,
+): DatasetNetworkTopologyJson | null {
+  const normalized = ip.trim();
+  if (!normalized) return null;
+
+  const seed = ipToSeed(normalized) % 5;
+  const host = buildMockHostGraph(normalized, seed);
+  const endpoint = buildMockEndpointGraph(normalized, seed);
+
+  return {
+    version: 1,
+    total_flows: host.flow_count,
+    labels: [],
+    default_label: "__combined__",
+    default_node_mode: "host",
+    aggregate_views: ["__combined__"],
+    views: {
+      __combined__: {
+        label: "__combined__",
+        view_kind: "aggregate",
+        is_benign: null,
+        host,
+        endpoint,
+      },
+    },
+  };
+}
+
+/** IP 详情：关联风险事件列表（按触发时间降序） */
+export function getMockIpRiskEvents(ip: string): IpRiskEventItem[] {
+  const normalized = ip.trim();
+  if (!normalized) return [];
+
+  const matched = getMockRisksByIp(normalized);
+  const seed = ipToSeed(normalized);
+  const total = 28 + (seed % 5);
+  const events: IpRiskEventItem[] = matched.map((risk) => ({ ...risk }));
+
+  const namePool = mockRisks.map((risk) => risk.name);
+  const descriptionPool = mockRisks.map((risk) => risk.description);
+  const featurePool = mockRisks.map((risk) => risk.features);
+  const baseTime = matched[0]?.triggerTime ?? "2026-05-25 09:12:33";
+  const [datePart, timePart] = baseTime.split(" ");
+  const [hour, minute, second] = timePart.split(":").map(Number);
+
+  for (let index = events.length; index < total; index += 1) {
+    const minuteOffset = index * 4 + (seed % 6);
+    const totalMinutes = hour * 60 + minute - minuteOffset;
+    const normalizedMinutes =
+      ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+    const logHour = Math.floor(normalizedMinutes / 60);
+    const logMinute = normalizedMinutes % 60;
+    const logSecond = (second + index * 5) % 60;
+    const poolIndex = (index + seed) % mockRisks.length;
+
+    events.push({
+      id: 10000 + index,
+      name: namePool[poolIndex],
+      triggerTime: `${datePart} ${String(logHour).padStart(2, "0")}:${String(logMinute).padStart(2, "0")}:${String(logSecond).padStart(2, "0")}`,
+      description: descriptionPool[poolIndex],
+      features: featurePool[poolIndex],
+    });
+  }
+
+  return events.sort((a, b) =>
+    compareTriggerTimeDesc(a.triggerTime, b.triggerTime),
+  );
+}
+
+/** IP 详情：流量日志明细（主体 IP 固定为当前 IP） */
+export function getMockIpTrafficLogs(ip: string): RiskTrafficLogItem[] {
+  const normalized = ip.trim();
+  if (!normalized) return [];
+
+  const seed = ipToSeed(normalized);
+  const summary = getMockIpSummary(normalized);
+  const count = 35 + (seed % 4);
+  const baseTime = summary?.latestTriggerTime ?? "2026-05-25 09:12:33";
+
+  return Array.from({ length: count }, (_, index) => {
+    const usePeer = index % 3 === 0;
+    const peerIp = usePeer
+      ? `${EXTERNAL_IP_PREFIXES[index % EXTERNAL_IP_PREFIXES.length]}.${10 + (index % 200)}`
+      : buildMockIp(seed, index + 2);
+    const protocol = PROTOCOL_NAMES[index % PROTOCOL_NAMES.length];
+    const minuteOffset = index * 3 + (seed % 7);
+    const [datePart, timePart] = baseTime.split(" ");
+    const [hour, minute, second] = timePart.split(":").map(Number);
+    const totalMinutes = hour * 60 + minute - minuteOffset;
+    const normalizedMinutes =
+      ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+    const logHour = Math.floor(normalizedMinutes / 60);
+    const logMinute = normalizedMinutes % 60;
+    const logSecond = (second + index * 7) % 60;
+
+    return {
+      id: `${normalized}-${index}`,
+      time: `${datePart} ${String(logHour).padStart(2, "0")}:${String(logMinute).padStart(2, "0")}:${String(logSecond).padStart(2, "0")}`,
+      ip: usePeer ? peerIp : normalized,
+      protocol,
+    };
+  });
+}

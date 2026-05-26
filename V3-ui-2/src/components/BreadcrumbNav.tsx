@@ -1,6 +1,5 @@
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Fragment } from "react";
-import { getMockRiskById } from "@/mock/riskTasks";
 
 const COLOR_LINK = "#666666";
 const COLOR_MUTED = "#A6A6A6";
@@ -22,7 +21,7 @@ const SIDE_PLACEHOLDER: Record<string, string> = {
 
 type Crumb = { label: string; to?: string };
 
-function buildCrumbs(pathname: string, taskId: string | null): Crumb[] {
+function buildCrumbs(pathname: string): Crumb[] {
   const path = pathname.replace(/\/$/, "") || "/";
   const segments = path === "/" ? [] : path.slice(1).split("/");
   const first = segments[0] ?? "";
@@ -31,10 +30,17 @@ function buildCrumbs(pathname: string, taskId: string | null): Crumb[] {
 
   if (first === "risk") {
     if (segments[1] === "detail") {
-      const risk = taskId ? getMockRiskById(Number(taskId)) : undefined;
       return [
         { label: "风险", to: "/risk" },
-        { label: risk?.name || "风险详情" },
+        { label: "事件" },
+        { label: "详情" },
+      ];
+    }
+    if (segments[1] === "ip-detail") {
+      return [
+        { label: "风险", to: "/risk" },
+        { label: "IP" },
+        { label: "详情" },
       ];
     }
     return [{ label: "风险" }];
@@ -49,8 +55,7 @@ function buildCrumbs(pathname: string, taskId: string | null): Crumb[] {
 const BreadcrumbNav = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const crumbs = buildCrumbs(location.pathname, searchParams.get("id"));
+  const crumbs = buildCrumbs(location.pathname);
 
   return (
     <nav className="flex items-center text-[12px] leading-[18px] min-w-0" aria-label="面包屑">

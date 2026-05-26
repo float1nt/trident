@@ -35,12 +35,20 @@ const EMPTY_EVENT_SEARCH: EventSearchForm = {
 
 type RiskViewTab = "event" | "ip";
 
+const RISK_VIEW_TAB_KEY = "risk-view-tab";
+
+function getInitialViewTab(): RiskViewTab {
+  const stored = sessionStorage.getItem(RISK_VIEW_TAB_KEY);
+  if (stored === "event" || stored === "ip") return stored;
+  return "event";
+}
+
 const { RangePicker } = DatePicker;
 const { Title, Paragraph } = Typography;
 
 const RiskTaskList = () => {
   const navigate = useNavigate();
-  const [activeView, setActiveView] = useState<RiskViewTab>("ip");
+  const [activeView, setActiveView] = useState<RiskViewTab>(getInitialViewTab);
   const [searchInputs, setSearchInputs] = useState<RiskSearchForm>(EMPTY_SEARCH);
   const [filters, setFilters] = useState<RiskSearchForm>(EMPTY_SEARCH);
   const [eventSearchInputs, setEventSearchInputs] =
@@ -91,6 +99,13 @@ const RiskTaskList = () => {
     });
   };
 
+  const handleIpDetail = (subjectIp: string) => {
+    navigate({
+      pathname: "/risk/ip-detail",
+      search: `?ip=${encodeURIComponent(subjectIp)}`,
+    });
+  };
+
   const handleEventRiskClick = (riskId: number) => {
     handleDetailList(riskId);
   };
@@ -113,6 +128,12 @@ const RiskTaskList = () => {
   const handleEventReset = () => {
     setEventSearchInputs(EMPTY_EVENT_SEARCH);
     setEventFilters(EMPTY_EVENT_SEARCH);
+  };
+
+  const handleViewChange = (key: string) => {
+    const tab = key as RiskViewTab;
+    setActiveView(tab);
+    sessionStorage.setItem(RISK_VIEW_TAB_KEY, tab);
   };
 
   const updateSearchInput = (key: keyof RiskSearchForm, value: string) => {
@@ -192,7 +213,7 @@ const RiskTaskList = () => {
             variant="link"
             color="primary"
             icon={<EyeOutlined />}
-            onClick={() => handleDetailList(record.id)}
+            onClick={() => handleIpDetail(record.subjectIp)}
           />
         </Tooltip>
       ),
@@ -205,7 +226,7 @@ const RiskTaskList = () => {
         <div className="rounded-[8px] bg-[#fff] px-[16px] pt-[8px] pb-0 shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
           <Tabs
             activeKey={activeView}
-            onChange={(key) => setActiveView(key as RiskViewTab)}
+            onChange={handleViewChange}
             items={[
               { key: "event", label: "事件视角" },
               { key: "ip", label: "IP 视角" },
@@ -269,7 +290,7 @@ const RiskTaskList = () => {
                 学习器内部网络拓扑（IP / 端口）
               </Title>
               <Paragraph type="secondary" className="!mb-4 text-xs">
-                展示全部风险事件拓扑，点击卡片进入风险详情页。
+                默认展示全部学习器；绿=良性、红=攻击，可切换单选/网格并调整斥力与最小边流量。点击卡片右上角「详情」进入风险详情页。
               </Paragraph>
               <LearnerInternalTopologyPanel
                 data={eventLearnerTopology}

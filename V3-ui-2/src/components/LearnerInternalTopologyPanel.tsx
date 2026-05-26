@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import { Card, Col, Empty, Row, Typography } from "antd";
+import { Button, Card, Col, Empty, Row, Typography } from "antd";
 import {
   GRID_CHART_HEIGHT,
   TopologyChartPane,
@@ -9,7 +9,7 @@ import type {
   LearnerTopologyOption,
 } from "@/types/learnerTopology";
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 const TOPOLOGY_REPULSION = 70;
 const TOPOLOGY_MIN_EDGE_FLOWS = 1;
@@ -62,7 +62,7 @@ function EventCardInfoItem({
   );
 }
 
-/** 事件视角 — 学习器网络拓扑网格（点击进入风险详情） */
+/** 事件视角 — 学习器网络拓扑网格 */
 export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
   const sortedOptions = useMemo(() => {
     if (!data) return [] as LearnerTopologyOption[];
@@ -80,9 +80,6 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
 
   return (
     <div className="space-y-3">
-      <Paragraph type="secondary" className="!mb-0 text-xs">
-        展示全部风险事件拓扑（左 IP / 右 IP:端口），绿=良性、红=攻击。点击卡片查看详情。
-      </Paragraph>
 
       <Row gutter={[8, 8]}>
         {sortedOptions.map((option) => {
@@ -100,34 +97,35 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
             <Col key={`learner-topology-grid-${option.name}`} xs={24} sm={12} xl={6}>
               <Card
                 size="small"
-                hoverable
                 className="risk-event-topology-card"
                 title={
-                  <Text ellipsis={{ tooltip: option.riskName }} className="text-[11px]">
-                    {option.riskName}
-                  </Text>
+                  <div className="flex items-center justify-between gap-2">
+                    <Text
+                      ellipsis={{ tooltip: option.riskName }}
+                      className="min-w-0 flex-1 text-[11px]"
+                    >
+                      {option.riskName}
+                    </Text>
+                    <Button
+                      type="link"
+                      size="small"
+                      className="!h-auto shrink-0 !p-0 text-[11px]"
+                      disabled={option.riskId <= 0}
+                      onClick={() => {
+                        if (option.riskId > 0) {
+                          onRiskClick?.(option.riskId);
+                        }
+                      }}
+                    >
+                      查看详情
+                    </Button>
+                  </div>
                 }
                 styles={{
                   header: { minHeight: 36, padding: "4px 8px" },
                   body: { padding: "8px 8px 4px" },
                 }}
-                onClick={() => {
-                  if (option.riskId > 0) {
-                    onRiskClick?.(option.riskId);
-                  }
-                }}
               >
-                <EventCardInfoItem label="风险说明">
-                  <span
-                    className="line-clamp-2 text-[11px] leading-[16px]"
-                    title={option.riskDescription}
-                  >
-                    {option.riskDescription}
-                  </span>
-                </EventCardInfoItem>
-                <EventCardInfoItem label="风险触发时间">
-                  {option.triggerTime}
-                </EventCardInfoItem>
                 <Text
                   type="secondary"
                   ellipsis={{ tooltip: metaText }}
@@ -159,6 +157,17 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
                     />
                   </Col>
                 </Row>
+                <EventCardInfoItem label="风险说明">
+                  <span
+                    className="line-clamp-2 text-[11px] leading-[16px]"
+                    title={option.riskDescription}
+                  >
+                    {option.riskDescription}
+                  </span>
+                </EventCardInfoItem>
+                <EventCardInfoItem label="风险触发时间">
+                  {option.triggerTime}
+                </EventCardInfoItem>
               </Card>
             </Col>
           );
