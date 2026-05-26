@@ -16,10 +16,10 @@ type MetricItem = {
 };
 
 const METRICS: MetricItem[] = [
-  { label: "今日访问量", value: 34, icon: metricIcon1 },
-  { label: "今日涉敏访问量", value: 1244, icon: metricIcon2 },
-  { label: "今日互联网访问量", value: 34, icon: metricIcon3 },
-  { label: "今日跨境访问量", value: 1244, icon: metricIcon4 },
+  { label: "总流量", value: 34, icon: metricIcon1 },
+  { label: "协议数", value: 1244, icon: metricIcon2 },
+  { label: "风险类型数", value: 34, icon: metricIcon3 },
+  { label: "疑似风险 IP 数", value: 1244, icon: metricIcon4 },
 ];
 
 const TIME_RANGE_OPTIONS = [
