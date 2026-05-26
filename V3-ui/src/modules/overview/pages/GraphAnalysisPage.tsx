@@ -693,8 +693,78 @@ type OverviewTimeRange = '24h' | '7d' | '1w'
 const OVERVIEW_TIME_RANGE_OPTIONS: Array<{ value: OverviewTimeRange; label: string }> = [
   { value: '24h', label: '最近24小时' },
   { value: '7d', label: '最近7天' },
-  { value: '1w', label: '最近一周' },
+  { value: '1w', label: '最近一个月' },
 ]
+
+type TrafficRatioBucket = {
+  label: string
+  benign: number
+  attack: number
+}
+
+type TrafficRatioMockData = {
+  overall: { benign: number; attack: number }
+  buckets: TrafficRatioBucket[]
+}
+
+const OVERVIEW_TRAFFIC_RATIO_MOCK: Record<OverviewTimeRange, TrafficRatioMockData> = {
+  '24h': {
+    overall: { benign: 892_450, attack: 107_550 },
+    buckets: [
+      { label: '00:00', benign: 34_120, attack: 2_880 },
+      { label: '01:00', benign: 31_540, attack: 3_460 },
+      { label: '02:00', benign: 29_800, attack: 4_200 },
+      { label: '03:00', benign: 28_650, attack: 4_350 },
+      { label: '04:00', benign: 30_100, attack: 3_900 },
+      { label: '05:00', benign: 33_420, attack: 3_580 },
+      { label: '06:00', benign: 36_800, attack: 4_200 },
+      { label: '07:00', benign: 41_200, attack: 5_800 },
+      { label: '08:00', benign: 44_600, attack: 6_400 },
+      { label: '09:00', benign: 46_300, attack: 5_700 },
+      { label: '10:00', benign: 45_800, attack: 4_200 },
+      { label: '11:00', benign: 44_100, attack: 3_900 },
+      { label: '12:00', benign: 43_500, attack: 4_500 },
+      { label: '13:00', benign: 42_800, attack: 5_200 },
+      { label: '14:00', benign: 41_900, attack: 5_100 },
+      { label: '15:00', benign: 40_600, attack: 4_400 },
+      { label: '16:00', benign: 39_200, attack: 4_800 },
+      { label: '17:00', benign: 38_500, attack: 5_500 },
+      { label: '18:00', benign: 37_100, attack: 6_900 },
+      { label: '19:00', benign: 35_800, attack: 7_200 },
+      { label: '20:00', benign: 34_600, attack: 6_400 },
+      { label: '21:00', benign: 33_200, attack: 5_800 },
+      { label: '22:00', benign: 32_400, attack: 4_600 },
+      { label: '23:00', benign: 31_800, attack: 3_200 },
+    ],
+  },
+  '7d': {
+    overall: { benign: 5_842_100, attack: 657_900 },
+    buckets: [
+      { label: '5/20', benign: 812_400, attack: 87_600 },
+      { label: '5/21', benign: 835_200, attack: 94_800 },
+      { label: '5/22', benign: 798_600, attack: 101_400 },
+      { label: '5/23', benign: 856_300, attack: 83_700 },
+      { label: '5/24', benign: 824_100, attack: 95_900 },
+      { label: '5/25', benign: 841_500, attack: 98_500 },
+      { label: '5/26', benign: 874_000, attack: 96_000 },
+    ],
+  },
+  '1w': {
+    overall: { benign: 24_680_000, attack: 2_920_000 },
+    buckets: [
+      { label: '第1周', benign: 5_920_000, attack: 680_000 },
+      { label: '第2周', benign: 6_140_000, attack: 710_000 },
+      { label: '第3周', benign: 6_280_000, attack: 720_000 },
+      { label: '第4周', benign: 6_340_000, attack: 810_000 },
+    ],
+  },
+}
+
+const TRAFFIC_RATIO_GRANULARITY_LABEL: Record<OverviewTimeRange, string> = {
+  '24h': '每小时',
+  '7d': '每日',
+  '1w': '每周',
+}
 
 export default function GraphAnalysisPage() {
   const params = useParams<{ runId?: string }>()
@@ -790,7 +860,7 @@ export default function GraphAnalysisPage() {
       setLoading(true)
       setError('')
       try {
-          const [pairs, aggs, learners, counts, trainBatches, labelDistRows, labelDistSummary, metricJson, perfJson, aggSummaryJson, featureCorrJson, datasetLabelFeatureCorrJson, creationPreviewJson, decisionTreeJson, datasetTopologyJson, learnerTopologyJson] = await Promise.all([
+        const [pairs, aggs, learners, counts, trainBatches, labelDistRows, labelDistSummary, metricJson, perfJson, aggSummaryJson, featureCorrJson, datasetLabelFeatureCorrJson, creationPreviewJson, decisionTreeJson, datasetTopologyJson, learnerTopologyJson] = await Promise.all([
           parseCsv<PairRow>(runDataUrl(selectedRunId, 'debug_true_overlap_pairs.csv')),
           parseCsv<AggRow>(runDataUrl(selectedRunId, 'learner_aggregated_distribution.csv')),
           parseCsv<LearnerDistRow>(runDataUrl(selectedRunId, 'learner_label_distribution.csv')),
@@ -929,10 +999,10 @@ export default function GraphAnalysisPage() {
 
   const creationPreviewByLearner = useMemo(() => {
     const m = new Map<string, CreationFlowPreviewEntry>()
-    ;(creationFlowPreview?.entries ?? []).forEach((e) => {
-      const name = String(e?.learner_name ?? '').trim()
-      if (name) m.set(name, e)
-    })
+      ; (creationFlowPreview?.entries ?? []).forEach((e) => {
+        const name = String(e?.learner_name ?? '').trim()
+        if (name) m.set(name, e)
+      })
     return m
   }, [creationFlowPreview])
 
@@ -1379,46 +1449,11 @@ export default function GraphAnalysisPage() {
     })
   }, [datasetLabelAll, datasetFilterTags])
 
-  const datasetBenignAttackStats = useMemo(() => {
-    let benign = 0
-    let attack = 0
-    const yearMap = new Map<string, { benign: number; attack: number }>()
-
-    datasetLabelAll.forEach((row) => {
-      if (row.isBenign) {
-        benign += row.count
-      } else {
-        attack += row.count
-      }
-      const yearKey = row.yearTag || 'unknown'
-      const current = yearMap.get(yearKey) || { benign: 0, attack: 0 }
-      if (row.isBenign) {
-        current.benign += row.count
-      } else {
-        current.attack += row.count
-      }
-      yearMap.set(yearKey, current)
-    })
-
-    const years = Array.from(yearMap.entries())
-      .map(([year, val]) => ({
-        year,
-        benign: val.benign,
-        attack: val.attack,
-        total: val.benign + val.attack,
-      }))
-      .sort((a, b) => a.year.localeCompare(b.year, undefined, { numeric: true }))
-
-    return {
-      benign,
-      attack,
-      total: benign + attack,
-      years,
-    }
-  }, [datasetLabelAll])
+  const trafficRatioMock = useMemo(() => OVERVIEW_TRAFFIC_RATIO_MOCK[timeRange], [timeRange])
 
   const datasetOverallOption = useMemo(() => {
-    const { benign, attack, total } = datasetBenignAttackStats
+    const { benign, attack } = trafficRatioMock.overall
+    const total = benign + attack
     return {
       backgroundColor: 'transparent',
       tooltip: {
@@ -1442,18 +1477,21 @@ export default function GraphAnalysisPage() {
           label: { color: CHART_TEXT_PRIMARY, formatter: '{b}: {d}%' },
           data: [
             { name: '正常(BENIGN)', value: benign, itemStyle: { color: CHART_GREEN } },
-            { name: '异常(ATTACK)', value: attack, itemStyle: { color: CHART_RED } },
+            { name: '疑似异常(ATTACK)', value: attack, itemStyle: { color: CHART_RED } },
           ],
         },
       ],
     }
-  }, [datasetBenignAttackStats])
+  }, [trafficRatioMock])
 
   const datasetYearlyRatioOption = useMemo(() => {
-    const years = datasetBenignAttackStats.years
-    const yearLabels = years.map((x) => (x.year && x.year !== 'unknown' ? x.year : 'Unknown'))
-    const benignRatio = years.map((x) => (x.total > 0 ? (x.benign / x.total) * 100 : 0))
-    const attackRatio = years.map((x) => (x.total > 0 ? (x.attack / x.total) * 100 : 0))
+    const buckets = trafficRatioMock.buckets.map((bucket) => ({
+      ...bucket,
+      total: bucket.benign + bucket.attack,
+    }))
+    const bucketLabels = buckets.map((x) => x.label)
+    const benignRatio = buckets.map((x) => (x.total > 0 ? (x.benign / x.total) * 100 : 0))
+    const attackRatio = buckets.map((x) => (x.total > 0 ? (x.attack / x.total) * 100 : 0))
 
     return {
       backgroundColor: 'transparent',
@@ -1463,14 +1501,14 @@ export default function GraphAnalysisPage() {
         formatter: (params: Array<{ axisValue?: string; seriesName?: string; value?: number; dataIndex?: number }>) => {
           if (!params.length) return ''
           const idx = Number(params[0].dataIndex || 0)
-          const row = years[idx]
+          const row = buckets[idx]
           if (!row) return ''
           const benignPct = row.total > 0 ? (row.benign / row.total) * 100 : 0
           const attackPct = row.total > 0 ? (row.attack / row.total) * 100 : 0
           return [
             `${params[0].axisValue || '-'}`,
             `正常: ${row.benign.toLocaleString()} (${benignPct.toFixed(METRIC_DECIMAL_PLACES)}%)`,
-            `异常: ${row.attack.toLocaleString()} (${attackPct.toFixed(METRIC_DECIMAL_PLACES)}%)`,
+            `疑似异常: ${row.attack.toLocaleString()} (${attackPct.toFixed(METRIC_DECIMAL_PLACES)}%)`,
             `总量: ${row.total.toLocaleString()}`,
           ].join('<br/>')
         },
@@ -1482,7 +1520,7 @@ export default function GraphAnalysisPage() {
       grid: { left: 48, right: 24, top: 36, bottom: 32 },
       xAxis: {
         type: 'category',
-        data: yearLabels,
+        data: bucketLabels,
         axisLabel: { color: CHART_TEXT_SECONDARY },
         axisLine: { lineStyle: { color: CHART_AXIS_LINE } },
       },
@@ -1502,7 +1540,7 @@ export default function GraphAnalysisPage() {
           itemStyle: { color: CHART_GREEN },
         },
         {
-          name: '异常占比',
+          name: '疑似异常占比',
           type: 'bar',
           stack: 'ratio',
           data: attackRatio,
@@ -1510,7 +1548,7 @@ export default function GraphAnalysisPage() {
         },
       ],
     }
-  }, [datasetBenignAttackStats])
+  }, [trafficRatioMock])
 
   const datasetLabelFilteredCorrRows = useMemo(() => {
     return [...(datasetLabelFeatureCorr?.rows || [])].filter((row) => {
@@ -1686,25 +1724,26 @@ export default function GraphAnalysisPage() {
         learnerResidualCsvColumns.map((col) => [col, String(row[col as keyof typeof row] ?? '')]),
       ) as Record<string, string>
       return {
-      name: row.learner_name,
-      attackRatio: Number(row.attack_ratio || 0),
-      samples: Number(row.total_assigned_samples || 0),
-      creationSamples: Number(row.creation_sample_count || 0),
-      retrainCount: retrainCountMap.get(row.learner_name) || 0,
-      protocolType: String(row.protocol_cluster_type || 'UNKNOWN'),
-      protocolConcentration: Number(row.protocol_concentration || 0),
-      tcpRatio: Number(row.protocol_tcp_ratio || 0),
-      udpRatio: Number(row.protocol_udp_ratio || 0),
-      dominantLabel: row.dominant_label || '-',
-      dominantRatio: Number(row.dominant_ratio || 0),
-      residualCsv,
-    }})
+        name: row.learner_name,
+        attackRatio: Number(row.attack_ratio || 0),
+        samples: Number(row.total_assigned_samples || 0),
+        creationSamples: Number(row.creation_sample_count || 0),
+        retrainCount: retrainCountMap.get(row.learner_name) || 0,
+        protocolType: String(row.protocol_cluster_type || 'UNKNOWN'),
+        protocolConcentration: Number(row.protocol_concentration || 0),
+        tcpRatio: Number(row.protocol_tcp_ratio || 0),
+        udpRatio: Number(row.protocol_udp_ratio || 0),
+        dominantLabel: row.dominant_label || '-',
+        dominantRatio: Number(row.dominant_ratio || 0),
+        residualCsv,
+      }
+    })
     const tags = learnerFilterTags.map((t) => t.trim().toLowerCase()).filter(Boolean)
     const filtered = tags.length
       ? list.filter((r) => {
-          const haystack = [r.name, r.dominantLabel, r.protocolType].join(' ').toLowerCase()
-          return tags.every((tag) => haystack.includes(tag))
-        })
+        const haystack = [r.name, r.dominantLabel, r.protocolType].join(' ').toLowerCase()
+        return tags.every((tag) => haystack.includes(tag))
+      })
       : list
     const sorted = [...filtered].sort((a, b) => {
       if (learnerSortBy === 'name' || learnerSortBy === 'dominantLabel' || learnerSortBy === 'protocolType') {
@@ -1963,9 +2002,8 @@ export default function GraphAnalysisPage() {
           const target = learners.find((x) => x.name === params.seriesName)
           const rawTarget = params.seriesName ? learnerDistRowByName.get(params.seriesName) : undefined
           const flowType = target && target.attackRatio >= 0.5 ? '恶意倾向流量' : '良性倾向流量'
-          const header = `${params.seriesName || '-'}<br/>流量类型: ${flowType}${
-            target ? `<br/>attack_ratio: ${(target.attackRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%` : ''
-          }`
+          const header = `${params.seriesName || '-'}<br/>流量类型: ${flowType}${target ? `<br/>attack_ratio: ${(target.attackRatio * 100).toFixed(METRIC_DECIMAL_PLACES)}%` : ''
+            }`
           const lines = featureRows.map((row, idx) => {
             const normalized = Number(values[idx] ?? 0)
             const rawVal = Number((rawTarget?.[row.feature] as string | undefined) ?? NaN)
@@ -2114,7 +2152,7 @@ export default function GraphAnalysisPage() {
         </div>
       </section>
 
-      <section className="panel space-y-3">
+      {/* <section className="panel space-y-3">
         <div className="grid gap-3 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <label className="field-label">Run</label>
@@ -2137,24 +2175,24 @@ export default function GraphAnalysisPage() {
         </div>
         {loading ? <p className="text-sm text-notion-secondary">正在载入图谱数据...</p> : null}
         {error ? <p className="text-sm text-notion-danger">{error}</p> : null}
-      </section>
+      </section> */}
 
       <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <article className="metric-card"><p className="metric-label">Risk FPR</p><p className="metric-value">{kpi.fpr == null ? '-' : `${(kpi.fpr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article>
+        {/* <article className="metric-card"><p className="metric-label">Risk FPR</p><p className="metric-value">{kpi.fpr == null ? '-' : `${(kpi.fpr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article>
         <article className="metric-card"><p className="metric-label">Risk FNR</p><p className="metric-value">{kpi.fnr == null ? '-' : `${(kpi.fnr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article>
-        <article className="metric-card"><p className="metric-label">Risk TPR</p><p className="metric-value">{kpi.tpr == null ? '-' : `${(kpi.tpr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article>
+        <article className="metric-card"><p className="metric-label">Risk TPR</p><p className="metric-value">{kpi.tpr == null ? '-' : `${(kpi.tpr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article> */}
         <article className="metric-card"><p className="metric-label">Windows</p><p className="metric-value">{kpi.windows ?? '-'}</p></article>
         <article className="metric-card"><p className="metric-label">New Learners</p><p className="metric-value">{kpi.newLearners ?? '-'}</p></article>
         <article className="metric-card"><p className="metric-label">Aggregates</p><p className="metric-value">{kpi.aggregateCount ?? '-'}</p></article>
       </section>
 
       <section className="panel">
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">数据集标签分布（Run输入，全量）</h2>
+        {/* <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">数据集标签分布（Run输入，全量）</h2>
         <div className="mb-3 text-xs text-notion-secondary">
           rows={datasetLabelSummary?.total_rows ?? '-'} | labels={datasetLabelSummary?.label_count ?? datasetLabelRows.length}
           {' '}| benign={datasetLabelSummary?.benign_rows ?? '-'} | attack={datasetLabelSummary?.attack_rows ?? '-'}
-        </div>
-        <article className="mb-4 rounded-lg border border-notion-border bg-notion-surface p-3">
+        </div> */}
+        {/* <article className="mb-4 rounded-lg border border-notion-border bg-notion-surface p-3">
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-notion-secondary">
             数据集网络拓扑（IP / 端口）
           </h3>
@@ -2162,18 +2200,25 @@ export default function GraphAnalysisPage() {
             data={datasetNetworkTopology}
             labelOptions={datasetLabelRows.map((r) => r.label).filter(Boolean)}
           />
-        </article>
+        </article> */}
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">疑似异常流量占比</h2>
+        <div className="mb-3 text-xs text-notion-secondary">
+          {OVERVIEW_TIME_RANGE_OPTIONS.find((option) => option.value === timeRange)?.label}流量数据
+        </div>
         <div className="mb-4 grid gap-4 xl:grid-cols-2">
           <article className="rounded-lg border border-notion-border bg-notion-surface p-3">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-notion-secondary">总体正常/异常占比</h3>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-notion-secondary">总体正常/疑似异常占比</h3>
             <ReactECharts option={datasetOverallOption} style={{ height: 250 }} />
           </article>
           <article className="rounded-lg border border-notion-border bg-notion-surface p-3">
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-notion-secondary">每年正常/异常占比</h3>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-notion-secondary">
+              {TRAFFIC_RATIO_GRANULARITY_LABEL[timeRange]}正常/疑似异常占比
+            </h3>
             <ReactECharts option={datasetYearlyRatioOption} style={{ height: 250 }} />
           </article>
         </div>
-        <div className="mb-4 grid gap-4 xl:grid-cols-2">
+      </section>
+      {/* <div className="mb-4 grid gap-4 xl:grid-cols-2">
           <article className="rounded-lg border border-notion-border bg-notion-surface p-3">
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-notion-secondary">
               标签级特征相关性 Top24（attack=1）
@@ -2251,8 +2296,8 @@ export default function GraphAnalysisPage() {
             </p>
             <ReactECharts option={datasetLabelTopFeatureRadarOption} style={{ height: 560 }} />
           </article>
-        </div>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+        </div> */}
+      {/* <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-notion-secondary">Label 表格筛选与展示列</h3>
           <div className="text-xs text-notion-secondary">
             当前显示 {filteredDatasetLabelRows.length} / {datasetLabelAll.length} 条
@@ -2427,10 +2472,10 @@ export default function GraphAnalysisPage() {
               ))}
             </tfoot>
           </table>
-        </div>
-      </section>
+        </div> */}
 
-      <section className="panel">
+
+      {/* <section className="panel">
         <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">
           决策树可解释性（标签 / 学习器）
         </h2>
@@ -2439,7 +2484,7 @@ export default function GraphAnalysisPage() {
           指标为分层 5 折交叉验证 OOF；二分类任务展示 FPR/FNR。
         </p>
         <DecisionTreePanel data={decisionTreeViz} />
-      </section>
+      </section> */}
 
       <section className="grid gap-4 xl:grid-cols-2">
         <article className="panel">
@@ -2452,7 +2497,7 @@ export default function GraphAnalysisPage() {
         </article>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      {/* <section className="grid gap-4 xl:grid-cols-2">
         <article className="panel">
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">
             簇特征 vs attack_ratio 相关性（Top24）
@@ -2533,7 +2578,7 @@ export default function GraphAnalysisPage() {
           </div>
           <ReactECharts option={learnerTopFeatureRadarOption} style={{ height: 560 }} />
         </article>
-      </section>
+      </section> */}
 
       <section className="grid gap-4 xl:grid-cols-2">
         <article className="panel">
@@ -2560,9 +2605,9 @@ export default function GraphAnalysisPage() {
             to={
               selectedRunId
                 ? overviewPaths.learnerDetailRun(
-                    selectedRunId,
-                    selectedNodeId ? selectedNodeId : undefined,
-                  )
+                  selectedRunId,
+                  selectedNodeId ? selectedNodeId : undefined,
+                )
                 : overviewPaths.learnerDetail
             }
             className="btn-secondary shrink-0 text-sm"
@@ -2582,7 +2627,7 @@ export default function GraphAnalysisPage() {
         />
       </section>
 
-      <section className="panel">
+      {/* <section className="panel">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold uppercase tracking-widest text-notion-secondary">学习器效果总览（全部）</h2>
         </div>
@@ -2790,7 +2835,7 @@ export default function GraphAnalysisPage() {
             </tfoot>
           </table>
         </div>
-      </section>
+      </section> */}
 
       <section className="grid gap-4 xl:grid-cols-4">
         <article className="panel xl:col-span-3">
