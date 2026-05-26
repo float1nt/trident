@@ -509,3 +509,71 @@ export function getMockRiskNetworkTopology(
 export function getMockTaskById(id: number): RiskItem | undefined {
   return getMockRiskById(id);
 }
+
+export interface RiskIpListItem {
+  ip: string;
+  triggerCount: number;
+}
+
+export interface RiskTrafficLogItem {
+  id: string;
+  time: string;
+  ip: string;
+  protocol: string;
+}
+
+function buildMockIp(hostIndex: number, hostOffset: number): string {
+  const subnet = INTERNAL_SUBNETS[hostIndex % INTERNAL_SUBNETS.length];
+  const lastOctet = 10 + ((hostIndex * 17 + hostOffset * 13) % 240);
+  return `${subnet}.${lastOctet}`;
+}
+
+/** 风险详情：风险 IP 列表（按触发次数降序） */
+export function getMockRiskIpList(riskId: number): RiskIpListItem[] {
+  const count = 28 + (riskId % 5);
+  const items: RiskIpListItem[] = Array.from({ length: count }, (_, index) => {
+    const ip =
+      index === 0
+        ? getMockRiskById(riskId)?.subjectIp ?? buildMockIp(riskId, index)
+        : buildMockIp(riskId + index, index);
+    const triggerCount = Math.round(
+      320 - index * 9 + pseudoRandom(riskId, index + 100) * 48,
+    );
+    return {
+      ip,
+      triggerCount: Math.max(1, triggerCount),
+    };
+  });
+
+  return items.sort((a, b) => b.triggerCount - a.triggerCount);
+}
+
+/** 风险详情：流量日志明细 */
+export function getMockRiskTrafficLogs(riskId: number): RiskTrafficLogItem[] {
+  const risk = getMockRiskById(riskId);
+  const count = 35 + (riskId % 4);
+  const baseTime = risk?.triggerTime ?? "2026-05-25 09:12:33";
+
+  return Array.from({ length: count }, (_, index) => {
+    const useExternal = index % 4 === 0;
+    const ip = useExternal
+      ? `${EXTERNAL_IP_PREFIXES[index % EXTERNAL_IP_PREFIXES.length]}.${10 + (index % 200)}`
+      : buildMockIp(riskId, index + 3);
+    const protocol = PROTOCOL_NAMES[index % PROTOCOL_NAMES.length];
+    const minuteOffset = index * 3 + (riskId % 7);
+    const [datePart, timePart] = baseTime.split(" ");
+    const [hour, minute, second] = timePart.split(":").map(Number);
+    const totalMinutes = hour * 60 + minute - minuteOffset;
+    const normalizedMinutes = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+    const logHour = Math.floor(normalizedMinutes / 60);
+    const logMinute = normalizedMinutes % 60;
+    const logSecond = (second + index * 7) % 60;
+
+    return {
+      id: `${riskId}-${index}`,
+      time: `${datePart} ${String(logHour).padStart(2, "0")}:${String(logMinute).padStart(2, "0")}:${String(logSecond).padStart(2, "0")}`,
+      ip,
+      protocol,
+    };
+  });
+}

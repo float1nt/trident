@@ -1,29 +1,67 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Tag } from "antd";
-import EChartsRingChart from "@/components/EChartsRingChart";
+import { Tag, Table } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import { TopologyChartPane } from "@/components/NetworkTopologyPanel";
-import { buildDistributionRingOption } from "@/mock/overviewDistribution";
 import {
-  getMockProtocolDistribution,
   getMockRiskById,
+  getMockRiskIpList,
   getMockRiskNetworkTopology,
+  getMockRiskTrafficLogs,
+  type RiskIpListItem,
+  type RiskTrafficLogItem,
 } from "@/mock/riskTasks";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
 
 const CHART_HEIGHT = 320;
 const TOPOLOGY_REPULSION = 70;
 const TOPOLOGY_MIN_EDGE_FLOWS = 1;
+const LIST_PAGE_SIZE = 10;
+const LIST_MAX_HEIGHT = '200px';
 
-const PROTOCOL_COLORS = [
-  "#4368f0",
-  "#52c41a",
-  "#fa8c16",
-  "#722ed1",
-  "#1777ff",
-  "#faad14",
-  "#ff4d4f",
-  "#8c8c8c",
+function buildRiskIpColumns(currentPage: number): ColumnsType<RiskIpListItem> {
+  return [
+    {
+      title: "序号",
+      key: "index",
+      width: 72,
+      align: "center",
+      render: (_value, _record, index) =>
+        (currentPage - 1) * LIST_PAGE_SIZE + index + 1,
+    },
+    {
+      title: "IP",
+      dataIndex: "ip",
+      key: "ip",
+    },
+    {
+      title: "风险触发次数",
+      dataIndex: "triggerCount",
+      key: "triggerCount",
+      width: 540,
+      align: "center",
+    },
+  ];
+}
+
+const trafficLogColumns: ColumnsType<RiskTrafficLogItem> = [
+  {
+    title: "时间",
+    dataIndex: "time",
+    key: "time",
+    width: 180,
+  },
+  {
+    title: "IP",
+    dataIndex: "ip",
+    key: "ip",
+  },
+  {
+    title: "协议",
+    dataIndex: "protocol",
+    key: "protocol",
+    width: 340,
+  },
 ];
 
 /** 风险详情页（布局对齐 V3-ui-2 IP 视角详情页） */
@@ -31,6 +69,8 @@ export default function RiskDetailPlaceholder() {
   const [searchParams] = useSearchParams();
   const riskId = searchParams.get("id");
   const risk = riskId ? getMockRiskById(Number(riskId)) : undefined;
+  const [riskIpPage, setRiskIpPage] = useState(1);
+  const [trafficLogPage, setTrafficLogPage] = useState(1);
 
   const networkTopology = useMemo(
     () => (riskId ? getMockRiskNetworkTopology(Number(riskId)) : null),
@@ -38,16 +78,18 @@ export default function RiskDetailPlaceholder() {
   );
   const topologyView = networkTopology?.views.__combined__;
 
-  const protocolChartOption = useMemo(() => {
-    if (!riskId) return buildDistributionRingOption([]);
-    const distribution = getMockProtocolDistribution(Number(riskId));
-    return buildDistributionRingOption(
-      distribution.map((item, index) => ({
-        name: item.name,
-        value: item.value,
-        color: PROTOCOL_COLORS[index % PROTOCOL_COLORS.length],
-      })),
-    );
+  const riskIpList = useMemo(
+    () => (riskId ? getMockRiskIpList(Number(riskId)) : []),
+    [riskId],
+  );
+  const trafficLogs = useMemo(
+    () => (riskId ? getMockRiskTrafficLogs(Number(riskId)) : []),
+    [riskId],
+  );
+
+  useEffect(() => {
+    setRiskIpPage(1);
+    setTrafficLogPage(1);
   }, [riskId]);
 
   const featureTags = risk?.features
@@ -127,7 +169,6 @@ export default function RiskDetailPlaceholder() {
                     repulsion={TOPOLOGY_REPULSION}
                     minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
                     chartHeight={CHART_HEIGHT}
-                    compact
                   />
                   <TopologyChartPane
                     title="IP:端口（服务）"
@@ -136,7 +177,6 @@ export default function RiskDetailPlaceholder() {
                     repulsion={TOPOLOGY_REPULSION}
                     minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
                     chartHeight={CHART_HEIGHT}
-                    compact
                   />
                 </div>
               ) : (
@@ -146,9 +186,44 @@ export default function RiskDetailPlaceholder() {
 
             <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
               <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
-                协议分布占比
+                风险 IP 列表（按每个 IP 的风险触发次数从多到少排序）
               </h3>
-              <EChartsRingChart option={protocolChartOption} height={CHART_HEIGHT} />
+              <Table<RiskIpListItem>
+                rowKey="ip"
+                size="middle"
+                bordered
+                columns={buildRiskIpColumns(riskIpPage)}
+                dataSource={riskIpList}
+                pagination={{
+                  current: riskIpPage,
+                  pageSize: LIST_PAGE_SIZE,
+                  total: riskIpList.length,
+                  showTotal: (total) => `共 ${total} 条`,
+                  onChange: setRiskIpPage,
+                }}
+                scroll={{ y: LIST_MAX_HEIGHT }}
+              />
+            </div>
+
+            <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+              <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
+                流量日志
+              </h3>
+              <Table<RiskTrafficLogItem>
+                rowKey="id"
+                size="middle"
+                bordered
+                columns={trafficLogColumns}
+                dataSource={trafficLogs}
+                pagination={{
+                  current: trafficLogPage,
+                  pageSize: LIST_PAGE_SIZE,
+                  total: trafficLogs.length,
+                  showTotal: (total) => `共 ${total} 条`,
+                  onChange: setTrafficLogPage,
+                }}
+                scroll={{ y: LIST_MAX_HEIGHT }}
+              />
             </div>
           </div>
         )}
