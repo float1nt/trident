@@ -34,6 +34,11 @@ def infer_year_tag(path: Path) -> str:
         return "2017"
     if "2019" in parts:
         return "2019"
+    if "2026" in parts:
+        return "2026"
+    lc = name.lower()
+    if lc.startswith("2026") or "cicids2026" in lc:
+        return "2026"
     return "0000"
 
 

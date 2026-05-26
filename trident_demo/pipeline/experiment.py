@@ -32,7 +32,7 @@ from trident_demo.lib.utils import (
     set_seed,
     split_year_label,
 )
-from trident_demo.io.redis_loader import load_redis_flows
+from trident_demo.io.redis_loader import iter_redis_flow_windows, load_redis_flows
 
 
 ENVIRONMENT_COLUMNS = {
@@ -492,6 +492,7 @@ class TridentStreamingExperiment:
             enabled=bool(cfg.get("runtime", {}).get("performance_benchmark", False))
         )
         self._owns_perf_recorder = perf_recorder is None
+        self.perf_mode = bool(cfg.get("runtime", {}).get("perf_mode", False))
         self._perf_recorder.configure_device(str(self.device))
         self._stream_start_idx: int = 0
         self._qualification_profile: Dict[str, Any] = {}
@@ -503,6 +504,243 @@ class TridentStreamingExperiment:
 
     def _live_flush_enabled(self) -> bool:
         return bool(self._live_flush_settings.get("enabled", False))
+
+    def _input_source(self) -> str:
+        input_cfg = self.cfg.get("input", {}) if isinstance(self.cfg.get("input"), dict) else {}
+        return str(input_cfg.get("source", input_cfg.get("type", "csv"))).strip().lower()
+
+    def _is_redis_source(self) -> bool:
+        return self._input_source() in {"redis", "redis_list", "redis_stream"}
+
+    def _prepare_loaded_dataframe(
+        self,
+        data: pd.DataFrame,
+        *,
+        source: str,
+        redis_cfg: Dict[str, Any],
+        apply_max_rows: bool = True,
+    ) -> pd.DataFrame:
+        input_cfg = self.cfg.get("input", {}) if isinstance(self.cfg.get("input"), dict) else {}
+        if "Label" not in data.columns:
+            default_label = str(input_cfg.get("default_label", "0000|UNLABELED"))
+            data["Label"] = default_label
+            self.logger.warning("[InputLabelDefault] Label column missing; filled with %s", default_label)
+        if "Timestamp" not in data.columns:
+            base_ts = pd.Timestamp.utcnow()
+            data["Timestamp"] = pd.date_range(base_ts, periods=len(data), freq="us")
+            self.logger.warning("[InputTimestampDefault] Timestamp column missing; generated monotonic timestamps")
+        ts_raw = data["Timestamp"]
+        try:
+            data["Timestamp"] = pd.to_datetime(ts_raw, errors="coerce", format="mixed")
+        except TypeError:
+            data["Timestamp"] = pd.to_datetime(ts_raw, errors="coerce")
+        ts_invalid = int(data["Timestamp"].isna().sum())
+        if ts_invalid > 0:
+            self.logger.warning("[TimestampParse] invalid_timestamp_rows=%d (dropped after parse)", ts_invalid)
+        data = data.dropna(subset=["Timestamp"]).sort_values("Timestamp").reset_index(drop=True)
+        data["LabelNorm"] = data["Label"].map(normalize_label)
+        apply_runtime_filters = (
+            source not in {"redis", "redis_list", "redis_stream"}
+            or bool(redis_cfg.get("apply_runtime_filters", False))
+        )
+        if apply_runtime_filters:
+            data = self._apply_runtime_filters(data)
+            data = self._apply_attack_sampling(data)
+        else:
+            self.logger.info("[RedisInput] skip dataset-specific runtime filters and sampling")
+        data = self._apply_missing_value_strategy(data)
+        data = self._apply_drop_when_all_numeric_zero_rules(data)
+        if apply_max_rows:
+            max_rows = self.cfg["runtime"]["max_rows"]
+            if max_rows > 0 and len(data) > max_rows:
+                data = data.iloc[:max_rows].reset_index(drop=True)
+        return data
+
+    def _run_perf_mode_redis_stream(self) -> None:
+        input_cfg = self.cfg.get("input", {}) if isinstance(self.cfg.get("input"), dict) else {}
+        redis_cfg = dict(input_cfg.get("redis", {})) if isinstance(input_cfg.get("redis"), dict) else {}
+        source = self._input_source()
+        window_size = int(self.cfg.get("stream", {}).get("window_size", 2000) or 2000)
+        max_rows = int(self.cfg.get("runtime", {}).get("max_rows", 0) or 0)
+        init_target = max(
+            window_size * 2,
+            int(self.cfg.get("stream", {}).get("init_benign_count", 0) or 0),
+            5000,
+        )
+        window_iter = iter_redis_flow_windows(
+            redis_cfg,
+            window_size=window_size,
+            logger=self.logger,
+        )
+        first_raw = next(iter(window_iter), None)
+        if first_raw is None or first_raw.empty:
+            raise RuntimeError("Redis streaming input returned no initial flow records")
+        first_df = self._prepare_loaded_dataframe(
+            first_raw.iloc[:init_target].copy(),
+            source=source,
+            redis_cfg=redis_cfg,
+            apply_max_rows=False,
+        )
+        if first_df.empty:
+            raise RuntimeError("Initial Redis window is empty after preprocessing")
+        feat_df, feature_cols = preprocess_features(first_df, feature_profile=self.feature_profile)
+        x_init_all = feat_df.values.astype(np.float32)
+        if self.pca_n_components > 0:
+            self.logger.warning("[PerfMode] ignore PCA in redis streaming mode to keep online feature consistency")
+        self.logger.info(
+            "[PerfModeRedis] init_rows=%d feature_dim=%d window_size=%d",
+            len(first_df),
+            len(feature_cols),
+            window_size,
+        )
+        start_idx = self._build_initial_learners(first_df, x_init_all)
+        self._stream_start_idx = int(start_idx)
+
+        total_rows = int(len(first_df))
+        time_series: List[Dict[str, Any]] = []
+        current_batch = first_df.iloc[start_idx:].copy()
+        current_x = x_init_all[start_idx:]
+        global_offset = int(start_idx)
+
+        def process_batch(batch_df: pd.DataFrame, batch_x: np.ndarray, offset: int) -> int:
+            processed = 0
+            for left in range(0, len(batch_df), window_size):
+                if max_rows > 0 and (offset + processed) >= max_rows:
+                    break
+                right = min(left + window_size, len(batch_df))
+                chunk_df = batch_df.iloc[left:right]
+                chunk_x = batch_x[left:right]
+                if len(chunk_df) == 0:
+                    continue
+                t_window_start = perf_counter()
+                cpu_detect_start = (
+                    self._perf_recorder.resources.current_process_cpu_seconds()
+                    if self._perf_recorder.enabled
+                    else 0.0
+                )
+                preds = self.tsieve.classify_batch(chunk_x)
+                detect_seconds = perf_counter() - t_window_start
+                if self._perf_recorder.enabled:
+                    cpu_now = self._perf_recorder.resources.current_process_cpu_seconds()
+                    self._perf_recorder.resources.add_stage_cpu("stream_inference", cpu_now - cpu_detect_start)
+                for i, pred in enumerate(preds):
+                    row_index = int(offset + left + i)
+                    self.sample_assignments.append(
+                        {
+                            "row_index": row_index,
+                            "timestamp": self._format_stream_timestamp(chunk_df["Timestamp"].iloc[i]),
+                            "assigned_learner": str(pred if pred is not None else "UNKNOWN"),
+                            "phase": "stream",
+                        }
+                    )
+                t_window_end = perf_counter()
+                window_seconds = t_window_end - t_window_start
+                self.perf_stats["detect_seconds_total"] += detect_seconds
+                self.perf_stats["window_total_seconds_total"] += window_seconds
+                self.perf_stats["windows_count"] += 1
+                processed += int(len(chunk_df))
+                entry = {
+                    "window_end_time": chunk_df["Timestamp"].iloc[-1],
+                    "window_left": int(offset + left),
+                    "window_right": int(offset + right),
+                    "learner_count": int(len(self.tsieve.learners)),
+                    "unknown_buffer_size": int(len(self.tmagnifier.unknown_buffer)),
+                }
+                time_series.append(entry)
+                self.logger.info(
+                    "[PerfModeRedisWindow] %d-%d infer=%.4fs window=%.4fs learners=%d",
+                    entry["window_left"],
+                    entry["window_right"],
+                    detect_seconds,
+                    window_seconds,
+                    entry["learner_count"],
+                )
+            return processed
+
+        consumed = process_batch(current_batch, current_x, global_offset)
+        total_rows = max(total_rows, int(global_offset + consumed))
+
+        for raw_df in window_iter:
+            if raw_df is None or raw_df.empty:
+                break
+            if max_rows > 0 and total_rows >= max_rows:
+                break
+            batch_df = self._prepare_loaded_dataframe(
+                raw_df.copy(),
+                source=source,
+                redis_cfg=redis_cfg,
+                apply_max_rows=False,
+            )
+            if batch_df.empty:
+                continue
+            feat_df_batch, _ = preprocess_features(batch_df, feature_profile=self.feature_profile)
+            feat_df_batch = feat_df_batch.reindex(columns=feature_cols, fill_value=0.0)
+            batch_x = feat_df_batch.values.astype(np.float32)
+            offset = int(total_rows)
+            consumed = process_batch(batch_df, batch_x, offset)
+            total_rows += consumed
+
+        self._finalize_perf_mode_outputs(total_rows=total_rows, time_series=time_series)
+
+    def _finalize_perf_mode_outputs(self, *, total_rows: int, time_series: List[Dict[str, Any]]) -> None:
+        if self._perf_recorder.enabled:
+            self._perf_recorder.start("export_run_artifacts")
+        ts_df = pd.DataFrame(time_series)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        csv_path = self.output_dir / "learner_count_over_time.csv"
+        ts_df.to_csv(csv_path, index=False)
+        perf_path = self.output_dir / "performance_summary.json"
+        windows_count = int(self.perf_stats.get("windows_count", 0.0) or 0)
+        perf_summary = {
+            **self.perf_stats,
+            "avg_detect_seconds_per_window": (
+                self.perf_stats["detect_seconds_total"] / windows_count if windows_count else 0.0
+            ),
+            "avg_cluster_seconds_per_window": (
+                self.perf_stats["cluster_seconds_total"] / windows_count if windows_count else 0.0
+            ),
+            "avg_create_learner_seconds_per_window": (
+                self.perf_stats["create_learner_seconds_total"] / windows_count if windows_count else 0.0
+            ),
+            "avg_retrain_seconds_per_window": (
+                self.perf_stats["retrain_seconds_total"] / windows_count if windows_count else 0.0
+            ),
+            "avg_window_total_seconds_per_window": (
+                self.perf_stats["window_total_seconds_total"] / windows_count if windows_count else 0.0
+            ),
+        }
+        with open(perf_path, "w", encoding="utf-8") as f:
+            json.dump(perf_summary, f, ensure_ascii=False, indent=2)
+
+        if self._perf_recorder.enabled:
+            self._perf_recorder.stop("export_run_artifacts")
+            stream_flow_count = max(0, int(total_rows) - int(self._stream_start_idx))
+            self.benchmark_report_inputs = {
+                "run_id": self.run_id,
+                "flow_count": int(total_rows),
+                "stream_flow_count": int(stream_flow_count),
+                "perf_stats": {
+                    **perf_summary,
+                    "windows_count": windows_count,
+                    "new_learner_count": self.perf_stats.get("new_learner_count", 0.0),
+                    "incremental_update_count": self.perf_stats.get("incremental_update_count", 0.0),
+                },
+                "qualification_stats": {},
+            }
+            if self._owns_perf_recorder:
+                self._perf_recorder.finish_wall()
+                benchmark_report = self._perf_recorder.build_report(**self.benchmark_report_inputs)
+                benchmark_paths = self._perf_recorder.write(self.output_dir, benchmark_report)
+                self.logger.info("Done. TRIDENT_PERFORMANCE_BENCHMARK_JSON=%s", benchmark_paths["json"])
+                self.logger.info("Done. TRIDENT_PERFORMANCE_BENCHMARK_MD=%s", benchmark_paths["markdown"])
+        self.logger.info(
+            "[PerfMode] minimal artifacts exported: CSV=%s PERF_JSON=%s windows=%d rows=%d",
+            csv_path,
+            perf_path,
+            windows_count,
+            int(total_rows),
+        )
+        self._write_live_run_status("finished", rows_used=int(total_rows))
 
     def _write_live_run_status(self, status: str, *, rows_used: int = 0) -> None:
         if not self._live_flush_enabled():
@@ -3525,6 +3763,10 @@ class TridentStreamingExperiment:
                 redis_cfg.setdefault("data_structure", "list")
             elif source == "redis_stream":
                 redis_cfg.setdefault("data_structure", "stream")
+            if "target_messages" not in redis_cfg:
+                redis_cfg["target_messages"] = int(self.cfg.get("stream", {}).get("window_size", 0) or 0)
+            if "wait_for_target_seconds" not in redis_cfg:
+                redis_cfg["wait_for_target_seconds"] = float(redis_cfg.get("idle_timeout_seconds", 5.0) or 0.0)
             data = load_redis_flows(redis_cfg, logger=self.logger)
         else:
             data_dir = Path(self.cfg["paths"]["data_dir"])
@@ -3794,6 +4036,11 @@ class TridentStreamingExperiment:
     def run(self) -> None:
         if self._perf_recorder.enabled:
             self._perf_recorder.start_wall()
+        if self.perf_mode:
+            self.logger.info("[PerfMode] enabled: reduce non-essential artifact exports")
+        if self.perf_mode and self._is_redis_source():
+            self._run_perf_mode_redis_stream()
+            return
         self._log_hyperparameters()
         self._write_live_run_status("running")
         self._learner_creation_flow_previews.clear()
@@ -4624,6 +4871,67 @@ class TridentStreamingExperiment:
                 )
             except Exception:
                 pass
+
+        if self.perf_mode:
+            if self._perf_recorder.enabled:
+                self._perf_recorder.start("export_run_artifacts")
+            ts_df = pd.DataFrame(time_series)
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            csv_path = self.output_dir / "learner_count_over_time.csv"
+            ts_df.to_csv(csv_path, index=False)
+            perf_path = self.output_dir / "performance_summary.json"
+            windows_count = int(self.perf_stats.get("windows_count", 0.0) or 0)
+            perf_summary = {
+                **self.perf_stats,
+                "avg_detect_seconds_per_window": (
+                    self.perf_stats["detect_seconds_total"] / windows_count if windows_count else 0.0
+                ),
+                "avg_cluster_seconds_per_window": (
+                    self.perf_stats["cluster_seconds_total"] / windows_count if windows_count else 0.0
+                ),
+                "avg_create_learner_seconds_per_window": (
+                    self.perf_stats["create_learner_seconds_total"] / windows_count if windows_count else 0.0
+                ),
+                "avg_retrain_seconds_per_window": (
+                    self.perf_stats["retrain_seconds_total"] / windows_count if windows_count else 0.0
+                ),
+                "avg_window_total_seconds_per_window": (
+                    self.perf_stats["window_total_seconds_total"] / windows_count if windows_count else 0.0
+                ),
+            }
+            with open(perf_path, "w", encoding="utf-8") as f:
+                json.dump(perf_summary, f, ensure_ascii=False, indent=2)
+
+            if self._perf_recorder.enabled:
+                self._perf_recorder.stop("export_run_artifacts")
+                stream_flow_count = max(0, len(data) - int(self._stream_start_idx))
+                self.benchmark_report_inputs = {
+                    "run_id": self.run_id,
+                    "flow_count": len(data),
+                    "stream_flow_count": stream_flow_count,
+                    "perf_stats": {
+                        **perf_summary,
+                        "windows_count": windows_count,
+                        "new_learner_count": self.perf_stats.get("new_learner_count", 0.0),
+                        "incremental_update_count": self.perf_stats.get("incremental_update_count", 0.0),
+                    },
+                    "qualification_stats": {},
+                }
+                if self._owns_perf_recorder:
+                    self._perf_recorder.finish_wall()
+                    benchmark_report = self._perf_recorder.build_report(**self.benchmark_report_inputs)
+                    benchmark_paths = self._perf_recorder.write(self.output_dir, benchmark_report)
+                    self.logger.info("Done. TRIDENT_PERFORMANCE_BENCHMARK_JSON=%s", benchmark_paths["json"])
+                    self.logger.info("Done. TRIDENT_PERFORMANCE_BENCHMARK_MD=%s", benchmark_paths["markdown"])
+            self.logger.info(
+                "[PerfMode] minimal artifacts exported: CSV=%s PERF_JSON=%s windows=%d rows=%d",
+                csv_path,
+                perf_path,
+                windows_count,
+                len(data),
+            )
+            self._write_live_run_status("finished", rows_used=len(data))
+            return
 
         if self._perf_recorder.enabled:
             self._perf_recorder.start("export_run_artifacts")

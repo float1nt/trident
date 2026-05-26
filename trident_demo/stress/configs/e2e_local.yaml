@@ -3,15 +3,18 @@ runtime:
   output_root: trident_demo/stress_outputs
   baseline_seconds: 3
   sample_interval_seconds: 1
-  wait_after_replay_seconds: 30
+  wait_after_replay_seconds: 20
+  perf_mode: true
+  perf_window_size: 20000
+  perf_disable_new_learner: false
 
 redis:
   url: redis://127.0.0.1:6379/0
   stream: ""
   stream_maxlen: 1000000
   clear_stream: true
-  max_messages: 100000
-  idle_timeout_seconds: 180
+  max_messages: 0
+  idle_timeout_seconds: 60
 
 suricata:
   compose_dir: /home/sr/wkf/trident/suricata-cic-redis-live
@@ -24,21 +27,21 @@ suricata:
   stop_after_run: false
 
 tcpreplay:
-  pcap: /home/sr/HyperVision-main/test_file/Monday-WorkingHours.pcap
+  pcap: trident_demo/stress_inputs/Monday-WorkingHours.mtu1500.pcap
   iface: eno1
   use_docker: true
   docker_image: trident-tcpreplay:local
-  mbps: 500
-  min_replay_seconds: 120
-  min_stream_len: 100000
-  max_rounds: 200
+  mbps: 1000
+  min_replay_seconds: 180
+  min_stream_len: 0
+  max_rounds: 12
   pps: 0
   multiplier: 0
   loop: 1
-  mtu_trunc: auto
+  mtu_trunc: false
 
 trident:
   profile: benchmark
   config: trident_demo/configs/benchmark.yaml
-  max_rows: 100000
-  timeout_seconds: 86400
+  max_rows: 0
+  timeout_seconds: 3600

@@ -163,11 +163,16 @@ def _stream_messages(client: Any, cfg: Mapping[str, Any]) -> Iterable[Any]:
     batch_size = int(cfg.get("batch_size", 1000) or 1000)
     block_ms = int(float(cfg.get("block_timeout_seconds", 1.0)) * 1000)
     idle_timeout = float(cfg.get("idle_timeout_seconds", 5.0))
+    target_messages = int(cfg.get("target_messages", 0) or 0)
+    wait_for_target_seconds = float(
+        cfg.get("wait_for_target_seconds", cfg.get("window_wait_timeout_seconds", 0.0)) or 0.0
+    )
     last_id = str(cfg.get("last_id", "0-0"))
     group = cfg.get("consumer_group")
     consumer = str(cfg.get("consumer_name", "trident"))
     ack = bool(cfg.get("ack", True))
     start_idle = time.monotonic()
+    first_message_at: Optional[float] = None
     count = 0
     if group and bool(cfg.get("create_consumer_group", False)):
         try:
@@ -177,6 +182,15 @@ def _stream_messages(client: Any, cfg: Mapping[str, Any]) -> Iterable[Any]:
                 raise
 
     while max_messages <= 0 or count < max_messages:
+        if (
+            target_messages > 0
+            and wait_for_target_seconds > 0
+            and count > 0
+            and count < target_messages
+            and first_message_at is not None
+            and (time.monotonic() - first_message_at) >= wait_for_target_seconds
+        ):
+            break
         if group:
             response = client.xreadgroup(
                 groupname=str(group),
@@ -198,6 +212,8 @@ def _stream_messages(client: Any, cfg: Mapping[str, Any]) -> Iterable[Any]:
             for msg_id, fields in entries:
                 if max_messages > 0 and count >= max_messages:
                     return
+                if first_message_at is None:
+                    first_message_at = time.monotonic()
                 count += 1
                 last_id = _decode(msg_id)
                 yield fields
@@ -267,3 +283,45 @@ def load_redis_flows(redis_cfg: Mapping[str, Any], logger: Any = None) -> pd.Dat
             len(df.columns),
         )
     return df
+
+
+def iter_redis_flow_windows(
+    redis_cfg: Mapping[str, Any],
+    *,
+    window_size: int,
+    logger: Any = None,
+) -> Iterable[pd.DataFrame]:
+    """Yield Redis flow windows continuously until idle timeout.
+
+    This is intended for true streaming/perf runs where the consumer should
+    process a bounded window immediately instead of draining the full stream first.
+    """
+    max_window = max(1, int(window_size))
+    base_cfg = dict(redis_cfg)
+    structure = str(base_cfg.get("data_structure", base_cfg.get("type", "stream"))).strip().lower()
+    if structure not in {"stream", "streams"}:
+        # Fallback for non-stream structures: single finite read.
+        yield load_redis_flows({**base_cfg, "max_messages": max_window}, logger=logger)
+        return
+
+    group = str(base_cfg.get("consumer_group") or f"trident_perf_stream_{int(time.time())}")
+    consumer = str(base_cfg.get("consumer_name") or "trident")
+    create_group = True
+
+    while True:
+        batch_cfg = dict(base_cfg)
+        batch_cfg["max_messages"] = max_window
+        batch_cfg["consumer_group"] = group
+        batch_cfg["consumer_name"] = consumer
+        batch_cfg["create_consumer_group"] = bool(create_group)
+        batch_cfg.setdefault("ack", True)
+        try:
+            df = load_redis_flows(batch_cfg, logger=logger)
+        except RuntimeError as exc:
+            if "no flow records" in str(exc).lower():
+                break
+            raise
+        create_group = False
+        if df.empty:
+            break
+        yield df

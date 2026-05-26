@@ -2,9 +2,25 @@ title: CIC2017_2019_2026_x5_yeartagged_viz_pipeline
 description: Rebuild aligned x5 yeartagged CSV from data/ and run Trident for learner
   viz exports
 paths:
-  data_dir: data
+  data_dir: /home/data
   input_files:
-  - aligned_2017_2019_2026_sampled_x5_yeartagged_for_main.csv
+  - 2017/monday.csv
+  - 2017/tuesday.csv
+  - 2017/wednesday.csv
+  - 2017/thursday.csv
+  - 2017/friday.csv
+  - 2019/DrDoS_DNS.csv
+  - 2019/DrDoS_LDAP.csv
+  - 2019/DrDoS_MSSQL.csv
+  - 2019/DrDoS_NetBIOS.csv
+  - 2019/DrDoS_NTP.csv
+  - 2019/DrDoS_SNMP.csv
+  - 2019/DrDoS_SSDP.csv
+  - 2019/DrDoS_UDP.csv
+  - 2019/Syn.csv
+  - 2019/TFTP.csv
+  - 2019/UDPLag.csv
+  - cicids2026.csv
   output_dir: trident_demo/outputs
   log_file: run.log
 runtime:

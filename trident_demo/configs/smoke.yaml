@@ -1,15 +1,19 @@
-description: redis live static replay benchmark
+description: smoke test — CSV inject to Redis then benchmark (small row cap)
 decision_tree:
   enabled: false
 visualization:
+  enabled: true
+  dataset_topology_enabled: false
+  learner_topology_enabled: true
+  metric_audit_enabled: true
   metric_audit_min_samples: 50
-  metric_audit_max_learners: 60
+  metric_audit_max_learners: 20
   live_flush_enabled: true
   live_flush_interval_windows: 1
 paths:
   data_dir: /home/data
   log_file: run.log
-  output_dir: outputs
+  output_dir: trident_demo/outputs
 input:
   source: redis_stream
   redis:
@@ -26,19 +30,19 @@ input:
     allow_unlabeled_initial_learner: true
 runtime:
   aggregate_overlap_enabled: true
-  cpu_only: true
-  debug_overlap_enabled: true
+  cpu_only: false
+  debug_overlap_enabled: false
   feature_profile: compact_stats_no_env
   max_rows: 0
   performance_benchmark: true
   seed: 42
   uniform_learner_treatment: false
 stream:
-  init_benign_count: 2500
+  init_benign_count: 1000
   init_benign_year: '2017'
   init_known_mode: benign_only
-  init_ratio: 0.01
-  window_size: 2000
+  init_ratio: 0.05
+  window_size: 500
 tmagnifier:
   cluster_trigger_size: 120
   dbscan_eps: 1.3
@@ -53,10 +57,15 @@ tsieve:
   batch_size: 256
   classifier_backend: ae
   increment_epochs: 1
-  increment_min_samples: 1000
-  init_epochs: 5
+  increment_min_samples: 500
+  init_epochs: 2
   lr: 0.001
-  max_increment_samples: 1000
-  max_train_per_class: 20000
-  min_class_samples: 300
-  new_class_epochs: 4
+  max_increment_samples: 500
+  max_train_per_class: 5000
+  min_class_samples: 200
+  new_class_epochs: 2
+inject:
+  enabled: true
+  csv: /home/data/live_merged_all.csv
+  max_rows: 2000
+  clear_stream: true

@@ -28,6 +28,7 @@ export type StressRunDetail = {
   docker: JsonRecord | null
   suricata: JsonRecord | null
   trident_benchmark: JsonRecord | null
+  replay_stats?: JsonRecord | null
 }
 
 async function fetchJson<T>(url: string): Promise<T> {

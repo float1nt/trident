@@ -11,7 +11,7 @@ visualization:
   live_flush_enabled: true
   live_flush_interval_windows: 1
 paths:
-  data_dir: data
+  data_dir: /home/data
   log_file: run.log
   output_dir: trident_demo/outputs
 input:
@@ -30,7 +30,7 @@ input:
     allow_unlabeled_initial_learner: true
 runtime:
   aggregate_overlap_enabled: true
-  cpu_only: true
+  cpu_only: false
   debug_overlap_enabled: true
   feature_profile: compact_stats_no_env
   max_rows: 0
@@ -66,6 +66,6 @@ tsieve:
   new_class_epochs: 4
 inject:
   enabled: false
-  csv: data/aligned_2017_2019_2026_sampled_x5_yeartagged_for_main.csv
+  csv: /home/data/live_merged_all.csv
   max_rows: 10000
   clear_stream: true

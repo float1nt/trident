@@ -5,7 +5,7 @@ Used for offline replay testing: static CSV → Redis Stream → Trident (input.
 
 Example:
   python3 scripts/inject_csv_to_suricata_redis.py --max-rows 10000
-  python3 scripts/inject_csv_to_suricata_redis.py --csv data/cicids2026.csv --clear-stream
+  python3 scripts/inject_csv_to_suricata_redis.py --csv /home/data/cicids2026.csv --clear-stream
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def csv_row_to_eve(row: pd.Series) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--csv", type=str, default="data/aligned_2017_2019_2026_sampled_x5_yeartagged_for_main.csv")
+    parser.add_argument("--csv", type=str, default="/home/data/live_merged_all.csv")
     parser.add_argument("--max-rows", type=int, default=10000)
     parser.add_argument("--url", type=str, default="redis://127.0.0.1:6379/0")
     parser.add_argument("--stream", type=str, default="suricata:cic_flow")
@@ -45,7 +45,11 @@ def main() -> None:
     except ImportError as exc:
         raise SystemExit("Install redis: pip install redis") from exc
 
-    csv_path = (ROOT / args.csv).resolve()
+    csv_path = Path(args.csv).expanduser()
+    if not csv_path.is_absolute():
+        csv_path = (ROOT / csv_path).resolve()
+    else:
+        csv_path = csv_path.resolve()
     if not csv_path.exists():
         raise SystemExit(f"CSV not found: {csv_path}")
 

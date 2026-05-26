@@ -17,9 +17,25 @@ visualization:
   live_flush_window_csv: true
   live_flush_metric_audit: true
 paths:
-  data_dir: data
+  data_dir: /home/data
   input_files:
-  - aligned_2017_2019_2026_sampled_x5_yeartagged_for_main.csv
+  - 2017/monday.csv
+  - 2017/tuesday.csv
+  - 2017/wednesday.csv
+  - 2017/thursday.csv
+  - 2017/friday.csv
+  - 2019/DrDoS_DNS.csv
+  - 2019/DrDoS_LDAP.csv
+  - 2019/DrDoS_MSSQL.csv
+  - 2019/DrDoS_NetBIOS.csv
+  - 2019/DrDoS_NTP.csv
+  - 2019/DrDoS_SNMP.csv
+  - 2019/DrDoS_SSDP.csv
+  - 2019/DrDoS_UDP.csv
+  - 2019/Syn.csv
+  - 2019/TFTP.csv
+  - 2019/UDPLag.csv
+  - cicids2026.csv
   log_file: run.log
   output_dir: trident_demo/outputs
 input:
@@ -88,26 +104,26 @@ sampling:
   benign_sample_max_rows: 0
   benign_sample_per_day: 10000
   chunksize: 100000
-  data_dir: data
+  data_dir: /home/data
   input_files:
-  - aligned_2017_2019/2017_monday.csv
-  - aligned_2017_2019/2017_tuesday.csv
-  - aligned_2017_2019/2017_wednesday.csv
-  - aligned_2017_2019/2017_thursday.csv
-  - aligned_2017_2019/2017_friday.csv
-  - aligned_2017_2019/2019_DrDoS_DNS.csv
-  - aligned_2017_2019/2019_DrDoS_LDAP.csv
-  - aligned_2017_2019/2019_DrDoS_MSSQL.csv
-  - aligned_2017_2019/2019_DrDoS_NetBIOS.csv
-  - aligned_2017_2019/2019_DrDoS_NTP.csv
-  - aligned_2017_2019/2019_DrDoS_SNMP.csv
-  - aligned_2017_2019/2019_DrDoS_SSDP.csv
-  - aligned_2017_2019/2019_DrDoS_UDP.csv
-  - aligned_2017_2019/2019_Syn.csv
-  - aligned_2017_2019/2019_TFTP.csv
-  - aligned_2017_2019/2019_UDPLag.csv
-  output_csv: data/aligned_2017_2019_sampled_year_tagged.csv
-  report_json: data/aligned_2017_2019_sampled_year_tagged.report.json
+  - 2017/monday.csv
+  - 2017/tuesday.csv
+  - 2017/wednesday.csv
+  - 2017/thursday.csv
+  - 2017/friday.csv
+  - 2019/DrDoS_DNS.csv
+  - 2019/DrDoS_LDAP.csv
+  - 2019/DrDoS_MSSQL.csv
+  - 2019/DrDoS_NetBIOS.csv
+  - 2019/DrDoS_NTP.csv
+  - 2019/DrDoS_SNMP.csv
+  - 2019/DrDoS_SSDP.csv
+  - 2019/DrDoS_UDP.csv
+  - 2019/Syn.csv
+  - 2019/TFTP.csv
+  - 2019/UDPLag.csv
+  output_csv: outputs/aligned_2017_2019_sampled_year_tagged.csv
+  report_json: outputs/aligned_2017_2019_sampled_year_tagged.report.json
   seed: 42
 stream:
   init_benign_count: 50000

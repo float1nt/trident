@@ -14,6 +14,41 @@ const colors = {
   slate: '#787774',
 }
 
+type StageRow = {
+  key: string
+  label: string
+  desc: string
+  seconds: number
+  focus?: 'suricata' | 'trident' | 'overall'
+}
+
+const SUMMARY_STAGE_META: Record<string, { label: string; desc: string; focus?: StageRow['focus'] }> = {
+  preflight: { label: '预检查', desc: '检查运行环境、依赖与配置有效性', focus: 'overall' },
+  start_services: { label: '启动服务', desc: '启动或重建 Suricata / Redis 容器', focus: 'overall' },
+  baseline: { label: '基线采样', desc: '压测前采集空载基线指标', focus: 'overall' },
+  tcpreplay: { label: '流量回放', desc: '向 Suricata 网卡回放 pcap 触发解析', focus: 'suricata' },
+  wait_after_replay: { label: '回放后等待', desc: '等待 Suricata 继续解析并写入 Redis', focus: 'suricata' },
+  trident_total: { label: 'Trident 分析总耗时', desc: 'Trident 拉流、推理与产物输出总耗时', focus: 'trident' },
+  wall_clock_total: { label: '总耗时', desc: '整轮压测从开始到结束的总耗时', focus: 'overall' },
+}
+
+const TRIDENT_STAGE_META: Record<string, { label: string; desc: string }> = {
+  pipeline_preflight: { label: 'Trident 预检查', desc: 'Trident 启动前参数与资源检查' },
+  io_source_read: { label: '读取数据源', desc: '从 Redis Stream 拉取流量数据' },
+  io_preprocess: { label: '预处理', desc: '字段清洗与数据规整' },
+  io_feature_matrix: { label: '特征矩阵构建', desc: '将流量转为模型输入特征' },
+  io_load_total: { label: '数据加载总耗时', desc: '读取 + 预处理 + 特征构建总耗时' },
+  init_learners: { label: '初始学习器构建', desc: '初始化已知模式学习器' },
+  stream_inference: { label: '流式推理', desc: '核心在线检测阶段' },
+  stream_cluster: { label: '聚类判定', desc: '未知流量的聚类与判定' },
+  stream_create_learner: { label: '增量建模', desc: '新类学习器创建' },
+  stream_retrain: { label: '增量重训练', desc: '已有学习器增量更新' },
+  stream_window_total: { label: '窗口处理总耗时', desc: '每批窗口推理与更新总耗时' },
+  pipeline_experiment: { label: '实验核心总耗时', desc: 'Trident 分析主流程总耗时' },
+  pipeline_postrun: { label: '收尾阶段', desc: '保存指标并做结束处理' },
+  pipeline_total: { label: 'Trident Pipeline 总耗时', desc: 'Trident 全流程总耗时' },
+}
+
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : {}
 }
@@ -37,6 +72,41 @@ function formatSeconds(value: unknown): string {
   if (n == null) return '-'
   if (n >= 60) return `${formatNumber(n / 60, 2)} min`
   return `${formatNumber(n, 2)} s`
+}
+
+function formatBytes(value: unknown): string {
+  const n = asNumber(value)
+  if (n == null) return '-'
+  const abs = Math.abs(n)
+  if (abs >= 1024 ** 3) return `${formatNumber(n / 1024 ** 3, 2)} GiB`
+  if (abs >= 1024 ** 2) return `${formatNumber(n / 1024 ** 2, 2)} MiB`
+  if (abs >= 1024) return `${formatNumber(n / 1024, 2)} KiB`
+  return `${formatNumber(n, 0)} B`
+}
+
+function formatFlowRate(value: unknown): string {
+  const n = asNumber(value)
+  if (n == null) return '-'
+  return `${formatNumber(n, 2)} flow/s`
+}
+
+function flowRateToGBps(flowRate: unknown, avgBytesPerFlow: unknown): number | null {
+  const fps = asNumber(flowRate)
+  const bytesPerFlow = asNumber(avgBytesPerFlow)
+  if (fps == null || bytesPerFlow == null) return null
+  return (fps * bytesPerFlow) / 1_000_000_000
+}
+
+function formatGBps(value: unknown): string {
+  const n = asNumber(value)
+  if (n == null) return '-'
+  return `${formatNumber(n, 4)} GB/s`
+}
+
+function formatPercent(value: unknown, digits = 2): string {
+  const n = asNumber(value)
+  if (n == null) return '-'
+  return `${formatNumber(n * 100, digits)}%`
 }
 
 function formatTime(value: unknown): string {
@@ -97,25 +167,28 @@ function statusClass(status: string): string {
   return 'status status-other'
 }
 
-function StageBars({ stages }: { stages: JsonRecord }) {
-  const rows = Object.entries(stages)
-    .filter(([, value]) => typeof value === 'number')
-    .sort((a, b) => Number(b[1]) - Number(a[1]))
-  const max = Number(rows[0]?.[1] || 1)
+function StageBars({ rows }: { rows: StageRow[] }) {
   if (rows.length === 0) return <div className="chart-empty">没有阶段耗时数据</div>
+  const max = Math.max(...rows.map((row) => row.seconds), 1)
   return (
     <div className="bar-list">
-      {rows.map(([key, value]) => {
-        const width = Math.max(1, (Number(value) / max) * 100)
+      {rows.map((row) => {
+        const width = Math.max(1, (row.seconds / max) * 100)
+        const fillClass = row.focus === 'suricata' ? 'bar-fill bar-fill-suricata' : row.focus === 'trident' ? 'bar-fill bar-fill-trident' : 'bar-fill'
         return (
-          <div className="bar-row" key={key}>
-            <div className="bar-label" title={key}>
-              {key}
+          <div className="bar-row" key={row.key}>
+            <div className="bar-label">
+              <p className="bar-label-main" title={row.label}>
+                {row.label}
+              </p>
+              <p className="bar-label-desc" title={row.desc}>
+                {row.desc}
+              </p>
             </div>
             <div className="bar-track">
-              <div className="bar-fill" style={{ width: `${width}%` }} />
+              <div className={fillClass} style={{ width: `${width}%` }} />
             </div>
-            <div className="bar-value">{formatSeconds(value)}</div>
+            <div className="bar-value">{formatSeconds(row.seconds)}</div>
           </div>
         )
       })}
@@ -235,29 +308,30 @@ function App() {
 
   const summary = detail?.summary || {}
   const trident = detail?.trident_benchmark || asRecord(summary.trident_benchmark)
-  const stages = asRecord(summary.stages_seconds)
+  const derivedTiming = asRecord(summary.derived_timing)
+  const componentMetrics = asRecord(summary.derived_component_metrics)
+  const suricataMetrics = asRecord(componentMetrics.suricata)
+  const suricataResource = asRecord(suricataMetrics.resource)
+  const tridentDerivedMetrics = asRecord(componentMetrics.trident)
+  const tridentDerivedResource = asRecord(tridentDerivedMetrics.resource)
+  const summaryStages = asRecord(summary.stages_seconds)
   const throughput = asRecord(trident.throughput_flows_per_second)
-  const resource = asRecord(trident.resource_usage)
-  const streamPerf = asRecord(trident.stream_perf_stats)
-  const qualification = asRecord(trident.qualification_detail)
   const redisSummary = asRecord(detail?.redis?.summary)
-  const redisSamples = asArray(detail?.redis?.samples || asRecord(summary.redis).samples)
-  const dockerSamples = asArray(detail?.docker?.samples)
-  const redisPoints: Point[] = redisSamples.map((sample) => ({
-    timestamp: typeof sample.timestamp === 'string' ? sample.timestamp : undefined,
-    xlen: asNumber(sample.xlen),
-    ops: asNumber(sample.instantaneous_ops_per_sec),
-    mem: asNumber(sample.used_memory) == null ? null : Number(sample.used_memory) / 1048576,
-  }))
-  const dockerPoints: Point[] = dockerSamples
-    .filter((sample) => sample.container === 'suricata-cic-live' || sample.Name === 'suricata-cic-live')
-    .map((sample) => ({
-      timestamp: typeof sample.timestamp === 'string' ? sample.timestamp : undefined,
-      cpu: parsePercent(sample.CPUPerc),
-      mem: parseMemMiB(sample.MemUsage),
-    }))
-  const redisLabels = redisPoints.filter((_, index) => index % Math.max(1, Math.floor(redisPoints.length / 4)) === 0).map((point) => formatTime(point.timestamp))
-  const dockerLabels = dockerPoints.filter((_, index) => index % Math.max(1, Math.floor(dockerPoints.length / 4)) === 0).map((point) => formatTime(point.timestamp))
+  const replayStats = asRecord(detail?.replay_stats)
+  const replayAvgBytesPerFlow = asNumber(replayStats.avg_bytes_per_flow)
+  const replayRatedMbps = asNumber(replayStats.rated_mbps_avg)
+  const replayLineGBps = replayRatedMbps == null ? null : replayRatedMbps / 8000
+  const e2eGBps = flowRateToGBps(throughput.flows_per_second_end_to_end ?? detail?.run.e2e_fps, replayAvgBytesPerFlow)
+  const suricataTotalGBps = flowRateToGBps(suricataMetrics.flow_fps_total, replayAvgBytesPerFlow)
+  const suricataReplayGBps = flowRateToGBps(suricataMetrics.flow_fps_replay_only, replayAvgBytesPerFlow)
+  const suricataTailGBps = flowRateToGBps(suricataMetrics.flow_fps_tail_only, replayAvgBytesPerFlow)
+  const tridentAnalysisGBps = flowRateToGBps(tridentDerivedMetrics.analysis_fps_true, replayAvgBytesPerFlow)
+  const tridentRuntimeGBps = flowRateToGBps(tridentDerivedMetrics.runtime_fps_true, replayAvgBytesPerFlow)
+  const tridentPureInferenceGBps = flowRateToGBps(tridentDerivedMetrics.reported_fps_inference, replayAvgBytesPerFlow)
+  const tridentWindowGBps = flowRateToGBps(tridentDerivedMetrics.stream_window_fps, replayAvgBytesPerFlow)
+  const computeDuty = asNumber(tridentDerivedMetrics.compute_duty_cycle)
+  const waitRatio = asNumber(tridentDerivedMetrics.wait_ratio)
+  const backlogFps = (asNumber(suricataMetrics.flow_fps_total) ?? 0) - (asNumber(tridentDerivedMetrics.runtime_fps_true) ?? 0)
 
   return (
     <div className="page">
@@ -269,13 +343,10 @@ function App() {
           </div>
           <nav className="nav-tabs" aria-label="Dashboard sections">
             <a className="nav-link nav-link-active" href="#overview">
-              压测概览
-            </a>
-            <a className="nav-link" href="#timeline">
-              时序指标
+              关键指标
             </a>
             <a className="nav-link" href="#artifacts">
-              产物
+              历史对比
             </a>
           </nav>
         </div>
@@ -311,55 +382,72 @@ function App() {
 
         <section className="metric-grid" aria-label="Run summary">
           <MetricCard label="Status" value={String(summary.status || detail?.run.status || '-')} note={String(summary.error || detail?.run.id || '')} />
-          <MetricCard label="Redis XLEN" value={formatNumber(redisSummary.xlen_last ?? detail?.run.xlen_last, 0)} note={String(detail?.run.stream || '')} />
-          <MetricCard label="E2E FPS" value={formatNumber(throughput.flows_per_second_end_to_end ?? detail?.run.e2e_fps, 2)} note="pipeline core throughput" />
-          <MetricCard label="Inference FPS" value={formatNumber(throughput.flows_per_second_inference ?? detail?.run.inference_fps, 2)} note={`${formatNumber(trident.flow_count, 0)} flows`} />
-          <MetricCard label="RSS Peak" value={asNumber(resource.process_rss_peak_mb) == null ? '-' : `${formatNumber(resource.process_rss_peak_mb, 1)} MB`} note={`${formatNumber(streamPerf.windows_count, 0)} windows`} />
+          <MetricCard label="回放线速" value={formatGBps(replayLineGBps)} note={`${formatNumber(replayRatedMbps, 2)} Mbps（实测）`} />
+          <MetricCard
+            label="总发送流量"
+            value={formatBytes(replayStats.total_bytes)}
+            note={`${formatNumber(replayStats.total_packets, 0)} packets / ${formatNumber(replayStats.total_flows, 0)} flows / ${formatNumber(replayStats.rounds, 0)} 轮`}
+          />
+          <MetricCard
+            label="Trident 纯推理速度"
+            value={formatGBps(tridentPureInferenceGBps)}
+            note={`${formatFlowRate(tridentDerivedMetrics.reported_fps_inference)}（仅模型推理阶段）`}
+          />
+          <MetricCard
+            label="Trident 窗口处理速度"
+            value={formatGBps(tridentWindowGBps)}
+            note={`${formatFlowRate(tridentDerivedMetrics.stream_window_fps)}（窗口处理，不含上游等待）`}
+          />
+          <MetricCard
+            label="Trident 联机有效速度"
+            value={formatGBps(tridentRuntimeGBps)}
+            note={`${formatFlowRate(tridentDerivedMetrics.runtime_fps_true)}（含上游等待）`}
+          />
+          <MetricCard
+            label="Trident 计算占空比"
+            value={formatPercent(computeDuty)}
+            note={`等待占比 ${formatPercent(waitRatio)}（等待上游流量/窗口凑齐）`}
+          />
         </section>
 
         <section className="layout-two">
           <article className="panel">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Stage Breakdown</p>
-                <h3>压测阶段耗时</h3>
-              </div>
-            </div>
-            <StageBars stages={stages} />
-          </article>
-
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Trident Benchmark</p>
-                <h3>核心吞吐与资源</h3>
+                <p className="eyebrow">输入链路（仅参考）</p>
+                <h3>Suricata 产出速率受流超时机制影响</h3>
               </div>
             </div>
             <div className="mini-grid">
-              <MetricCard label="Device" value={String(resource.compute_device || '-')} note={resource.gpu_available ? 'GPU available' : 'CPU path'} />
-              <MetricCard label="CPU Avg" value={asNumber(resource.process_cpu_percent_one_core_avg) == null ? '-' : `${formatNumber(resource.process_cpu_percent_one_core_avg, 2)}%`} note={`${formatNumber(resource.cpu_logical_count, 0)} logical cores`} />
-              <MetricCard label="Window Avg" value={formatSeconds(streamPerf.avg_window_seconds)} note={`${formatNumber(streamPerf.new_learner_count, 0)} new learners`} />
-              <MetricCard label="Audit Flows" value={formatNumber(qualification.audited_flow_count, 0)} note={`${formatSeconds(qualification.qualification_total_seconds)} qualification`} />
-            </div>
-          </article>
-        </section>
-
-        <section className="layout-two" id="timeline">
-          <article className="panel">
-            <div className="panel-heading">
-              <div>
-                <p className="eyebrow">Redis Stream</p>
-                <h3>流长度与 Ops</h3>
-              </div>
-            </div>
-            <div className="chart">
-              <LineChart
-                labels={redisLabels}
-                series={[
-                  { name: 'XLEN', keyName: 'xlen', color: colors.blue, points: redisPoints },
-                  { name: 'Ops/sec', keyName: 'ops', color: colors.green, points: redisPoints },
-                  { name: 'Memory MiB', keyName: 'mem', color: colors.orange, points: redisPoints },
-                ]}
+              <MetricCard
+                label="观测产出速度"
+                value={formatGBps(suricataTotalGBps)}
+                note={`${formatFlowRate(suricataMetrics.flow_fps_total)}（仅用于排队趋势观察）`}
+              />
+              <MetricCard
+                label="回放期产出速度"
+                value={formatGBps(suricataReplayGBps)}
+                note={`${formatFlowRate(suricataMetrics.flow_fps_replay_only)} / ${formatSeconds(suricataMetrics.replay_seconds)} 回放阶段`}
+              />
+              <MetricCard
+                label="尾部产出速度"
+                value={formatGBps(suricataTailGBps)}
+                note={`${formatFlowRate(suricataMetrics.flow_fps_tail_only)} / ${formatSeconds(suricataMetrics.settle_seconds)} 收敛阶段`}
+              />
+              <MetricCard
+                label="容器 CPU"
+                value={`${formatNumber(suricataResource.cpu_percent_avg, 2)}%`}
+                note={`峰值 ${formatNumber(suricataResource.cpu_percent_max, 2)}%`}
+              />
+              <MetricCard
+                label="输入积压速度差"
+                value={formatFlowRate(backlogFps)}
+                note={backlogFps > 0 ? '正值表示输入快于Trident联机处理' : '负值表示Trident可追平输入'}
+              />
+              <MetricCard
+                label="容器内存峰值"
+                value={suricataResource.mem_mib_max ? `${formatNumber(suricataResource.mem_mib_max, 1)} MiB` : '-'}
+                note={`${formatNumber(suricataMetrics.flow_delta_total, 0)} flows 输出`}
               />
             </div>
           </article>
@@ -367,17 +455,50 @@ function App() {
           <article className="panel">
             <div className="panel-heading">
               <div>
-                <p className="eyebrow">Docker Stats</p>
-                <h3>容器 CPU 与内存</h3>
+                <p className="eyebrow">Trident 真实处理能力</p>
+                <h3>优先看纯计算速度，不受 Suricata 出流延迟影响</h3>
               </div>
             </div>
-            <div className="chart">
-              <LineChart
-                labels={dockerLabels}
-                series={[
-                  { name: 'Suricata CPU %', keyName: 'cpu', color: colors.red, points: dockerPoints },
-                  { name: 'Suricata Mem MiB', keyName: 'mem', color: colors.blue, points: dockerPoints },
-                ]}
+            <div className="mini-grid">
+              <MetricCard
+                label="纯推理速度（主指标）"
+                value={formatGBps(tridentPureInferenceGBps)}
+                note={`${formatFlowRate(tridentDerivedMetrics.reported_fps_inference)} / ${formatSeconds(tridentDerivedMetrics.inference_seconds_total)} 推理耗时`}
+              />
+              <MetricCard
+                label="窗口处理速度（次主指标）"
+                value={formatGBps(tridentWindowGBps)}
+                note={`${formatFlowRate(tridentDerivedMetrics.stream_window_fps)} / ${formatSeconds(tridentDerivedMetrics.stream_window_seconds_total)} 窗口处理耗时`}
+              />
+              <MetricCard
+                label="运行期真实速度"
+                value={formatGBps(tridentRuntimeGBps)}
+                note={`${formatFlowRate(tridentDerivedMetrics.runtime_fps_true)} / ${formatSeconds(tridentDerivedMetrics.runtime_seconds_total)} 线程运行时长（含等待）`}
+              />
+              <MetricCard
+                label="等待占比"
+                value={formatPercent(waitRatio)}
+                note={`实验总耗时 ${formatSeconds(tridentDerivedMetrics.experiment_seconds_total)}，可帮助识别上游限速`}
+              />
+              <MetricCard
+                label="离散分析速度"
+                value={formatGBps(tridentAnalysisGBps)}
+                note={`${formatFlowRate(tridentDerivedMetrics.analysis_fps_true)} / ${formatSeconds(tridentDerivedMetrics.analysis_seconds_total)} 离散统计口径`}
+              />
+              <MetricCard
+                label="进程 CPU"
+                value={`${formatNumber(tridentDerivedResource.cpu_percent_one_core_avg, 2)}%`}
+                note={`峰值 ${formatNumber(tridentDerivedResource.cpu_percent_one_core_max, 2)}%`}
+              />
+              <MetricCard
+                label="GPU 利用率"
+                value={`${formatNumber(tridentDerivedResource.gpu_utilization_percent_avg, 2)}%`}
+                note={`峰值 ${formatNumber(tridentDerivedResource.gpu_utilization_percent_max, 2)}%，显存峰值 ${formatNumber(tridentDerivedResource.gpu_memory_used_mb_max, 0)} MB`}
+              />
+              <MetricCard
+                label="端到端速度（参考）"
+                value={formatGBps(e2eGBps)}
+                note={`${formatFlowRate(tridentDerivedMetrics.reported_fps_end_to_end || throughput.flows_per_second_end_to_end)}（受上游出流节奏影响）`}
               />
             </div>
           </article>
@@ -423,24 +544,6 @@ function App() {
           </div>
         </section>
 
-        <section className="panel">
-          <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Artifact Paths</p>
-              <h3>当前 Run 产物</h3>
-            </div>
-          </div>
-          <dl className="artifact-list">
-            <dt>stress run</dt>
-            <dd title={detail?.run.run_dir || String(summary.run_dir || '-')}>{detail?.run.run_dir || String(summary.run_dir || '-')}</dd>
-            <dt>trident run</dt>
-            <dd title={detail?.run.trident_run_dir || String(summary.trident_run_dir || '-')}>{detail?.run.trident_run_dir || String(summary.trident_run_dir || '-')}</dd>
-            <dt>redis stream</dt>
-            <dd title={detail?.run.stream || '-'}>{detail?.run.stream || '-'}</dd>
-            <dt>finished at</dt>
-            <dd>{String(summary.finished_at || '-')}</dd>
-          </dl>
-        </section>
       </main>
     </div>
   )

@@ -27,6 +27,58 @@ function getSamples(value: unknown): JsonObject[] {
   return Array.isArray(value) ? value.filter((item): item is JsonObject => !!item && typeof item === 'object' && !Array.isArray(item)) : []
 }
 
+function parseNumericToken(raw: string): number {
+  const normalized = raw.replaceAll(',', '').trim()
+  const n = Number.parseFloat(normalized)
+  return Number.isFinite(n) ? n : 0
+}
+
+function parseReplayStats(runDir: string): JsonObject | null {
+  const replayPath = path.join(runDir, 'replay.log')
+  if (!fs.existsSync(replayPath)) return null
+  const raw = fs.readFileSync(replayPath, 'utf-8')
+  const lines = raw.split('\n')
+  let totalBytes = 0
+  let totalPackets = 0
+  let totalSeconds = 0
+  let totalFlows = 0
+  let rounds = 0
+  const ratedMbps: number[] = []
+
+  for (const line of lines) {
+    const actual = line.match(/Actual:\s+([\d,]+)\s+packets\s+\(([\d,]+)\s+bytes\)\s+sent\s+in\s+([\d.]+)\s+seconds/i)
+    if (actual) {
+      totalPackets += parseNumericToken(actual[1])
+      totalBytes += parseNumericToken(actual[2])
+      totalSeconds += parseNumericToken(actual[3])
+      rounds += 1
+      continue
+    }
+    const rated = line.match(/Rated:\s+[\d.,]+\s+Bps,\s+([\d.]+)\s+Mbps/i)
+    if (rated) {
+      ratedMbps.push(parseNumericToken(rated[1]))
+      continue
+    }
+    const flows = line.match(/Flows:\s+([\d,]+)\s+flows/i)
+    if (flows) {
+      totalFlows += parseNumericToken(flows[1])
+    }
+  }
+
+  if (rounds <= 0) return null
+  const ratedMbpsAvg = ratedMbps.length > 0 ? ratedMbps.reduce((acc, cur) => acc + cur, 0) / ratedMbps.length : null
+  const avgBytesPerFlow = totalFlows > 0 ? totalBytes / totalFlows : null
+  return {
+    rounds,
+    total_packets: Math.round(totalPackets),
+    total_bytes: Math.round(totalBytes),
+    total_flows: Math.round(totalFlows),
+    avg_bytes_per_flow: avgBytesPerFlow == null ? null : Number(avgBytesPerFlow.toFixed(2)),
+    total_seconds: Number(totalSeconds.toFixed(4)),
+    rated_mbps_avg: ratedMbpsAvg == null ? null : Number(ratedMbpsAvg.toFixed(2)),
+  }
+}
+
 function runRow(runDir: string): JsonObject {
   const runId = path.basename(runDir)
   const summary = readJson(path.join(runDir, 'stress_summary.json')) || {}
@@ -101,6 +153,7 @@ export function stressDataApiPlugin(): Plugin {
         const tridentRunDir = typeof summary.trident_run_dir === 'string' ? summary.trident_run_dir : null
         const inlineBenchmark = getRecord(summary.trident_benchmark)
         const benchmarkFromFile = tridentRunDir ? readJson(path.join(tridentRunDir, 'trident_performance_benchmark.json')) : null
+        const replayStats = parseReplayStats(runDir)
         sendJson(res, 200, {
           run: runRow(runDir),
           summary,
@@ -108,6 +161,7 @@ export function stressDataApiPlugin(): Plugin {
           docker: readJson(path.join(runDir, 'docker_metrics.json')),
           suricata: readJson(path.join(runDir, 'suricata_metrics.json')),
           trident_benchmark: Object.keys(inlineBenchmark).length > 0 ? inlineBenchmark : benchmarkFromFile,
+          replay_stats: replayStats,
         })
       })
     },

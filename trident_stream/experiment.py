@@ -19,6 +19,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from sklearn.ensemble import IsolationForest
 
+from .cic_align import RENAME_2019_TO_2017
 from .tmagnifier import TMagnifier
 from .tscissors import TScissors
 from .tsieve import TSieve
@@ -3523,6 +3524,10 @@ class TridentStreamingExperiment:
                 redis_cfg.setdefault("data_structure", "list")
             elif source == "redis_stream":
                 redis_cfg.setdefault("data_structure", "stream")
+            if "target_messages" not in redis_cfg:
+                redis_cfg["target_messages"] = int(self.cfg.get("stream", {}).get("window_size", 0) or 0)
+            if "wait_for_target_seconds" not in redis_cfg:
+                redis_cfg["wait_for_target_seconds"] = float(redis_cfg.get("idle_timeout_seconds", 5.0) or 0.0)
             data = load_redis_flows(redis_cfg, logger=self.logger)
         else:
             data_dir = Path(self.cfg["paths"]["data_dir"])
@@ -3532,14 +3537,39 @@ class TridentStreamingExperiment:
                 raise FileNotFoundError(f"No input files found in {data_dir}")
             if input_files:
                 self.logger.info("Configured input files: %s", ", ".join(input_files))
+            runtime_cfg = self.cfg["runtime"]
+            attack_exclude_cfg = runtime_cfg.get("attack_type_exclude")
+            attack_exclude_bases: Set[str] = set()
+            if attack_exclude_cfg:
+                attack_exclude_bases = {
+                    normalize_base_label(v)
+                    for v in self._normalize_runtime_list(attack_exclude_cfg)
+                    if str(v).strip()
+                }
             dfs = []
             for f in files:
+                fname_class = normalize_base_label(f.stem)
+                if (
+                    attack_exclude_bases
+                    and fname_class != "BENIGN"
+                    and fname_class in attack_exclude_bases
+                ):
+                    self.logger.info(
+                        "Skip load %s (filename class matches attack_type_exclude: %s)",
+                        f.name,
+                        fname_class,
+                    )
+                    continue
                 self.logger.info("Load %s", f.name)
                 chunk = pd.read_csv(f, low_memory=False)
+                chunk.columns = chunk.columns.astype(str).str.strip()
+                year_tag = infer_year_tag(f)
+                if year_tag == "2019":
+                    chunk = chunk.rename(columns=RENAME_2019_TO_2017)
+
                 if "Label" not in chunk.columns:
                     raise ValueError(f"Input file missing required column: Label ({f})")
 
-                year_tag = infer_year_tag(f)
                 raw_labels = chunk["Label"].astype(str).str.strip()
                 missing_year_mask = ~raw_labels.map(has_year_prefix)
 

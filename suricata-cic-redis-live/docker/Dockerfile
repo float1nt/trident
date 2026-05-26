@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -7,7 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iproute2 \
     jq \
     libcap-ng0 \
-    libhiredis1.1.0 \
+    libevent-2.1-7 \
+    libevent-pthreads-2.1-7 \
+    libhiredis0.14 \
     libjansson4 \
     liblz4-1 \
     libmagic1 \

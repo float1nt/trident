@@ -163,11 +163,16 @@ def _stream_messages(client: Any, cfg: Mapping[str, Any]) -> Iterable[Any]:
     batch_size = int(cfg.get("batch_size", 1000) or 1000)
     block_ms = int(float(cfg.get("block_timeout_seconds", 1.0)) * 1000)
     idle_timeout = float(cfg.get("idle_timeout_seconds", 5.0))
+    target_messages = int(cfg.get("target_messages", 0) or 0)
+    wait_for_target_seconds = float(
+        cfg.get("wait_for_target_seconds", cfg.get("window_wait_timeout_seconds", 0.0)) or 0.0
+    )
     last_id = str(cfg.get("last_id", "0-0"))
     group = cfg.get("consumer_group")
     consumer = str(cfg.get("consumer_name", "trident"))
     ack = bool(cfg.get("ack", True))
     start_idle = time.monotonic()
+    first_message_at: Optional[float] = None
     count = 0
     if group and bool(cfg.get("create_consumer_group", False)):
         try:
@@ -177,6 +182,15 @@ def _stream_messages(client: Any, cfg: Mapping[str, Any]) -> Iterable[Any]:
                 raise
 
     while max_messages <= 0 or count < max_messages:
+        if (
+            target_messages > 0
+            and wait_for_target_seconds > 0
+            and count > 0
+            and count < target_messages
+            and first_message_at is not None
+            and (time.monotonic() - first_message_at) >= wait_for_target_seconds
+        ):
+            break
         if group:
             response = client.xreadgroup(
                 groupname=str(group),
@@ -198,6 +212,8 @@ def _stream_messages(client: Any, cfg: Mapping[str, Any]) -> Iterable[Any]:
             for msg_id, fields in entries:
                 if max_messages > 0 and count >= max_messages:
                     return
+                if first_message_at is None:
+                    first_message_at = time.monotonic()
                 count += 1
                 last_id = _decode(msg_id)
                 yield fields

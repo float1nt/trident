@@ -33,7 +33,11 @@ def inject_csv_to_redis(
     except ImportError as exc:
         raise SystemExit("Install redis: pip install redis") from exc
 
-    csv_path = (repo_root / csv).resolve()
+    csv_path = Path(csv).expanduser()
+    if not csv_path.is_absolute():
+        csv_path = (repo_root / csv_path).resolve()
+    else:
+        csv_path = csv_path.resolve()
     if not csv_path.exists():
         raise SystemExit(f"CSV not found: {csv_path}")
 
