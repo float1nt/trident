@@ -5,6 +5,7 @@
 当前仅包含架构与设计文档，尚未实现代码。完整设计见：
 
 - [`docs/DESIGN.md`](docs/DESIGN.md)
+- [`docs/P0_IMPLEMENTATION_PLAN.md`](docs/P0_IMPLEMENTATION_PLAN.md)
 
 ## 范围
 
