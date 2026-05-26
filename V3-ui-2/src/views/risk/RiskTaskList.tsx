@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Table, Input, Button, Space, Tooltip, Tag } from "antd";
+import { Table, Input, Button, Space, Tooltip, Tag, Tabs, DatePicker } from "antd";
+import type { Dayjs } from "dayjs";
 import { EyeOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { RiskItem } from "@/api/types";
@@ -11,21 +12,38 @@ import "./RiskTaskList.css";
 type RiskSearchForm = {
   name: string;
   subjectIp: string;
-  description: string;
   triggerTime: string;
 };
 
 const EMPTY_SEARCH: RiskSearchForm = {
   name: "",
   subjectIp: "",
-  description: "",
   triggerTime: "",
 };
 
+type EventSearchForm = {
+  name: string;
+  triggerPeriod: [Dayjs, Dayjs] | null;
+};
+
+const EMPTY_EVENT_SEARCH: EventSearchForm = {
+  name: "",
+  triggerPeriod: null,
+};
+
+type RiskViewTab = "event" | "ip";
+
+const { RangePicker } = DatePicker;
+
 const RiskTaskList = () => {
   const navigate = useNavigate();
+  const [activeView, setActiveView] = useState<RiskViewTab>("ip");
   const [searchInputs, setSearchInputs] = useState<RiskSearchForm>(EMPTY_SEARCH);
   const [filters, setFilters] = useState<RiskSearchForm>(EMPTY_SEARCH);
+  const [eventSearchInputs, setEventSearchInputs] =
+    useState<EventSearchForm>(EMPTY_EVENT_SEARCH);
+  const [eventFilters, setEventFilters] =
+    useState<EventSearchForm>(EMPTY_EVENT_SEARCH);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
@@ -33,8 +51,15 @@ const RiskTaskList = () => {
   const [listdata, setListdata] = useState<RiskItem[]>([]);
 
   useEffect(() => {
+    if (activeView !== "ip") return;
     void getListData();
-  }, [page, filters]);
+  }, [page, filters, activeView]);
+
+  useEffect(() => {
+    if (activeView !== "event") return;
+    // 事件列表接入后在此根据 eventFilters 拉取数据
+    void eventFilters;
+  }, [activeView, eventFilters]);
 
   const getListData = async (opts?: { page?: number; nextFilters?: RiskSearchForm }) => {
     const curPage = opts?.page ?? page;
@@ -46,7 +71,6 @@ const RiskTaskList = () => {
         offset: (curPage - 1) * pageSize,
         name: curFilters.name,
         subjectIp: curFilters.subjectIp,
-        description: curFilters.description,
         triggerTime: curFilters.triggerTime,
       });
       setListdata(response.risks);
@@ -74,6 +98,15 @@ const RiskTaskList = () => {
     setSearchInputs(EMPTY_SEARCH);
     setFilters(EMPTY_SEARCH);
     setPage(1);
+  };
+
+  const handleEventSearch = () => {
+    setEventFilters({ ...eventSearchInputs });
+  };
+
+  const handleEventReset = () => {
+    setEventSearchInputs(EMPTY_EVENT_SEARCH);
+    setEventFilters(EMPTY_EVENT_SEARCH);
   };
 
   const updateSearchInput = (key: keyof RiskSearchForm, value: string) => {
@@ -162,71 +195,121 @@ const RiskTaskList = () => {
 
   return (
     <div className="task-list-page bg-[#f6faff] p-[12px] h-full w-full rounded-[8px]">
-      <div
-        className="h-full w-full grid gap-[12px]"
-        style={{ gridTemplateRows: "auto 1fr" }}
-      >
-        <div className="bg-[#fff] rounded-[8px] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-          <div className="grid grid-cols-3 gap-3 lg:grid-cols-4">
-            <Input
-              className="w-full"
-              prefix="风险名称"
-              placeholder="请输入"
-              value={searchInputs.name}
-              onChange={(e) => updateSearchInput("name", e.target.value)}
-            />
-            <Input
-              className="w-full"
-              prefix="风险主体（IP）"
-              placeholder="请输入"
-              value={searchInputs.subjectIp}
-              onChange={(e) => updateSearchInput("subjectIp", e.target.value)}
-            />
-            <Input
-              className="w-full"
-              prefix="触发时间"
-              placeholder="请输入"
-              value={searchInputs.triggerTime}
-              onChange={(e) => updateSearchInput("triggerTime", e.target.value)}
-            />
-            <Input
-              className="w-full"
-              prefix="风险说明"
-              placeholder="请输入"
-              value={searchInputs.description}
-              onChange={(e) => updateSearchInput("description", e.target.value)}
-            />
-          </div>
-          <div className="mt-3 flex justify-end">
-            <Space>
-              <Button onClick={handleReset}>重置</Button>
-              <Button type="primary" onClick={handleSearch}>
-                查询
-              </Button>
-            </Space>
-          </div>
+      <div className="flex h-full min-h-0 flex-col gap-[12px]">
+        <div className="rounded-[8px] bg-[#fff] px-[16px] pt-[8px] pb-0 shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+          <Tabs
+            activeKey={activeView}
+            onChange={(key) => setActiveView(key as RiskViewTab)}
+            items={[
+              { key: "event", label: "事件视角" },
+              { key: "ip", label: "IP 视角" },
+            ]}
+          />
         </div>
-        <div className="bg-[#fff] rounded-[8px] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)] w-full">
-          <div style={{ width: "100%", display: "grid", gridRowGap: "16px" }}>
-            <Table
-              className="w-full max-w-full min-w-0"
-              columns={columns}
-              dataSource={listdata}
-              rowKey="id"
-              size="middle"
-              loading={loading}
-              pagination={{
-                current: page,
-                pageSize: pageSize,
-                total: total,
-                showTotal: (t) => `共 ${t} 条`,
-                onChange: setPage,
-              }}
-              scroll={{ x: 1100, y: "calc(100vh - 420px)" }}
-              bordered
-            />
-          </div>
-        </div>
+
+        {activeView === "event" ? (
+          <>
+            <div className="rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+              <div className="risk-filter-row">
+                <Input
+                  className="risk-filter-field"
+                  prefix="风险名称"
+                  placeholder="请输入"
+                  value={eventSearchInputs.name}
+                  onChange={(e) =>
+                    setEventSearchInputs((prev) => ({
+                      ...prev,
+                      name: e.target.value,
+                    }))
+                  }
+                />
+                <div className="risk-filter-range risk-filter-field">
+                  <span className="risk-filter-range__prefix">触发时段</span>
+                  <RangePicker
+                    className="risk-filter-range__picker"
+                    showTime
+                    allowClear
+                    format="YYYY-MM-DD HH:mm:ss"
+                    placeholder={["开始时间", "结束时间"]}
+                    value={eventSearchInputs.triggerPeriod}
+                    onChange={(value) =>
+                      setEventSearchInputs((prev) => ({
+                        ...prev,
+                        triggerPeriod: value as [Dayjs, Dayjs] | null,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <Space>
+                  <Button onClick={handleEventReset}>重置</Button>
+                  <Button type="primary" onClick={handleEventSearch}>
+                    查询
+                  </Button>
+                </Space>
+              </div>
+            </div>
+            <div className="flex min-h-[320px] flex-1 items-center justify-center rounded-[8px] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+              <span className="text-sm text-[#8c8c8c]">（占位）</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+              <div className="risk-filter-row">
+                <Input
+                  className="risk-filter-field"
+                  prefix="风险名称"
+                  placeholder="请输入"
+                  value={searchInputs.name}
+                  onChange={(e) => updateSearchInput("name", e.target.value)}
+                />
+                <Input
+                  className="risk-filter-field"
+                  prefix="风险主体（IP）"
+                  placeholder="请输入"
+                  value={searchInputs.subjectIp}
+                  onChange={(e) => updateSearchInput("subjectIp", e.target.value)}
+                />
+                <Input
+                  className="risk-filter-field"
+                  prefix="触发时间"
+                  placeholder="请输入"
+                  value={searchInputs.triggerTime}
+                  onChange={(e) => updateSearchInput("triggerTime", e.target.value)}
+                />
+              </div>
+              <div className="mt-3 flex justify-end">
+                <Space>
+                  <Button onClick={handleReset}>重置</Button>
+                  <Button type="primary" onClick={handleSearch}>
+                    查询
+                  </Button>
+                </Space>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+              <Table
+                className="w-full max-w-full min-w-0"
+                columns={columns}
+                dataSource={listdata}
+                rowKey="id"
+                size="middle"
+                loading={loading}
+                pagination={{
+                  current: page,
+                  pageSize: pageSize,
+                  total: total,
+                  showTotal: (t) => `共 ${t} 条`,
+                  onChange: setPage,
+                }}
+                scroll={{ x: 1100, y: "calc(100vh - 420px)" }}
+                bordered
+              />
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
