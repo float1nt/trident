@@ -2177,7 +2177,7 @@ export default function GraphAnalysisPage() {
         {error ? <p className="text-sm text-notion-danger">{error}</p> : null}
       </section> */}
 
-      <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <section className="grid gap-3 grid-cols-3">
         {/* <article className="metric-card"><p className="metric-label">Risk FPR</p><p className="metric-value">{kpi.fpr == null ? '-' : `${(kpi.fpr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article>
         <article className="metric-card"><p className="metric-label">Risk FNR</p><p className="metric-value">{kpi.fnr == null ? '-' : `${(kpi.fnr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article>
         <article className="metric-card"><p className="metric-label">Risk TPR</p><p className="metric-value">{kpi.tpr == null ? '-' : `${(kpi.tpr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article> */}
@@ -2201,11 +2201,11 @@ export default function GraphAnalysisPage() {
             labelOptions={datasetLabelRows.map((r) => r.label).filter(Boolean)}
           />
         </article> */}
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">疑似异常流量占比</h2>
-        <div className="mb-3 text-xs text-notion-secondary">
-          {OVERVIEW_TIME_RANGE_OPTIONS.find((option) => option.value === timeRange)?.label}流量数据
-        </div>
-        <div className="mb-4 grid gap-4 xl:grid-cols-2">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary"> {OVERVIEW_TIME_RANGE_OPTIONS.find((option) => option.value === timeRange)?.label}流量数据</h2>
+        {/* <div className="mb-3 text-xs text-notion-secondary">
+          说明文字
+        </div> */}
+        <div className="mb-4 grid gap-4 lg:grid-cols-2">
           <article className="rounded-lg border border-notion-border bg-notion-surface p-3">
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-notion-secondary">总体正常/疑似异常占比</h3>
             <ReactECharts option={datasetOverallOption} style={{ height: 250 }} />
@@ -2218,7 +2218,7 @@ export default function GraphAnalysisPage() {
           </article>
         </div>
       </section>
-      {/* <div className="mb-4 grid gap-4 xl:grid-cols-2">
+      {/* <div className="mb-4 grid gap-4 lg:grid-cols-2">
           <article className="rounded-lg border border-notion-border bg-notion-surface p-3">
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-notion-secondary">
               标签级特征相关性 Top24（attack=1）
@@ -2486,7 +2486,7 @@ export default function GraphAnalysisPage() {
         <DecisionTreePanel data={decisionTreeViz} />
       </section> */}
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid gap-4 lg:grid-cols-2">
         <article className="panel">
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">Learner 趋势</h2>
           <ReactECharts option={learnerTrendOption} style={{ height: 300 }} />
@@ -2497,7 +2497,7 @@ export default function GraphAnalysisPage() {
         </article>
       </section>
 
-      {/* <section className="grid gap-4 xl:grid-cols-2">
+      {/* <section className="grid gap-4 lg:grid-cols-2">
         <article className="panel">
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">
             簇特征 vs attack_ratio 相关性（Top24）
@@ -2580,7 +2580,7 @@ export default function GraphAnalysisPage() {
         </article>
       </section> */}
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid gap-4 lg:grid-cols-2">
         <article className="panel">
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary">Learner 创建样本量 Top15</h2>
           <ReactECharts option={creationOption} style={{ height: 340 }} />
@@ -2837,8 +2837,8 @@ export default function GraphAnalysisPage() {
         </div>
       </section> */}
 
-      <section className="grid gap-4 xl:grid-cols-4">
-        <article className="panel xl:col-span-3">
+      <section className="grid gap-4 lg:grid-cols-4">
+        <article className="panel lg:col-span-3">
           <div ref={chartRef} className="h-[72vh] w-full" />
         </article>
         <aside className="space-y-4">
