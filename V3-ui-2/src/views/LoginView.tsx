@@ -6,7 +6,7 @@ import { login } from "@/api/services/AuthService";
 import type { LoginParams } from "@/api/services/AuthService";
 import { useUserStore } from "@/stores";
 import loginBg from "@/assets/login_bg.png";
-import favicon from "@/assets/favicon.ico";
+import logoBrand from "@/assets/组 617@2x.png";
 
 const LoginView = () => {
   const navigate = useNavigate();
@@ -61,12 +61,9 @@ const LoginView = () => {
       ></div>
 
       {/* 左侧品牌区域 */}
-      <div className="flex-1 relative z-10 flex items-start p-10 py-15">
-        <div className="gap-3 flex items-center">
-          {/* <img src={favicon} alt="Logo" className="w-10 h-10" /> */}
-          {/* <span className="text-3xl font-extrabold text-[#4368f0]">
-            数据分类分级平台
-          </span> */}
+      <div className="flex-1 relative z-10 flex items-start p-[20px] py-[20px]">
+        <div className="">
+          <img src={logoBrand} alt="数据流动治理平台" className="h-[85px] w-auto" />
         </div>
       </div>
 
@@ -122,7 +119,7 @@ const LoginView = () => {
                 htmlType="submit"
                 className="w-full h-11 text-base"
                 loading={loading}
-                style={{ backgroundColor: "#4368f0" }}
+                style={{ backgroundColor: "#0080FF" }}
               >
                 登录
               </Button>
