@@ -56,7 +56,7 @@ flowchart LR
 
 | 阶段 | 写入目标 | 说明 |
 |------|----------|------|
-| Suricata 产出 EVE | ClickHouse `ch_flow_raw` | 每条流一条，含时间戳 + 五元组 + 特征 |
+| Suricata 产出 EVE | ClickHouse `ch_flow_raw` | 每条流一条，含稳定 `flow_uid`、时间戳、五元组、特征 |
 | Trident 消费 MQ | 同上（或 MQ offset 标记） | `ingest_source=suricata` |
 | 窗口推理结束 | ClickHouse `ch_flow_assignment` | 每条流 → `learner_name` |
 | 窗口推理结束 | ClickHouse `ch_window_stats` | 学习器数、unknown buffer |
@@ -72,7 +72,7 @@ flowchart LR
 | V3-ui 页面 | 当前读盘文件 | 迁移后数据源 |
 |------------|--------------|--------------|
 | **总览** `GraphAnalysisPage` | `learner_count_over_time.csv` | ClickHouse `ch_window_stats` |
-| | `learner_label_distribution.csv` | PostgreSQL `pg_learner` + `pg_learner_label_stat` |
+| | `learner_label_distribution.csv` | PostgreSQL `pg_learner` + `pg_learner_label_stat` + `pg_learner_profile_feature` |
 | | `debug_true_overlap_pairs.csv` | PostgreSQL `pg_learner_overlap` 或 CH 物化 |
 | | `dataset_network_topology.json` | PostgreSQL `pg_artifact_blob` |
 | | `learner_network_topology.json` | PostgreSQL `pg_artifact_blob` |
@@ -193,6 +193,17 @@ CREATE TABLE pg_benchmark_stage (
   duration_sec  DOUBLE PRECISION NOT NULL,
   UNIQUE (run_id, stage_key)
 );
+
+CREATE TABLE pg_benchmark_stage_resource (
+  id                  BIGSERIAL PRIMARY KEY,
+  run_id              VARCHAR(256) NOT NULL REFERENCES pg_benchmark(run_id) ON DELETE CASCADE,
+  stage_key           VARCHAR(64) NOT NULL,
+  process_cpu_seconds DOUBLE PRECISION,
+  rss_peak_mb         DOUBLE PRECISION,
+  gpu_peak_allocated_mb DOUBLE PRECISION,
+  raw_json            JSONB,
+  UNIQUE (run_id, stage_key)
+);
 ```
 
 ---
@@ -214,11 +225,38 @@ CREATE TABLE pg_learner (
   dominant_ratio      DOUBLE PRECISION,
   is_benign           BOOLEAN,
   protocol_cluster_type VARCHAR(64),
+  temporal_cluster_type VARCHAR(64),
+  port_cluster_type   VARCHAR(64),
+  risk_score          DOUBLE PRECISION,
+  risk_band           VARCHAR(32),
+  profile_json        JSONB,                    -- learner_label_distribution.csv 中未关系化的画像字段
   created_at_window   INT,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (run_id, learner_name)
 );
 CREATE INDEX idx_pg_learner_run ON pg_learner(run_id);
+CREATE INDEX idx_pg_learner_attack ON pg_learner(run_id, attack_ratio DESC);
+CREATE INDEX idx_pg_learner_profile_gin ON pg_learner USING GIN (profile_json);
+```
+
+#### `pg_learner_profile_feature` — 学习器画像窄表
+
+对应：`learner_label_distribution.csv` 中 `*_mean` / `*_std` / `*_cv`、协议、时序、端口等可排序字段。  
+`pg_learner.profile_json` 保留无损快照，本表承接前端常用筛选、排序和横向对比。
+
+```sql
+CREATE TABLE pg_learner_profile_feature (
+  id             BIGSERIAL PRIMARY KEY,
+  run_id         VARCHAR(256) NOT NULL,
+  learner_name   VARCHAR(512) NOT NULL,
+  feature_key    VARCHAR(128) NOT NULL,
+  feature_value  DOUBLE PRECISION,
+  feature_text   TEXT,
+  feature_group  VARCHAR(32),                  -- traffic | protocol | temporal | port | risk | meta
+  FOREIGN KEY (run_id, learner_name) REFERENCES pg_learner(run_id, learner_name) ON DELETE CASCADE,
+  UNIQUE (run_id, learner_name, feature_key)
+);
+CREATE INDEX idx_pg_profile_feature_key ON pg_learner_profile_feature(run_id, feature_key);
 ```
 
 #### `pg_learner_label_stat` — 学习器内标签分布
@@ -274,8 +312,11 @@ CREATE TABLE pg_learner_hint (
   run_id        VARCHAR(256) NOT NULL,
   learner_name  VARCHAR(512) NOT NULL,
   hint_key      VARCHAR(64) NOT NULL,
+  order_index   INT DEFAULT 0,
+  severity      VARCHAR(16),
   hint_text     TEXT NOT NULL,
-  FOREIGN KEY (run_id, learner_name) REFERENCES pg_learner(run_id, learner_name) ON DELETE CASCADE
+  FOREIGN KEY (run_id, learner_name) REFERENCES pg_learner(run_id, learner_name) ON DELETE CASCADE,
+  UNIQUE (run_id, learner_name, hint_key)
 );
 ```
 
@@ -295,11 +336,14 @@ CREATE TABLE pg_learner_rule (
   match_level     VARCHAR(16) NOT NULL,       -- strong | weak | near
   evidence_met    INT NOT NULL,
   evidence_total  INT NOT NULL,
+  evidence_json   JSONB,                      -- 命中指标、阈值、实际值，供 UI 解释与审计回放
   semantic        TEXT,
   rules_version   VARCHAR(32) NOT NULL DEFAULT 'topology-family-v2',
-  FOREIGN KEY (run_id, learner_name) REFERENCES pg_learner(run_id, learner_name) ON DELETE CASCADE
+  FOREIGN KEY (run_id, learner_name) REFERENCES pg_learner(run_id, learner_name) ON DELETE CASCADE,
+  UNIQUE (run_id, learner_name, rule_key)
 );
 CREATE INDEX idx_pg_rule_tone ON pg_learner_rule(tone, match_level);
+CREATE INDEX idx_pg_rule_evidence_gin ON pg_learner_rule USING GIN (evidence_json);
 ```
 
 #### `pg_learner_skipped` — 未导出审计的学习器
@@ -330,13 +374,14 @@ CREATE TABLE pg_artifact_blob (
   id              BIGSERIAL PRIMARY KEY,
   run_id          VARCHAR(256) NOT NULL REFERENCES pg_run(run_id) ON DELETE CASCADE,
   artifact_type   VARCHAR(64) NOT NULL,
+  artifact_key    VARCHAR(128) NOT NULL DEFAULT 'default',
   file_name       VARCHAR(256),
   content_json    JSONB,
   storage_uri     TEXT,
   byte_size       BIGINT,
   checksum_sha256 CHAR(64),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (run_id, artifact_type)
+  UNIQUE (run_id, artifact_type, artifact_key)
 );
 ```
 
@@ -345,7 +390,7 @@ CREATE TABLE pg_artifact_blob (
 | `dataset_topology` | `dataset_network_topology.json` | 总览数据集拓扑 |
 | `learner_topology` | `learner_network_topology.json` | 学习器内外拓扑 |
 | `decision_tree` | `decision_tree_visualization.json` | 决策树面板 |
-| `feature_corr` | `learner_feature_attack_ratio_correlation.json` | 特征相关 |
+| `feature_corr` | `learner_feature_attack_ratio_correlation.json` / `dataset_label_feature_attack_correlation.json` | 特征相关（用 `artifact_key` 区分 learner / dataset） |
 | `creation_flow` | `learner_creation_flow_previews.json` | 建学习器预览 |
 
 ---
@@ -402,18 +447,24 @@ CREATE TABLE pg_risk_alert (
   id              BIGSERIAL PRIMARY KEY,
   run_id          VARCHAR(256) NOT NULL REFERENCES pg_run(run_id) ON DELETE CASCADE,
   learner_name    VARCHAR(512) NOT NULL,
+  rule_key        VARCHAR(64),
+  rule_match_id   BIGINT REFERENCES pg_learner_rule(id) ON DELETE SET NULL,
   subject_ip      INET,                          -- 从学习器拓扑 dominant host 提取
   name            VARCHAR(256) NOT NULL,         -- 规则名 / 学习器名
   trigger_time    TIMESTAMPTZ NOT NULL,
   description     TEXT,
   features        TEXT,                          -- 命中规则 semantic 拼接
-  rule_key        VARCHAR(64),
   match_level     VARCHAR(16),
+  risk_score      DOUBLE PRECISION,
+  risk_band       VARCHAR(32),
+  evidence_json   JSONB,
   status          VARCHAR(16) DEFAULT 'open',    -- open | acknowledged | closed
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (run_id, learner_name, rule_key)
 );
 CREATE INDEX idx_pg_risk_trigger ON pg_risk_alert(trigger_time DESC);
 CREATE INDEX idx_pg_risk_run ON pg_risk_alert(run_id);
+CREATE INDEX idx_pg_risk_evidence_gin ON pg_risk_alert USING GIN (evidence_json);
 ```
 
 ---
@@ -454,7 +505,9 @@ CREATE TABLE pg_ref_rule_definition (
 ```sql
 CREATE TABLE ch_flow_raw (
   run_id          String,
-  flow_id         String,              -- Suricata Flow ID / 消息 offset
+  flow_uid        String,              -- 稳定流主键：Redis stream id / Kafka offset / run_id:row_index / hash
+  source_flow_id  String,              -- Suricata Flow ID（若存在）
+  row_index       Nullable(UInt64),     -- 离线 CSV / demo run 行号
   event_time      DateTime64(3),         -- 流时间戳
   ingest_time     DateTime64(3) DEFAULT now64(3),
 
@@ -473,17 +526,25 @@ CREATE TABLE ch_flow_raw (
   features        Map(String, Float64),  -- 动态特征键值
 
   -- 溯源
+  ingest_source   LowCardinality(String), -- suricata | csv_replay | redis_replay
   mq_topic        String,
   mq_message_id   String,
   suricata_event  String                 -- 原始 EVE JSON（可选压缩）
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(event_time)
-ORDER BY (run_id, event_time, flow_id)
+ORDER BY (run_id, event_time, flow_uid)
 TTL event_time + INTERVAL 90 DAY;
 ```
 
-**批量 CSV 回放**：同一 schema 写入，`ingest_source` 可扩展列 `source Enum('suricata','csv_replay')`。
+`flow_uid` 必须由写入端稳定生成，优先级建议：
+
+1. Redis Stream：`{stream}:{message_id}`。
+2. Kafka：`{topic}:{partition}:{offset}`。
+3. 离线 CSV / demo：`{run_id}:{row_index}`。
+4. 兜底：`sha256(run_id + timestamp + five_tuple + row_index)`。
+
+批量 CSV 回放使用同一 schema，`ingest_source='csv_replay'`。
 
 ---
 
@@ -494,18 +555,20 @@ Trident 推理完成后写入；对应 `sample_learner_assignments.csv`。
 ```sql
 CREATE TABLE ch_flow_assignment (
   run_id            String,
-  flow_id           String,
+  flow_uid          String,
   row_index         UInt64,              -- 兼容离线 CSV 行号
   event_time        DateTime64(3),
   assigned_learner  String,
   phase             Enum8('stream'=1, 'creation_fill'=2),
   window_index      UInt32,
   pred_loss         Nullable(Float64),   -- 重构误差（可选）
-  is_unknown        UInt8 DEFAULT 0
+  threshold         Nullable(Float64),
+  is_unknown        UInt8 DEFAULT 0,
+  assignment_meta   String               -- JSON 字符串，保留 debug route / accepted_names 等可选信息
 )
 ENGINE = MergeTree()
 PARTITION BY run_id
-ORDER BY (run_id, event_time, flow_id);
+ORDER BY (run_id, event_time, flow_uid);
 ```
 
 V3-ui 若需「单流下钻」，从此表按 `run_id + learner_name` 查；默认 UI 不展示全量流，仅聚合。
@@ -527,6 +590,11 @@ CREATE TABLE ch_window_stats (
   unknown_buffer    UInt32,
   detect_ms         Float64,
   cluster_ms        Float64,
+  create_learner_ms Float64,
+  retrain_ms        Float64,
+  window_total_ms   Float64,
+  new_learner_count UInt32,
+  incremental_update_count UInt32,
   created_at        DateTime64(3) DEFAULT now64(3)
 )
 ENGINE = MergeTree()
@@ -559,7 +627,7 @@ AS SELECT
   uniqExact(dst_ip) AS dst_host_cnt,
   uniqExact(concat(toString(src_ip), ':', toString(src_port), '->', toString(dst_ip), ':', toString(dst_port))) AS edge_cnt
 FROM ch_flow_assignment
-JOIN ch_flow_raw USING (run_id, flow_id)
+JOIN ch_flow_raw USING (run_id, flow_uid)
 GROUP BY run_id, assigned_learner;
 ```
 
@@ -584,13 +652,14 @@ GROUP BY run_id, assigned_learner;
    → UPDATE pg_run.live_*
 
 4. 窗口 / Run 级 Live flush
-   → DELETE+INSERT pg_learner_metric / pg_learner_rule（该 run 快照）
-   → UPDATE pg_artifact_blob（topology JSON）
+   → UPSERT pg_learner + pg_learner_profile_feature
+   → DELETE+INSERT pg_learner_metric / pg_learner_hint / pg_learner_rule（该 run 快照）
+   → UPSERT pg_artifact_blob（topology JSON，按 artifact_type + artifact_key）
 
 5. Run 结束
    → UPDATE pg_run (status=finished, summary)
-   → INSERT pg_run_summary, pg_benchmark
-   → INSERT pg_risk_alert（由 pg_learner_rule attack+strong 生成）
+   → INSERT pg_run_summary, pg_benchmark, pg_benchmark_stage, pg_benchmark_stage_resource
+   → UPSERT pg_risk_alert（由 pg_learner_rule attack+strong 生成，保留 rule_match_id / evidence_json）
 ```
 
 ---
@@ -632,9 +701,9 @@ storage:
 
 | 阶段 | 内容 |
 |------|------|
-| P0 | 建 PG 表 + CH `ch_flow_raw` / `ch_flow_assignment` / `ch_window_stats` |
-| P1 | Trident demo 双写；V3-ui BFF 切 PG/CH |
-| P2 | Live flush 写 PG audit + CH 窗口 |
+| P0 | 建 PG 表 + CH `ch_flow_raw` / `ch_flow_assignment` / `ch_window_stats`；统一 `flow_uid` 生成 |
+| P1 | Trident demo 双写；落 `pg_learner.profile_json` / `pg_learner_profile_feature`；V3-ui BFF 切 PG/CH |
+| P2 | Live flush 幂等写 PG audit/rule/hint + CH 窗口 |
 | P3 | `pg_risk_alert` 对接风险页；CSV 回放/import 工具 |
 | P4 | 关磁盘产物，CH TTL + PG 归档 |
 
