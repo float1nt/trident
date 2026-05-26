@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import App from "@/App";
 import LoginView from "@/views/LoginView";
 import NavPlaceholder from "@/views/NavPlaceholder";
+import HomeView from "@/views/HomeView";
 import RiskTaskList from "@/views/risk/RiskTaskList";
 import RiskDetailPlaceholder from "@/views/risk/RiskDetailPlaceholder";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -21,7 +22,7 @@ export const router = createBrowserRouter([
         children: [
             {
                 index: true,
-                element: <NavPlaceholder title="首页" />,
+                element: <HomeView />,
             },
             {
                 path: "posture",

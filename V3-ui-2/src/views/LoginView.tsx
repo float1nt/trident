@@ -15,7 +15,7 @@ const LoginView = () => {
   const [loginForm] = Form.useForm();
   const fetchUserInfo = useUserStore((state) => state.fetchUserInfo);
 
-  // 如果已登录，重定向到首页
+  // 如果已登录，重定向到总览
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
@@ -40,7 +40,7 @@ const LoginView = () => {
         // 获取用户信息并更新 store
         await fetchUserInfo();
         message.success("登录成功");
-        // 跳转到之前访问的页面（非根路径）或首页
+        // 跳转到之前访问的页面（非根路径）或总览
         const fromPath = (location.state as { from?: { pathname?: string } })?.from?.pathname;
         const to = fromPath && fromPath !== "/" ? fromPath : "/";
         navigate(to, { replace: true });

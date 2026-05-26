@@ -41,16 +41,16 @@ const MENU: {
   off: string;
   on: string;
 }[] = [
-    { id: "home", label: "首页", path: "/", off: homeOff, on: homeOn },
-    { id: "posture", label: "态势", path: "/posture", off: postureOff, on: postureOn },
-    { id: "property", label: "资产", path: "/property", off: propertyOff, on: propertyOn },
-    { id: "user", label: "用户", path: "/user", off: userOff, on: userOn },
-    { id: "audit", label: "审计", path: "/audit", off: auditOff, on: auditOn },
+    { id: "home", label: "总览", path: "/", off: homeOff, on: homeOn },
+    // { id: "posture", label: "态势", path: "/posture", off: postureOff, on: postureOn },
+    // { id: "property", label: "资产", path: "/property", off: propertyOff, on: propertyOn },
+    // { id: "user", label: "用户", path: "/user", off: userOff, on: userOn },
+    // { id: "audit", label: "审计", path: "/audit", off: auditOff, on: auditOn },
     { id: "risk", label: "风险", path: "/risk", off: riskOff, on: riskOn },
-    { id: "governance", label: "治理", path: "/governance", off: governanceOff, on: governanceOn },
-    { id: "tactics", label: "策略", path: "/tactics", off: tacticsOff, on: tacticsOn },
+    // { id: "governance", label: "治理", path: "/governance", off: governanceOff, on: governanceOn },
+    // { id: "tactics", label: "策略", path: "/tactics", off: tacticsOff, on: tacticsOn },
     { id: "setting", label: "设置", path: "/setting", off: settingOff, on: settingOn },
-    { id: "lab", label: "实验室", path: "/lab", off: labOff, on: labOn },
+    // { id: "lab", label: "实验室", path: "/lab", off: labOff, on: labOn },
   ];
 
 function isHomePath(pathname: string): boolean {
@@ -82,7 +82,7 @@ const Sidebar = () => {
         <img
           src={logoImg}
           alt=""
-          className="w-20 h-20 mt-[9px] mb-0 mx-[5px] object-contain select-none pointer-events-none"
+          className="w-[86px] h-[86px] mt-[2px]  mb-0 mx-[5px] object-contain select-none pointer-events-none"
         />
       </button>
 

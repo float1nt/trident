@@ -30,7 +30,7 @@ function IconWithDot({ src }: { src: string }) {
 export default function AppHeader({ userName, dropdownItems }: AppHeaderProps) {
   return (
     <header className="flex h-[53px] shrink-0 items-center justify-between overflow-hidden rounded-tl-[20px] border-b border-[#e8eaed] bg-white pl-4 pr-10 text-[#333]">
-      {/* 左侧：与 Vue navbar .titles 一致 — 首页标 + 平台名 + 竖线 + 面包屑 */}
+      {/* 左侧：与 Vue navbar .titles 一致 — 总览标 + 平台名 + 竖线 + 面包屑 */}
       <div className="flex items-center min-w-0 -ml-4">
         <img src={favicon} alt="" className="w-[18px] h-[18px] shrink-0 ml-[18px] mr-2" />
         <span

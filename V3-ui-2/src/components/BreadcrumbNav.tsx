@@ -27,7 +27,7 @@ function buildCrumbs(pathname: string, taskId: string | null): Crumb[] {
   const segments = path === "/" ? [] : path.slice(1).split("/");
   const first = segments[0] ?? "";
 
-  if (path === "/" || path === "") return [{ label: "首页" }];
+  if (path === "/" || path === "") return [{ label: "总览" }];
 
   if (first === "risk") {
     if (segments[1] === "detail") {
@@ -43,7 +43,7 @@ function buildCrumbs(pathname: string, taskId: string | null): Crumb[] {
   const sideLabel = first ? SIDE_PLACEHOLDER[first] : undefined;
   if (sideLabel) return [{ label: sideLabel }];
 
-  return [{ label: "首页", to: "/" }];
+  return [{ label: "总览", to: "/" }];
 }
 
 const BreadcrumbNav = () => {
