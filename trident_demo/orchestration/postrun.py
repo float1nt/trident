@@ -21,5 +21,5 @@ def postrun_stage(ctx: RunContext) -> None:
     print(f"\nRun output: {run_dir}")
     if benchmark_path.exists():
         print(f"Benchmark: {benchmark_path}")
-    print("Visualize: cd visualize && npm run dev")
+    print("Visualize: cd trident_demo/frontend/visualize && npm run dev")
     print(f"  Run ID: {ctx.run_id}")

@@ -118,12 +118,27 @@ function safeRunDir(stressRoot: string, runId: string): string | null {
   return target
 }
 
+function benchmarkPathFromSummary(summary: JsonObject, runDir: string): string | null {
+  const tridentRunDir = typeof summary.trident_run_dir === 'string' ? summary.trident_run_dir : null
+  if (!tridentRunDir) return null
+  const directPath = path.join(tridentRunDir, 'trident_performance_benchmark.json')
+  if (fs.existsSync(directPath)) return directPath
+
+  const runId = path.basename(runDir)
+  const oldMarker = `${path.sep}trident_demo${path.sep}stress_outputs${path.sep}${runId}${path.sep}`
+  const suffixIndex = tridentRunDir.indexOf(oldMarker)
+  if (suffixIndex < 0) return null
+  const suffix = tridentRunDir.slice(suffixIndex + oldMarker.length)
+  const migratedPath = path.join(runDir, suffix, 'trident_performance_benchmark.json')
+  return fs.existsSync(migratedPath) ? migratedPath : null
+}
+
 export function stressDataApiPlugin(): Plugin {
   return {
     name: 'demo-stress-data-api',
     configureServer(server) {
-      const demoRoot = path.resolve(server.config.root, '..')
-      const stressRoot = path.resolve(demoRoot, 'stress_outputs')
+      const demoRoot = path.resolve(server.config.root, '..', '..')
+      const stressRoot = path.resolve(demoRoot, 'testing', 'outputs', 'stress')
 
       server.middlewares.use('/api/stress-runs', (req: IncomingMessage, res: ServerResponse) => {
         const url = req.url || '/'
@@ -150,9 +165,9 @@ export function stressDataApiPlugin(): Plugin {
         }
 
         const summary = readJson(path.join(runDir, 'stress_summary.json')) || {}
-        const tridentRunDir = typeof summary.trident_run_dir === 'string' ? summary.trident_run_dir : null
         const inlineBenchmark = getRecord(summary.trident_benchmark)
-        const benchmarkFromFile = tridentRunDir ? readJson(path.join(tridentRunDir, 'trident_performance_benchmark.json')) : null
+        const benchmarkPath = benchmarkPathFromSummary(summary, runDir)
+        const benchmarkFromFile = benchmarkPath ? readJson(benchmarkPath) : null
         const replayStats = parseReplayStats(runDir)
         sendJson(res, 200, {
           run: runRow(runDir),

@@ -7,6 +7,7 @@ from pathlib import Path
 os.environ.setdefault("MPLCONFIGDIR", str(Path("/tmp/mplconfig-trident").resolve()))
 
 from trident_demo.pipeline.runner import PROFILE_DEFAULT_CONFIG, run_pipeline
+from trident_demo.runtime.online_runner import DEFAULT_ONLINE_CONFIG, run_online
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,6 +51,44 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Replay/benchmark: skip CSV→Redis inject (stream must already contain data).",
     )
+
+    online_parser = sub.add_parser("online", help="Run the deployable Redis streaming runtime path.")
+    online_parser.add_argument(
+        "--config",
+        type=str,
+        default=DEFAULT_ONLINE_CONFIG,
+        help="Base YAML config path (default: trident_demo/configs/online.yaml).",
+    )
+    online_parser.add_argument("--max-rows", type=int, default=0, help="Cap Redis messages processed (0 = no cap).")
+    online_parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Base output directory (default from config paths.output_dir).",
+    )
+    online_parser.add_argument(
+        "--redis-url",
+        type=str,
+        default=None,
+        help="Override input.redis.url.",
+    )
+    online_parser.add_argument(
+        "--redis-stream",
+        type=str,
+        default=None,
+        help="Override input.redis.key / stream.",
+    )
+    online_parser.add_argument(
+        "--window-size",
+        type=int,
+        default=0,
+        help="Override stream.window_size (0 = keep config).",
+    )
+    online_parser.add_argument(
+        "--start-redis",
+        action="store_true",
+        help="Start Redis via the demo docker compose preflight. By default online mode expects Redis to be an independent service.",
+    )
     return parser
 
 
@@ -69,6 +108,19 @@ def main(argv: list[str] | None = None) -> None:
             output_dir=args.output_dir,
             skip_docker=bool(args.skip_docker),
             no_inject=bool(args.no_inject),
+        )
+        return
+
+    if args.command == "online":
+        run_online(
+            repo_root=repo_root,
+            config_path=args.config,
+            max_rows=int(args.max_rows),
+            output_dir=args.output_dir,
+            redis_url=args.redis_url,
+            redis_stream=args.redis_stream,
+            window_size=int(args.window_size),
+            skip_docker=not bool(args.start_redis),
         )
         return
 

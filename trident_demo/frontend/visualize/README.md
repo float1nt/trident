@@ -1,11 +1,11 @@
 # Trident Demo Stress Dashboard
 
-React + Vite 版压测可视化，风格参考根目录 `visualize` 的 Notion 风格布局和组件。
+React + Vite 版压测可视化，位于 `trident_demo/frontend/visualize/`。
 
 ## 启动
 
 ```bash
-cd trident_demo/visualize
+cd trident_demo/frontend/visualize
 npm install
 npm run dev
 ```
@@ -21,7 +21,7 @@ http://127.0.0.1:5184
 Vite 插件 `vite.stressDataPlugin.ts` 直接读取：
 
 ```text
-trident_demo/stress_outputs/<run_id>/
+trident_demo/testing/outputs/stress/<run_id>/
 ```
 
 展示内容包括：

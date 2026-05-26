@@ -1,6 +1,6 @@
 # Trident Demo 项目介绍
 
-本文档是 `trident_demo/` 的**完整技术说明**，涵盖设计目标、目录结构、运行流程、算法核心、配置与产物。快速上手见 [`README.md`](README.md)。
+本文档是 `trident_demo/` 的**完整技术说明**，涵盖设计目标、目录结构、运行流程、算法核心、配置与产物。快速上手见 [`../../README.md`](../../README.md)。
 
 ---
 
@@ -16,9 +16,9 @@
 
 ### 设计原则
 
-1. **完全解耦**：`trident_demo/` 内禁止 `import trident_stream`、`import scripts` 等；可通过 `bash trident_demo/check_decoupling.sh` 验证。
+1. **完全解耦**：`trident_demo/` 内禁止 `import trident_stream`、`import scripts` 等；可通过 `bash trident_demo/testing/scripts/check_decoupling.sh` 验证。
 2. **逻辑一致**：核心代码从 `trident_stream/experiment.py` 及引擎模块**复制**而来，算法与产物 schema 与 legacy 对齐。
-3. **不修改原目录**：`trident_stream/`、`main.py`、`scripts/`、`visualize/` 保持不动，legacy 路径仍可用于对照实验。
+3. **不修改原目录**：`trident_stream/`、`main.py`、`scripts/` 保持不动，legacy 路径仍可用于对照实验。
 4. **单入口编排**：`python3 -m trident_demo run --profile <name>` 自动完成前置（Redis、数据准备）→ 实验 → 后置摘要。
 
 ### 与 Legacy 的关系
@@ -63,15 +63,22 @@ flowchart LR
 ```
 trident_demo/
 ├── README.md                 # 快速命令参考
-├── PROJECT_GUIDE.md          # 本文档
-├── check_decoupling.sh       # 解耦门禁脚本
 ├── cli.py                    # CLI 入口（argparse）
 ├── __main__.py               # python3 -m trident_demo
+│
+├── docs/                     # 文档
+│   ├── flows/                # 数据流 / Redis 流式处理说明
+│   ├── architecture/         # 三服务架构 / 改造方案 / 目录职责
+│   └── reference/            # 完整项目指南 / 数据库设计
+│
+├── services/                 # Suricata / Redis / Trident 三服务职责说明
+├── runtime/                  # 线上 Redis 消费入口与运行态预处理
 │
 ├── configs/                  # Demo 专用 YAML（不读 configs/config.yaml）
 │   ├── batch.yaml            # CSV 离线
 │   ├── replay.yaml           # Redis Stream 接入
 │   ├── benchmark.yaml        # Redis + 性能 benchmark
+│   ├── online.yaml           # 独立 Trident Redis 消费配置
 │   └── viz_demo.yaml         # 三路采样 + 可视化实验
 │
 ├── pipeline/                 # 核心流水线
@@ -115,6 +122,13 @@ trident_demo/
 ├── lib/
 │   ├── config_loader.py      # YAML 加载、logger 构建
 │   └── utils.py              # 标签规范化、随机种子、文件排序等
+│
+├── stress/                   # E2E 压测控制器
+├── testing/                  # 测试脚本与压测输出
+│   ├── scripts/check_decoupling.sh
+│   └── outputs/stress/
+│
+├── frontend/visualize/       # React + Vite 压测前端
 │
 └── outputs/                  # 默认产物根（gitignore）
     └── <run_id>/             # 每次 run 独立目录
@@ -418,7 +432,7 @@ Benchmark 由两层 recorder 协作：
 
 ### 9.2 规则层
 
-`qualification/reference_rules.py` 实现 **topology-family-v2** 参考规则：根据指标组合给出 `strong` / `weak` / `near` 匹配及语义说明。规则在后端计算并写入 JSON，前端 `visualize/` 只读展示，避免前后端漂移。
+`qualification/reference_rules.py` 实现 **topology-family-v2** 参考规则：根据指标组合给出 `strong` / `weak` / `near` 匹配及语义说明。规则在后端计算并写入 JSON，前端 `frontend/visualize/` 只读展示，避免前后端漂移。
 
 公式详见仓库根目录：
 
@@ -433,7 +447,7 @@ Benchmark 由两层 recorder 协作：
 2. 启动前端：
 
    ```bash
-   cd visualize && npm run dev
+   cd trident_demo/frontend/visualize && npm run dev
    ```
 
 3. 在 **学习器详情** 或 **实时监控**（`/live-monitor`）中选择 run_id。
@@ -457,7 +471,7 @@ Benchmark 由两层 recorder 协作：
 |------|------|
 | Docker + `suricata-cic-redis-live/docker-compose.yml` | replay profile 自动启动 Redis |
 | Suricata Live 栈 | 真网包捕获 → Redis Stream（与 inject 回放二选一） |
-| Node.js | 运行 `visualize/` 前端 |
+| Node.js | 运行 `frontend/visualize/` 前端 |
 
 ### 环境变量
 
@@ -483,7 +497,7 @@ Benchmark 由两层 recorder 协作：
 ### Q: 如何确认 Demo 未依赖旧代码？
 
 ```bash
-bash trident_demo/check_decoupling.sh
+bash trident_demo/testing/scripts/check_decoupling.sh
 git diff trident_stream/   # 应为空
 ```
 
@@ -504,6 +518,6 @@ git diff trident_stream/   # 应为空
 
 - 快速命令：[`README.md`](README.md)
 - **数据库 schema**：[`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md)
-- 解耦检查：[`check_decoupling.sh`](check_decoupling.sh)
+- 解耦检查：[`../../testing/scripts/check_decoupling.sh`](../../testing/scripts/check_decoupling.sh)
 - Legacy 入口：仓库根 [`README.md`](../README.md)
 - 指标与规则公式：[`LEARNER_METRIC_AND_RULE_FORMULAS.md`](../LEARNER_METRIC_AND_RULE_FORMULAS.md)

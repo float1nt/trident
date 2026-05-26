@@ -1,6 +1,6 @@
 runtime:
   run_id: ""
-  output_root: trident_demo/stress_outputs
+  output_root: trident_demo/testing/outputs/stress
   baseline_seconds: 3
   sample_interval_seconds: 1
   wait_after_replay_seconds: 20

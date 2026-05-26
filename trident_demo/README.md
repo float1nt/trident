@@ -2,9 +2,9 @@
 
 `trident_demo/` 是与原 `trident_stream/` **完全解耦**的 Demo 栈：代码为复制 + 重组，**不 import** 旧模块。
 
-**完整技术说明见 [`PROJECT_GUIDE.md`](PROJECT_GUIDE.md)**（目录结构、运行流程、配置、产物、定性规则等）。
+**完整技术说明见 [`docs/reference/PROJECT_GUIDE.md`](docs/reference/PROJECT_GUIDE.md)**（目录结构、运行流程、配置、产物、定性规则等）。
 
-**数据库设计（ClickHouse + PostgreSQL）见 [`DATABASE_SCHEMA.md`](DATABASE_SCHEMA.md)**（主流程入库、V3-ui 对照）。
+**数据库设计（ClickHouse + PostgreSQL）见 [`docs/reference/DATABASE_SCHEMA.md`](docs/reference/DATABASE_SCHEMA.md)**（主流程入库、V3-ui 对照）。
 
 ## 一条命令跑通
 
@@ -48,12 +48,12 @@ python3 -m trident_demo.stress trident_demo/stress/configs/e2e.yaml
 - `trident_performance_benchmark.json`（benchmark profile，包含 pipeline / Redis / experiment / export 阶段）
 - `live_run_status.json`（replay / Redis 流式）
 
-可视化：`cd visualize && npm run dev`，选择对应 run_id。
+可视化：`cd trident_demo/frontend/visualize && npm run dev`，选择对应 run_id。
 
 ## E2E 压测
 
 压测逻辑单独放在 `trident_demo/stress/`，结果单独写入
-`trident_demo/stress_outputs/<run_id>/`，不混入普通 demo run。
+`trident_demo/testing/outputs/stress/<run_id>/`，不混入普通 demo run。
 
 入口：
 
@@ -85,7 +85,7 @@ cli.py (--profile)
 ## 解耦检查
 
 ```bash
-bash trident_demo/check_decoupling.sh
+bash trident_demo/testing/scripts/check_decoupling.sh
 ```
 
 ## 与 Legacy 对照

@@ -162,7 +162,7 @@ def load_config(path: Path) -> StressConfig:
     trident = payload.get("trident", {}) if isinstance(payload.get("trident"), dict) else {}
 
     run_id = str(runtime.get("run_id") or run_id_now())
-    output_root = resolve_path(str(runtime.get("output_root", "trident_demo/stress_outputs")))
+    output_root = resolve_path(str(runtime.get("output_root", "trident_demo/testing/outputs/stress")))
     run_dir = (output_root / run_id).resolve()
     stream = str(redis.get("stream") or f"suricata:cic_flow:{run_id}")
     return StressConfig(

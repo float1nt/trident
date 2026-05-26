@@ -203,21 +203,9 @@ def preprocess_features(df: pd.DataFrame, feature_profile: str = "all_numeric_no
       - stable_stats_no_env: curated CIC stable statistical features (numeric only), no env fields.
       - compact_stats_no_env: smaller robust subset for stronger regularization.
     """
-    drop_cols = [c for c in ENVIRONMENT_COLUMNS if c in df.columns]
-    feat_df = df.drop(columns=drop_cols, errors="ignore")
-    numeric_cols = feat_df.select_dtypes(include=[np.number]).columns.tolist()
+    from trident_demo.runtime.preprocessing import build_feature_frame
 
-    if feature_profile == "stable_stats_no_env":
-        keep_cols = [c for c in STABLE_STATS_FEATURES if c in numeric_cols]
-        if keep_cols:
-            numeric_cols = keep_cols
-    elif feature_profile == "compact_stats_no_env":
-        keep_cols = [c for c in COMPACT_STATS_FEATURES if c in numeric_cols]
-        if keep_cols:
-            numeric_cols = keep_cols
-
-    feat_df = feat_df[numeric_cols].replace([np.inf, -np.inf], np.nan).fillna(0.0)
-    return feat_df, numeric_cols
+    return build_feature_frame(df, feature_profile=feature_profile)
 
 
 class TridentStreamingExperiment:
@@ -521,6 +509,38 @@ class TridentStreamingExperiment:
         apply_max_rows: bool = True,
     ) -> pd.DataFrame:
         input_cfg = self.cfg.get("input", {}) if isinstance(self.cfg.get("input"), dict) else {}
+        apply_runtime_filters = (
+            source not in {"redis", "redis_list", "redis_stream"}
+            or bool(redis_cfg.get("apply_runtime_filters", False))
+        )
+        if not apply_runtime_filters:
+            from trident_demo.runtime.preprocessing import preprocess_runtime_dataframe
+
+            default_label = str(
+                redis_cfg.get(
+                    "default_label",
+                    input_cfg.get("default_label", "0000|UNLABELED"),
+                )
+            )
+            result = preprocess_runtime_dataframe(
+                data,
+                self.cfg,
+                default_label=default_label,
+                apply_max_rows=apply_max_rows,
+            )
+            self.logger.info(
+                "[RuntimePreprocess] rows_in=%d rows_out=%d invalid_ts=%d dropped_zero=%d",
+                int(result.report.get("input_rows", 0)),
+                int(result.report.get("output_rows", 0)),
+                int(result.report.get("invalid_timestamp_rows", 0)),
+                int(
+                    result.report.get("drop_when_all_numeric_zero", {}).get(
+                        "dropped_rows",
+                        0,
+                    )
+                ),
+            )
+            return result.data
         if "Label" not in data.columns:
             default_label = str(input_cfg.get("default_label", "0000|UNLABELED"))
             data["Label"] = default_label
@@ -539,10 +559,6 @@ class TridentStreamingExperiment:
             self.logger.warning("[TimestampParse] invalid_timestamp_rows=%d (dropped after parse)", ts_invalid)
         data = data.dropna(subset=["Timestamp"]).sort_values("Timestamp").reset_index(drop=True)
         data["LabelNorm"] = data["Label"].map(normalize_label)
-        apply_runtime_filters = (
-            source not in {"redis", "redis_list", "redis_stream"}
-            or bool(redis_cfg.get("apply_runtime_filters", False))
-        )
         if apply_runtime_filters:
             data = self._apply_runtime_filters(data)
             data = self._apply_attack_sampling(data)
@@ -583,6 +599,8 @@ class TridentStreamingExperiment:
         )
         if first_df.empty:
             raise RuntimeError("Initial Redis window is empty after preprocessing")
+        if max_rows > 0 and len(first_df) > max_rows:
+            first_df = first_df.iloc[:max_rows].reset_index(drop=True)
         feat_df, feature_cols = preprocess_features(first_df, feature_profile=self.feature_profile)
         x_init_all = feat_df.values.astype(np.float32)
         if self.pca_n_components > 0:
@@ -598,67 +616,17 @@ class TridentStreamingExperiment:
 
         total_rows = int(len(first_df))
         time_series: List[Dict[str, Any]] = []
-        current_batch = first_df.iloc[start_idx:].copy()
-        current_x = x_init_all[start_idx:]
-        global_offset = int(start_idx)
+        data_all = first_df.reset_index(drop=True)
+        x_all = x_init_all
 
-        def process_batch(batch_df: pd.DataFrame, batch_x: np.ndarray, offset: int) -> int:
-            processed = 0
-            for left in range(0, len(batch_df), window_size):
-                if max_rows > 0 and (offset + processed) >= max_rows:
-                    break
-                right = min(left + window_size, len(batch_df))
-                chunk_df = batch_df.iloc[left:right]
-                chunk_x = batch_x[left:right]
-                if len(chunk_df) == 0:
-                    continue
-                t_window_start = perf_counter()
-                cpu_detect_start = (
-                    self._perf_recorder.resources.current_process_cpu_seconds()
-                    if self._perf_recorder.enabled
-                    else 0.0
-                )
-                preds = self.tsieve.classify_batch(chunk_x)
-                detect_seconds = perf_counter() - t_window_start
-                if self._perf_recorder.enabled:
-                    cpu_now = self._perf_recorder.resources.current_process_cpu_seconds()
-                    self._perf_recorder.resources.add_stage_cpu("stream_inference", cpu_now - cpu_detect_start)
-                for i, pred in enumerate(preds):
-                    row_index = int(offset + left + i)
-                    self.sample_assignments.append(
-                        {
-                            "row_index": row_index,
-                            "timestamp": self._format_stream_timestamp(chunk_df["Timestamp"].iloc[i]),
-                            "assigned_learner": str(pred if pred is not None else "UNKNOWN"),
-                            "phase": "stream",
-                        }
-                    )
-                t_window_end = perf_counter()
-                window_seconds = t_window_end - t_window_start
-                self.perf_stats["detect_seconds_total"] += detect_seconds
-                self.perf_stats["window_total_seconds_total"] += window_seconds
-                self.perf_stats["windows_count"] += 1
-                processed += int(len(chunk_df))
-                entry = {
-                    "window_end_time": chunk_df["Timestamp"].iloc[-1],
-                    "window_left": int(offset + left),
-                    "window_right": int(offset + right),
-                    "learner_count": int(len(self.tsieve.learners)),
-                    "unknown_buffer_size": int(len(self.tmagnifier.unknown_buffer)),
-                }
-                time_series.append(entry)
-                self.logger.info(
-                    "[PerfModeRedisWindow] %d-%d infer=%.4fs window=%.4fs learners=%d",
-                    entry["window_left"],
-                    entry["window_right"],
-                    detect_seconds,
-                    window_seconds,
-                    entry["learner_count"],
-                )
-            return processed
-
-        consumed = process_batch(current_batch, current_x, global_offset)
-        total_rows = max(total_rows, int(global_offset + consumed))
+        if int(start_idx) < len(data_all):
+            self._process_stream_windows(
+                data=data_all,
+                x_all=x_all,
+                start_idx=int(start_idx),
+                window_size=int(window_size),
+                time_series=time_series,
+            )
 
         for raw_df in window_iter:
             if raw_df is None or raw_df.empty:
@@ -676,9 +644,24 @@ class TridentStreamingExperiment:
             feat_df_batch, _ = preprocess_features(batch_df, feature_profile=self.feature_profile)
             feat_df_batch = feat_df_batch.reindex(columns=feature_cols, fill_value=0.0)
             batch_x = feat_df_batch.values.astype(np.float32)
-            offset = int(total_rows)
-            consumed = process_batch(batch_df, batch_x, offset)
-            total_rows += consumed
+            if max_rows > 0:
+                remaining = max(0, max_rows - total_rows)
+                if remaining <= 0:
+                    break
+                if len(batch_df) > remaining:
+                    batch_df = batch_df.iloc[:remaining].reset_index(drop=True)
+                    batch_x = batch_x[:remaining]
+            offset = int(len(data_all))
+            data_all = pd.concat([data_all, batch_df], ignore_index=True)
+            x_all = np.concatenate([x_all, batch_x], axis=0)
+            self._process_stream_windows(
+                data=data_all,
+                x_all=x_all,
+                start_idx=offset,
+                window_size=int(window_size),
+                time_series=time_series,
+            )
+            total_rows = int(len(data_all))
 
         self._finalize_perf_mode_outputs(total_rows=total_rows, time_series=time_series)
 
@@ -689,6 +672,8 @@ class TridentStreamingExperiment:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         csv_path = self.output_dir / "learner_count_over_time.csv"
         ts_df.to_csv(csv_path, index=False)
+        assignments_path = self.output_dir / "sample_assignments.csv"
+        pd.DataFrame(self.sample_assignments).to_csv(assignments_path, index=False)
         perf_path = self.output_dir / "performance_summary.json"
         windows_count = int(self.perf_stats.get("windows_count", 0.0) or 0)
         perf_summary = {
@@ -734,8 +719,9 @@ class TridentStreamingExperiment:
                 self.logger.info("Done. TRIDENT_PERFORMANCE_BENCHMARK_JSON=%s", benchmark_paths["json"])
                 self.logger.info("Done. TRIDENT_PERFORMANCE_BENCHMARK_MD=%s", benchmark_paths["markdown"])
         self.logger.info(
-            "[PerfMode] minimal artifacts exported: CSV=%s PERF_JSON=%s windows=%d rows=%d",
+            "[PerfMode] artifacts exported: CSV=%s ASSIGNMENTS=%s PERF_JSON=%s windows=%d rows=%d",
             csv_path,
+            assignments_path,
             perf_path,
             windows_count,
             int(total_rows),
@@ -4033,151 +4019,15 @@ class TridentStreamingExperiment:
         except Exception:
             self.logger.exception("Decision tree analysis failed (non-fatal).")
 
-    def run(self) -> None:
-        if self._perf_recorder.enabled:
-            self._perf_recorder.start_wall()
-        if self.perf_mode:
-            self.logger.info("[PerfMode] enabled: reduce non-essential artifact exports")
-        if self.perf_mode and self._is_redis_source():
-            self._run_perf_mode_redis_stream()
-            return
-        self._log_hyperparameters()
-        self._write_live_run_status("running")
-        self._learner_creation_flow_previews.clear()
-        self._learner_creation_row_indices.clear()
-        data, x_all, feature_cols = self._load_dataset()
-        if self._perf_recorder.enabled:
-            self._perf_recorder.start("export_dataset_profile")
-        dataset_label_rows = self._build_dataset_label_distribution_rows(data)
-        dataset_label_csv_path = self.output_dir / "dataset_label_distribution.csv"
-        dataset_label_summary_path = self.output_dir / "dataset_label_distribution_summary.json"
-        dataset_label_profile_df = pd.DataFrame(dataset_label_rows)
-        dataset_label_feature_stats_df = self._build_dataset_label_feature_stats_df(
-            data=data,
-            feature_names=IMPORTANT_LEARNER_CLUSTER_FEATURES,
-        )
-        dataset_label_protocol_df = self._build_dataset_label_protocol_stats_df(data=data)
-        if not dataset_label_feature_stats_df.empty:
-            dataset_label_profile_df = dataset_label_profile_df.merge(
-                dataset_label_feature_stats_df,
-                on="label",
-                how="left",
-            )
-        if not dataset_label_protocol_df.empty:
-            dataset_label_profile_df = dataset_label_profile_df.merge(
-                dataset_label_protocol_df,
-                on="label",
-                how="left",
-            )
-        if not dataset_label_profile_df.empty:
-            numeric_cols = [
-                c
-                for c in dataset_label_profile_df.columns
-                if c
-                not in {
-                    "label",
-                    "is_benign",
-                    "year_tag",
-                    "base_label",
-                    "protocol_cluster_type",
-                }
-            ]
-            if numeric_cols:
-                dataset_label_profile_df[numeric_cols] = (
-                    dataset_label_profile_df[numeric_cols]
-                    .replace([np.inf, -np.inf], np.nan)
-                    .fillna(0.0)
-                )
-            if "protocol_cluster_type" in dataset_label_profile_df.columns:
-                dataset_label_profile_df["protocol_cluster_type"] = (
-                    dataset_label_profile_df["protocol_cluster_type"].fillna("UNKNOWN").astype(str)
-                )
-        dataset_label_profile_df.to_csv(dataset_label_csv_path, index=False)
-        dataset_label_rows = dataset_label_profile_df.to_dict(orient="records")
-        dataset_label_corr_rows = self._build_dataset_label_feature_correlation_rows(
-            dataset_label_profile_df
-        )
-        dataset_label_corr_json_path = (
-            self.output_dir / "dataset_label_feature_attack_correlation.json"
-        )
-        dataset_label_corr_fig_path = (
-            self.output_dir / "dataset_label_feature_attack_correlation.png"
-        )
-        with open(dataset_label_corr_json_path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "feature_family": "important_label_features",
-                    "feature_count": int(len(dataset_label_corr_rows)),
-                    "top_k_default": 24,
-                    "rows": dataset_label_corr_rows,
-                },
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
-        self._save_dataset_label_feature_correlation_figure(
-            rows=dataset_label_corr_rows,
-            out_path=dataset_label_corr_fig_path,
-            top_k=24,
-        )
-        benign_rows = int(sum(int(r["count"]) for r in dataset_label_rows if bool(r["is_benign"])))
-        attack_rows = int(max(len(data) - benign_rows, 0))
-        dataset_label_summary = {
-            "total_rows": int(len(data)),
-            "label_count": int(len(dataset_label_rows)),
-            "benign_rows": benign_rows,
-            "attack_rows": attack_rows,
-            "benign_ratio": float(self._safe_div(benign_rows, len(data))),
-            "attack_ratio": float(self._safe_div(attack_rows, len(data))),
-            "top20_labels": dataset_label_rows[:20],
-        }
-        with open(dataset_label_summary_path, "w", encoding="utf-8") as f:
-            json.dump(dataset_label_summary, f, ensure_ascii=False, indent=2)
-        dataset_topology_path = self.output_dir / "dataset_network_topology.json"
-        viz_cfg = self.cfg.get("visualization", {}) if isinstance(self.cfg.get("visualization"), dict) else {}
-        if bool(viz_cfg.get("dataset_topology_enabled", True)):
-            try:
-                from trident_demo.export.dataset_topology import save_dataset_network_topology
-
-                if self._perf_recorder.enabled:
-                    self._perf_recorder.start("export_dataset_topology")
-                if save_dataset_network_topology(data, dataset_topology_path):
-                    self.logger.info("Done. DATASET_NETWORK_TOPOLOGY=%s", dataset_topology_path)
-                if self._perf_recorder.enabled:
-                    self._perf_recorder.stop("export_dataset_topology")
-            except Exception:
-                if self._perf_recorder.enabled:
-                    self._perf_recorder.stop("export_dataset_topology")
-                self.logger.exception("Dataset network topology export failed (non-fatal).")
-        else:
-            self.logger.info("Skip dataset network topology export (visualization.dataset_topology_enabled=false)")
-        self.logger.info(
-            "Done. DATASET_LABEL_DISTRIBUTION=%s | SUMMARY=%s | LABEL_CORR_JSON=%s | LABEL_CORR_FIG=%s | labels=%d",
-            dataset_label_csv_path,
-            dataset_label_summary_path,
-            dataset_label_corr_json_path,
-            dataset_label_corr_fig_path,
-            len(dataset_label_rows),
-        )
-        if self._perf_recorder.enabled:
-            self._perf_recorder.stop("export_dataset_profile")
-        if self._perf_recorder.enabled:
-            self._perf_recorder.start("init_learners")
-        start_idx = self._build_initial_learners(data, x_all)
-        self._stream_start_idx = int(start_idx)
-        if self._perf_recorder.enabled:
-            self._perf_recorder.stop("init_learners")
-        window_size = self.cfg["stream"]["window_size"]
-
-        time_series = []
-        if self._perf_recorder.enabled and self._perf_recorder.resources._gpu_available:
-            try:
-                import torch
-
-                torch.cuda.reset_peak_memory_stats()
-            except Exception:
-                pass
-
+    def _process_stream_windows(
+        self,
+        *,
+        data: pd.DataFrame,
+        x_all: np.ndarray,
+        start_idx: int,
+        window_size: int,
+        time_series: List[Dict[str, Any]],
+    ) -> None:
         for left in range(start_idx, len(data), window_size):
             t_window_start = perf_counter()
             right = min(left + window_size, len(data))
@@ -4857,6 +4707,160 @@ class TridentStreamingExperiment:
             )
             self._flush_live_window_artifacts(time_series, entry)
             self._maybe_flush_live_qualification(data)
+
+
+    def run(self) -> None:
+        if self._perf_recorder.enabled:
+            self._perf_recorder.start_wall()
+        if self.perf_mode:
+            self.logger.info("[PerfMode] enabled: reduce non-essential artifact exports")
+        if self.perf_mode and self._is_redis_source():
+            self._run_perf_mode_redis_stream()
+            return
+        self._log_hyperparameters()
+        self._write_live_run_status("running")
+        self._learner_creation_flow_previews.clear()
+        self._learner_creation_row_indices.clear()
+        data, x_all, feature_cols = self._load_dataset()
+        if self._perf_recorder.enabled:
+            self._perf_recorder.start("export_dataset_profile")
+        dataset_label_rows = self._build_dataset_label_distribution_rows(data)
+        dataset_label_csv_path = self.output_dir / "dataset_label_distribution.csv"
+        dataset_label_summary_path = self.output_dir / "dataset_label_distribution_summary.json"
+        dataset_label_profile_df = pd.DataFrame(dataset_label_rows)
+        dataset_label_feature_stats_df = self._build_dataset_label_feature_stats_df(
+            data=data,
+            feature_names=IMPORTANT_LEARNER_CLUSTER_FEATURES,
+        )
+        dataset_label_protocol_df = self._build_dataset_label_protocol_stats_df(data=data)
+        if not dataset_label_feature_stats_df.empty:
+            dataset_label_profile_df = dataset_label_profile_df.merge(
+                dataset_label_feature_stats_df,
+                on="label",
+                how="left",
+            )
+        if not dataset_label_protocol_df.empty:
+            dataset_label_profile_df = dataset_label_profile_df.merge(
+                dataset_label_protocol_df,
+                on="label",
+                how="left",
+            )
+        if not dataset_label_profile_df.empty:
+            numeric_cols = [
+                c
+                for c in dataset_label_profile_df.columns
+                if c
+                not in {
+                    "label",
+                    "is_benign",
+                    "year_tag",
+                    "base_label",
+                    "protocol_cluster_type",
+                }
+            ]
+            if numeric_cols:
+                dataset_label_profile_df[numeric_cols] = (
+                    dataset_label_profile_df[numeric_cols]
+                    .replace([np.inf, -np.inf], np.nan)
+                    .fillna(0.0)
+                )
+            if "protocol_cluster_type" in dataset_label_profile_df.columns:
+                dataset_label_profile_df["protocol_cluster_type"] = (
+                    dataset_label_profile_df["protocol_cluster_type"].fillna("UNKNOWN").astype(str)
+                )
+        dataset_label_profile_df.to_csv(dataset_label_csv_path, index=False)
+        dataset_label_rows = dataset_label_profile_df.to_dict(orient="records")
+        dataset_label_corr_rows = self._build_dataset_label_feature_correlation_rows(
+            dataset_label_profile_df
+        )
+        dataset_label_corr_json_path = (
+            self.output_dir / "dataset_label_feature_attack_correlation.json"
+        )
+        dataset_label_corr_fig_path = (
+            self.output_dir / "dataset_label_feature_attack_correlation.png"
+        )
+        with open(dataset_label_corr_json_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "feature_family": "important_label_features",
+                    "feature_count": int(len(dataset_label_corr_rows)),
+                    "top_k_default": 24,
+                    "rows": dataset_label_corr_rows,
+                },
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
+        self._save_dataset_label_feature_correlation_figure(
+            rows=dataset_label_corr_rows,
+            out_path=dataset_label_corr_fig_path,
+            top_k=24,
+        )
+        benign_rows = int(sum(int(r["count"]) for r in dataset_label_rows if bool(r["is_benign"])))
+        attack_rows = int(max(len(data) - benign_rows, 0))
+        dataset_label_summary = {
+            "total_rows": int(len(data)),
+            "label_count": int(len(dataset_label_rows)),
+            "benign_rows": benign_rows,
+            "attack_rows": attack_rows,
+            "benign_ratio": float(self._safe_div(benign_rows, len(data))),
+            "attack_ratio": float(self._safe_div(attack_rows, len(data))),
+            "top20_labels": dataset_label_rows[:20],
+        }
+        with open(dataset_label_summary_path, "w", encoding="utf-8") as f:
+            json.dump(dataset_label_summary, f, ensure_ascii=False, indent=2)
+        dataset_topology_path = self.output_dir / "dataset_network_topology.json"
+        viz_cfg = self.cfg.get("visualization", {}) if isinstance(self.cfg.get("visualization"), dict) else {}
+        if bool(viz_cfg.get("dataset_topology_enabled", True)):
+            try:
+                from trident_demo.export.dataset_topology import save_dataset_network_topology
+
+                if self._perf_recorder.enabled:
+                    self._perf_recorder.start("export_dataset_topology")
+                if save_dataset_network_topology(data, dataset_topology_path):
+                    self.logger.info("Done. DATASET_NETWORK_TOPOLOGY=%s", dataset_topology_path)
+                if self._perf_recorder.enabled:
+                    self._perf_recorder.stop("export_dataset_topology")
+            except Exception:
+                if self._perf_recorder.enabled:
+                    self._perf_recorder.stop("export_dataset_topology")
+                self.logger.exception("Dataset network topology export failed (non-fatal).")
+        else:
+            self.logger.info("Skip dataset network topology export (visualization.dataset_topology_enabled=false)")
+        self.logger.info(
+            "Done. DATASET_LABEL_DISTRIBUTION=%s | SUMMARY=%s | LABEL_CORR_JSON=%s | LABEL_CORR_FIG=%s | labels=%d",
+            dataset_label_csv_path,
+            dataset_label_summary_path,
+            dataset_label_corr_json_path,
+            dataset_label_corr_fig_path,
+            len(dataset_label_rows),
+        )
+        if self._perf_recorder.enabled:
+            self._perf_recorder.stop("export_dataset_profile")
+        if self._perf_recorder.enabled:
+            self._perf_recorder.start("init_learners")
+        start_idx = self._build_initial_learners(data, x_all)
+        self._stream_start_idx = int(start_idx)
+        if self._perf_recorder.enabled:
+            self._perf_recorder.stop("init_learners")
+        window_size = self.cfg["stream"]["window_size"]
+
+        time_series = []
+        if self._perf_recorder.enabled and self._perf_recorder.resources._gpu_available:
+            try:
+                import torch
+
+                torch.cuda.reset_peak_memory_stats()
+            except Exception:
+                pass
+
+        self._process_stream_windows(
+            data=data,
+            x_all=x_all,
+            start_idx=int(start_idx),
+            window_size=int(window_size),
+            time_series=time_series,
+        )
 
         if self._perf_recorder.enabled and self._perf_recorder.resources._gpu_available:
             try:

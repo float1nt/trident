@@ -358,7 +358,7 @@ function App() {
             <p className="eyebrow">E2E Stress Benchmark</p>
             <h2>Suricata → Redis → Trident 压测视图</h2>
             <p className="subtle">
-              直接读取 <code>trident_demo/stress_outputs</code>，用于检查压测状态、吞吐、阶段耗时和资源曲线。
+              直接读取 <code>trident_demo/testing/outputs/stress</code>，用于检查压测状态、吞吐、阶段耗时和资源曲线。
             </p>
           </div>
           <div className="controls">

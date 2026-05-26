@@ -4,6 +4,8 @@
 data/*
 outputs/*
 trident_demo/outputs/*
+trident_demo/testing/outputs/*
+trident_demo/stress_outputs/*
 # Raw CIC datasets (large CSVs; avoid Cursor/git diff scanning)
 cic2017/
 cicids2019/
