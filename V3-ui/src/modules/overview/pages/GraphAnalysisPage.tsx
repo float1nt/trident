@@ -528,6 +528,76 @@ function formatMetricNumber(n: number): string {
   return n.toFixed(d)
 }
 
+function formatOverviewCount(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '-'
+  return value.toLocaleString()
+}
+
+type OverviewSummaryCardId = 'windows' | 'newLearners' | 'aggregates'
+
+type OverviewSummaryCardView = {
+  id: OverviewSummaryCardId
+  name: string
+  value: string
+}
+
+type OverviewKpiSnapshot = {
+  windows: number | null
+  newLearners: number | null
+  aggregateCount: number | null
+}
+
+function OverviewSummaryCardIcon({ cardId }: { cardId: OverviewSummaryCardId }) {
+  if (cardId === 'windows') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M2 6h12" stroke="currentColor" strokeWidth="1.5" />
+      </svg>
+    )
+  }
+  if (cardId === 'newLearners') {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="5.5" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+        <path
+          d="M3.5 13c0-2.5 2-4.5 4.5-4.5s4.5 2 4.5 4.5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    )
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <circle cx="4" cy="8" r="2" fill="currentColor" />
+      <circle cx="12" cy="5" r="2" fill="currentColor" />
+      <circle cx="12" cy="11" r="2" fill="currentColor" />
+    </svg>
+  )
+}
+
+function buildOverviewSummaryCards(kpi: OverviewKpiSnapshot): OverviewSummaryCardView[] {
+  return [
+    {
+      id: 'windows',
+      name: 'Windows',
+      value: formatOverviewCount(kpi.windows),
+    },
+    {
+      id: 'newLearners',
+      name: 'New Learners',
+      value: formatOverviewCount(kpi.newLearners),
+    },
+    {
+      id: 'aggregates',
+      name: 'Aggregates',
+      value: formatOverviewCount(kpi.aggregateCount),
+    },
+  ]
+}
+
 function compactLearnerJsonForDisplay(raw: string): string {
   const s = raw.trim()
   if (!s) return '—'
@@ -919,10 +989,7 @@ export default function GraphAnalysisPage() {
       tpr: typeof fnr === 'number' ? 1 - fnr : null,
       windows: typeof perf?.windows_count === 'number' ? perf.windows_count : null,
       newLearners: typeof perf?.new_learner_count === 'number' ? perf.new_learner_count : null,
-      avgWindowSeconds: typeof perf?.avg_window_seconds === 'number' ? perf.avg_window_seconds : null,
       aggregateCount: typeof aggSummary?.aggregate_count === 'number' ? aggSummary.aggregate_count : null,
-      learnerCount: typeof aggSummary?.learner_count === 'number' ? aggSummary.learner_count : null,
-      edgeCount: typeof aggSummary?.selected_edge_count === 'number' ? aggSummary.selected_edge_count : null,
     }
   }, [aggSummary, metrics, perf])
 
@@ -2123,23 +2190,15 @@ export default function GraphAnalysisPage() {
   const selectedCreationPreview =
     selectedNodeId && !selectedEdge ? creationPreviewByLearner.get(selectedNodeId) ?? null : null
 
+  const overviewSummaryCards = useMemo(() => buildOverviewSummaryCards(kpi), [kpi])
+
   return (
-    <div className="space-y-5 bg-[#f6faff]  h-full w-full rounded-[8px]">
-      <section className="panel">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <p className="eyebrow">Threat Relationship Intelligence</p>
-            <h1 className="text-2xl font-semibold tracking-wide text-notion-text">
-              总览
-            </h1>
-            <p className="mt-1 text-sm text-notion-secondary">
-              {detailMode ? `当前路由: ${overviewPaths.run(routeRunId)}` : ''}
-            </p>
-            {detailMode ? (
-              <p className="mt-2 text-xs text-notion-secondary">
-                <Link to={overviewPaths.runDetail} className="hover:underline text-notion-accent">返回总览</Link>
-              </p>
-            ) : null}
+    <div className="space-y-5  h-full w-full rounded-[8px]">
+      <section className="overview-kpi-section">
+        <div className="flex items-center justify-between gap-4">
+          <div className="overview-section-title">
+            <span className="overview-section-title-bar" aria-hidden />
+            <h1 className="overview-section-title-text">总览</h1>
           </div>
           {!detailMode ? (
             <Select
@@ -2150,40 +2209,29 @@ export default function GraphAnalysisPage() {
             />
           ) : null}
         </div>
-      </section>
-
-      {/* <section className="panel space-y-3">
-        <div className="grid gap-3 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <label className="field-label">Run</label>
-            {detailMode ? (
-              <div className="input-base w-full font-mono text-xs">{selectedRunId}</div>
-            ) : (
-              <select
-                value={selectedRunId}
-                onChange={(e) => setSelectedRunId(e.target.value)}
-                className="input-base w-full font-mono text-xs"
-              >
-                {runs.map((run) => (
-                  <option key={run.id} value={run.id}>
-                    {run.id}
-                  </option>
-                ))}
-              </select>
-            )}
+        {detailMode ? (
+          <div className="mt-2 text-sm text-notion-secondary">
+            <p>{`当前路由: ${overviewPaths.run(routeRunId)}`}</p>
+            <p className="mt-1 text-xs">
+              <Link to={overviewPaths.runDetail} className="hover:underline text-notion-accent">
+                返回总览
+              </Link>
+            </p>
           </div>
+        ) : null}
+        <div className="overview-summary-grid">
+          {overviewSummaryCards.map((card) => (
+            <article key={card.id} className="overview-summary-card">
+              <div className="overview-summary-card-header">
+                <p className="overview-summary-card-name">{card.name}</p>
+                <span className="overview-summary-card-icon" aria-hidden>
+                  <OverviewSummaryCardIcon cardId={card.id} />
+                </span>
+              </div>
+              <p className="overview-summary-card-value">{card.value}</p>
+            </article>
+          ))}
         </div>
-        {loading ? <p className="text-sm text-notion-secondary">正在载入图谱数据...</p> : null}
-        {error ? <p className="text-sm text-notion-danger">{error}</p> : null}
-      </section> */}
-
-      <section className="grid gap-3 grid-cols-3">
-        {/* <article className="metric-card"><p className="metric-label">Risk FPR</p><p className="metric-value">{kpi.fpr == null ? '-' : `${(kpi.fpr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article>
-        <article className="metric-card"><p className="metric-label">Risk FNR</p><p className="metric-value">{kpi.fnr == null ? '-' : `${(kpi.fnr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article>
-        <article className="metric-card"><p className="metric-label">Risk TPR</p><p className="metric-value">{kpi.tpr == null ? '-' : `${(kpi.tpr * 100).toFixed(METRIC_DECIMAL_PLACES)}%`}</p></article> */}
-        <article className="metric-card"><p className="metric-label">Windows</p><p className="metric-value">{kpi.windows ?? '-'}</p></article>
-        <article className="metric-card"><p className="metric-label">New Learners</p><p className="metric-value">{kpi.newLearners ?? '-'}</p></article>
-        <article className="metric-card"><p className="metric-label">Aggregates</p><p className="metric-value">{kpi.aggregateCount ?? '-'}</p></article>
       </section>
 
       <section className="panel">
@@ -2201,10 +2249,12 @@ export default function GraphAnalysisPage() {
             labelOptions={datasetLabelRows.map((r) => r.label).filter(Boolean)}
           />
         </article> */}
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary"> {OVERVIEW_TIME_RANGE_OPTIONS.find((option) => option.value === timeRange)?.label}流量数据</h2>
-        {/* <div className="mb-3 text-xs text-notion-secondary">
-          说明文字
-        </div> */}
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-widest text-notion-secondary ">
+          流量概览
+        </h2>
+        <div className="mb-3 text-xs text-notion-secondary">
+          {OVERVIEW_TIME_RANGE_OPTIONS.find((option) => option.value === timeRange)?.label}流量数据
+        </div>
         <div className="mb-4 grid gap-4 lg:grid-cols-2">
           <article className="rounded-lg border border-notion-border bg-notion-surface p-3">
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-notion-secondary">总体正常/疑似异常占比</h3>

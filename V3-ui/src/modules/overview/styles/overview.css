@@ -64,6 +64,56 @@
   background: #fff;
 }
 
+.overview-module .overview-kpi-section {
+  @apply rounded-[8px] bg-white p-4;
+  box-shadow: 0 2px 6px 0 rgba(28, 41, 90, 0.04);
+}
+
+.overview-module .overview-section-title {
+  @apply flex min-w-0 items-center gap-2;
+}
+
+.overview-module .overview-section-title-bar {
+  @apply inline-block h-4 w-1 shrink-0 rounded-sm;
+  background: var(--notion-accent);
+}
+
+.overview-module .overview-section-title-text {
+  @apply text-base font-medium;
+  color: var(--notion-text-primary);
+}
+
+.overview-module .overview-summary-grid {
+  @apply mt-4 grid grid-cols-3 gap-4;
+}
+
+.overview-module .overview-summary-card {
+  @apply relative overflow-hidden rounded-[10px] p-3;
+  min-height: 96px;
+  border: 1px solid #e3edff;
+  background: linear-gradient(180deg, #ebf3ff 0%, #f8fbff 55%, #ffffff 100%);
+}
+
+.overview-module .overview-summary-card-header {
+  @apply flex items-start justify-between gap-2;
+}
+
+.overview-module .overview-summary-card-name {
+  @apply text-sm leading-none;
+  color: var(--notion-text-secondary);
+}
+
+.overview-module .overview-summary-card-icon {
+  @apply flex h-8 w-8 shrink-0 items-center justify-center rounded-full;
+  color: #fff;
+  background: linear-gradient(135deg, #6b93ff 0%, #4368f0 100%);
+}
+
+.overview-module .overview-summary-card-value {
+  @apply mt-3 text-2xl font-semibold leading-none;
+  color: var(--notion-text-primary);
+}
+
 .overview-module .metric-label {
   @apply text-xs uppercase tracking-widest;
   color: var(--notion-text-secondary);

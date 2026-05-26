@@ -1,7 +1,7 @@
 .overview-module.page {
   padding: 0;
   min-height: auto;
-  background: var(--notion-bg);
+  background:#f6faff;
   color: var(--notion-text-primary);
 }
 
