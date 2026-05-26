@@ -1,12 +1,14 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Table, Input, Button, Space, Tooltip, Tag, Tabs, DatePicker } from "antd";
+import { Table, Input, Button, Space, Tooltip, Tag, Tabs, DatePicker, Card, Typography } from "antd";
 import type { Dayjs } from "dayjs";
 import { EyeOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { RiskItem } from "@/api/types";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
+import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
 import { fetchMockRiskList } from "@/mock/riskTasks";
+import { getMockEventLearnerTopology } from "@/mock/eventLearnerTopology";
 import "./RiskTaskList.css";
 
 type RiskSearchForm = {
@@ -34,6 +36,7 @@ const EMPTY_EVENT_SEARCH: EventSearchForm = {
 type RiskViewTab = "event" | "ip";
 
 const { RangePicker } = DatePicker;
+const { Title, Paragraph } = Typography;
 
 const RiskTaskList = () => {
   const navigate = useNavigate();
@@ -55,11 +58,10 @@ const RiskTaskList = () => {
     void getListData();
   }, [page, filters, activeView]);
 
-  useEffect(() => {
-    if (activeView !== "event") return;
-    // 事件列表接入后在此根据 eventFilters 拉取数据
-    void eventFilters;
-  }, [activeView, eventFilters]);
+  const eventLearnerTopology = useMemo(
+    () => getMockEventLearnerTopology({ name: eventFilters.name }),
+    [eventFilters.name],
+  );
 
   const getListData = async (opts?: { page?: number; nextFilters?: RiskSearchForm }) => {
     const curPage = opts?.page ?? page;
@@ -87,6 +89,10 @@ const RiskTaskList = () => {
       pathname: "/risk/detail",
       search: `?id=${id}`,
     });
+  };
+
+  const handleEventRiskClick = (riskId: number) => {
+    handleDetailList(riskId);
   };
 
   const handleSearch = () => {
@@ -209,7 +215,11 @@ const RiskTaskList = () => {
 
         {activeView === "event" ? (
           <>
-            <div className="rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+            <Card
+              bordered={false}
+              className="shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
+              styles={{ body: { padding: "16px 16px 12px" } }}
+            >
               <div className="risk-filter-row">
                 <Input
                   className="risk-filter-field"
@@ -249,10 +259,23 @@ const RiskTaskList = () => {
                   </Button>
                 </Space>
               </div>
-            </div>
-            <div className="flex min-h-[320px] flex-1 items-center justify-center rounded-[8px] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-              <span className="text-sm text-[#8c8c8c]">（占位）</span>
-            </div>
+            </Card>
+            <Card
+              bordered={false}
+              className="min-h-0 flex-1 overflow-auto shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
+              styles={{ body: { padding: 16 } }}
+            >
+              <Title level={5} className="!mb-1 !mt-0">
+                学习器内部网络拓扑（IP / 端口）
+              </Title>
+              <Paragraph type="secondary" className="!mb-4 text-xs">
+                展示全部风险事件拓扑，点击卡片进入风险详情页。
+              </Paragraph>
+              <LearnerInternalTopologyPanel
+                data={eventLearnerTopology}
+                onRiskClick={handleEventRiskClick}
+              />
+            </Card>
           </>
         ) : (
           <>

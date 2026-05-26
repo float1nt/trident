@@ -54,3 +54,7 @@
 .risk-filter-range__picker.ant-picker-focused {
   box-shadow: none !important;
 }
+
+.risk-event-topology-card.ant-card-hoverable:hover {
+  border-color: #4368f0;
+}

@@ -50,6 +50,8 @@ export type DatasetNetworkTopologyJson = {
   views: Record<string, TopologyLabelView>;
 };
 
+export const GRID_CHART_HEIGHT = 120;
+
 type GraphNode = {
   id: string;
   name: string;
