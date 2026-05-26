@@ -186,17 +186,11 @@ CREATE TABLE pg_learner (
   assignment_share      DOUBLE PRECISION,
   unknown_absorb_count  BIGINT DEFAULT 0,
 
-  -- 行为画像
-  protocol_cluster_type VARCHAR(64),
-  temporal_cluster_type VARCHAR(64),
-  port_cluster_type     VARCHAR(64),
-  stability_score       DOUBLE PRECISION,
-  drift_score           DOUBLE PRECISION,
-
   -- 风险
   risk_score            DOUBLE PRECISION,
   risk_band             VARCHAR(32),
   risk_reason           TEXT,
+  risk_version          VARCHAR(64) DEFAULT 'unset',
 
   -- 当前快照 JSON
   profile_json          JSONB, -- 行为画像、特征统计、端口/时序/协议统计
@@ -221,9 +215,13 @@ CREATE INDEX idx_pg_learner_rule_gin ON pg_learner USING GIN (rule_json);
 
 因此第一版采用：
 
-- 常用排序过滤字段直接列化：`risk_score`、`risk_band`、`flow_count`、`protocol_cluster_type` 等。
+- 常用排序过滤字段直接列化：`risk_score`、`risk_band`、`flow_count` 等。
 - 复杂结构完整放 JSON：`profile_json`、`metric_json`、`rule_json`、`topology_json`。
 - 等前端查询模式稳定后，再把高频字段拆到派生表。
+
+不建议在第一版把 `protocol_cluster_type`、`temporal_cluster_type`、`port_cluster_type` 这类定性标签做成固定列。它们不是 Trident 主流程稳定产出的原始事实，而是规则层或审计层基于统计结果解释出来的标签。第一版应放在 `profile_json` 或 `rule_json` 中，等标签体系稳定、且前端确实需要按这些标签高频筛选时，再提升为独立列。
+
+同理，第一版不把 `stability_score` 和 `drift_score` 做成固定列。当前主流程还没有稳定定义这两个分数的计算公式，也没有保证每次 Live flush 都会产出它们。如果后续要做，可以先作为实验性指标放在 `metric_json` 里，例如 `metric_json.stability_score`、`metric_json.drift_score`，等公式稳定并成为高频排序/过滤条件后再提升为独立列。
 
 ### `pg_learner` 字段说明
 
@@ -241,18 +239,178 @@ CREATE INDEX idx_pg_learner_rule_gin ON pg_learner USING GIN (rule_json);
 | `flow_count` | `BIGINT` | 当前累计分配到该学习器的流数量。 | `128394` |
 | `assignment_share` | `DOUBLE PRECISION` | 该学习器占当前 session 总分配流量的比例，通常为 0-1。 | `0.23` |
 | `unknown_absorb_count` | `BIGINT` | 该学习器从 unknown 聚类创建或吸收的流数量。 | `2300` |
-| `protocol_cluster_type` | `VARCHAR(64)` | 协议行为画像类型。 | `TCP_CLUSTER` / `UDP_CLUSTER` / `MIXED` |
-| `temporal_cluster_type` | `VARCHAR(64)` | 时间行为画像类型。 | `BURSTY` / `STEADY` / `LONG_SPAN` |
-| `port_cluster_type` | `VARCHAR(64)` | 端口行为画像类型。 | `SERVICE_LIKE` / `SCANNING_LIKE` |
-| `stability_score` | `DOUBLE PRECISION` | 学习器稳定性分数。数值定义由画像/规则层给出。 | `0.91` |
-| `drift_score` | `DOUBLE PRECISION` | 学习器近期行为漂移分数。值越高通常表示变化越明显。 | `0.37` |
 | `risk_score` | `DOUBLE PRECISION` | 当前风险分数。 | `0.82` |
 | `risk_band` | `VARCHAR(32)` | 当前风险等级。 | `LOW` / `MEDIUM` / `HIGH` |
 | `risk_reason` | `TEXT` | 风险解释文本，给前端和研判人员阅读。 | `high port concentration with bursty traffic` |
-| `profile_json` | `JSONB` | 学习器行为画像快照，如协议占比、端口熵、时序集中度、特征统计等。 | `{"protocol_tcp_ratio":0.97}` |
-| `metric_json` | `JSONB` | 拓扑行为指标快照，如端点集中度、边集中度、端口熵、主机度分布等。 | `{"dst_port_entropy":0.21}` |
-| `rule_json` | `JSONB` | 规则命中结果，包括命中规则、强/弱匹配、证据和解释。 | `{"rules":[...]}` |
-| `topology_json` | `JSONB` | 学习器相关拓扑摘要，如 top host、top port、节点边摘要等。 | `{"nodes":[...],"edges":[...]}` |
+| `risk_version` | `VARCHAR(64)` | 风险评分公式或规则版本。用于追溯 `risk_score` 和 `risk_band` 是按哪套逻辑生成的。 | `rule_weighted_v1` |
+| `profile_json` | `JSONB` | 学习器行为画像快照，保存协议、端口、时间、特征分布等统计画像。 | `{"protocol":{"tcp_ratio":0.97}}` |
+| `metric_json` | `JSONB` | 从画像和拓扑里计算出来的指标值，只放数值型或可比较的指标。 | `{"dst_port_entropy":0.21}` |
+| `rule_json` | `JSONB` | 基于 `profile_json` 和 `metric_json` 产生的规则命中结果、证据和解释。 | `{"rules":[...]}` |
+| `topology_json` | `JSONB` | 为前端展示和人工研判准备的拓扑摘要，保存 top 节点、top 边、top 端口等结构。 | `{"top_hosts":[...]}` |
+
+### 风险字段怎么来
+
+`risk_score` 和 `risk_band` 可以保留为 `pg_learner` 固定列，因为风险列表、学习器排序、风险筛选会高频使用它们。但它们不是 Trident 原始模型直接输出的字段，也不是有标签分类概率。实时接入后没有真实标签，因此风险字段只能来自无监督画像、拓扑指标和规则命中结果。
+
+第一版建议采用规则加权方式生成风险分：
+
+```text
+risk_score = clamp(
+  sum(rule_weight * match_strength * confidence) / sum(rule_weight),
+  0,
+  1
+)
+```
+
+其中：
+
+- `rule_weight`：规则权重，由规则配置给出。
+- `match_strength`：命中强度，建议 `strong = 1.0`、`weak = 0.5`。
+- `confidence`：证据置信度，没有置信度时默认 `1.0`。
+- `clamp`：把结果限制在 0-1。
+
+如果当前 Live flush 没有执行风险规则，`risk_score` 应为 `NULL`，`risk_band` 应为 `UNKNOWN` 或为空；不要用 `0` 表示“没算”。`0` 应该只表示“已经计算，且当前规则认为风险很低”。
+
+第一版风险等级可以采用固定阈值：
+
+| 条件 | `risk_band` |
+|------|-------------|
+| `risk_score IS NULL` | `UNKNOWN` |
+| `risk_score >= 0.75` | `HIGH` |
+| `risk_score >= 0.45` | `MEDIUM` |
+| `risk_score < 0.45` | `LOW` |
+
+这些阈值必须和 `risk_version` 绑定。比如 `risk_version = rule_weighted_v1` 表示当前分数来自第一版规则加权公式；如果后续改成分位数风险等级、模型融合风险分或人工校准风险分，只更新 `risk_version` 和计算逻辑，不改变表结构。
+
+`risk_reason` 是给前端和研判人员看的短解释，应该由最高贡献规则或最关键证据生成。例如：
+
+```text
+HIGH: 目的端口熵低，目的 IP 集中度高，且该学习器近期吸收 unknown 流量较多。
+```
+
+更完整的证据不要塞进 `risk_reason`，应该保存在 `rule_json` 里。
+
+### 四类学习器 JSON 的边界
+
+这四个字段都在 `pg_learner` 里，但用途不同，不能混着放。
+
+`profile_json` 保存“这个学习器的流量长什么样”。它更接近画像统计，例如 TCP/UDP 占比、目的端口分布、流持续时间分布、包数/字节数分布、活跃时间段等。这里可以放定性标签的来源数据，也可以临时放尚未稳定的画像标签。
+
+示例：
+
+```json
+{
+  "protocol": {
+    "tcp_ratio": 0.97,
+    "udp_ratio": 0.03
+  },
+  "port": {
+    "top_dst_ports": [443, 80, 8080],
+    "distinct_dst_ports": 18
+  },
+  "temporal": {
+    "active_span_seconds": 3600,
+    "burst_score": 0.72
+  }
+}
+```
+
+`metric_json` 保存“从画像或拓扑中计算出的指标值”。它应该尽量是可排序、可比较、可阈值判断的数值或小型数组，例如端口熵、端点集中度、边集中度、主机度分布摘要。它不是给前端画图的完整结构，而是给规则判断和风险评分使用的指标快照。
+
+示例：
+
+```json
+{
+  "dst_port_entropy": 0.21,
+  "dst_ip_concentration": 0.84,
+  "edge_concentration": 0.78,
+  "stability_score": null,
+  "drift_score": null,
+  "host_degree": {
+    "max": 42,
+    "p95": 9
+  }
+}
+```
+
+其中 `stability_score` 和 `drift_score` 目前不是数据库层已经确定的字段，也不是主流程已定义好的固定公式。建议先按如下原则处理：
+
+- 没有公式前，不写入固定列，也不要让前端依赖它们。
+- 需要实验时，先写入 `metric_json`，并附带 `metric_version` 或公式说明。
+- 公式稳定后，如果确实需要按稳定性/漂移排序，再把它们提升为 `pg_learner` 独立列。
+
+候选含义可以这样定义，但这属于后续指标层工作：
+
+- 稳定性分数：衡量一个学习器在最近多个窗口中的流量规模、端口分布、协议分布、拓扑邻接关系是否稳定。
+- 漂移分数：衡量当前窗口画像相对历史基线变化有多大，例如端口分布 JS 散度、协议占比变化、top edge 变化、重构误差分布变化等。
+
+`rule_json` 保存“这些指标触发了什么判断”。它不是重新保存全部指标，而是记录命中的规则、强弱匹配、证据字段和解释文本。比如 `dst_port_entropy` 很低、`dst_ip_concentration` 很高，规则层可以判断该学习器像固定服务访问；如果目的端口数量异常高，可能判断为扫描倾向。
+
+示例：
+
+```json
+{
+  "rules": [
+    {
+      "rule_id": "LOW_PORT_ENTROPY",
+      "match": "strong",
+      "evidence": {
+        "dst_port_entropy": 0.21
+      },
+      "explain": "目的端口高度集中"
+    }
+  ]
+}
+```
+
+`topology_json` 保存“学习器级别概览拓扑摘要”。它可以包含 top host、top port、top edge 等轻量结构，用于学习器详情页的概览区和人工研判的快速扫视。
+
+需要特别注意：`topology_json` 不作为“选中一个 IP 后展示其相关拓扑图”的数据源。IP 中心拓扑图是交互式查询，应该从 `ch_flow` 按 `session_id + assigned_learner + 时间范围 + ip` 动态聚合；如果动态聚合性能不足，再新增 ClickHouse 派生表 `ch_ip_edge`。也就是说：
+
+- `pg_learner.topology_json` 负责学习器整体概览。
+- `ch_flow` 负责按 IP、时间范围、学习器动态查询。
+- `ch_ip_edge` 只在性能需要时作为 IP 交互拓扑的预聚合表。
+
+IP 交互拓扑查询示例：
+
+```sql
+SELECT
+  src_ip,
+  dst_ip,
+  dst_port,
+  protocol,
+  count() AS flow_count,
+  min(event_time) AS first_seen,
+  max(event_time) AS last_seen
+FROM ch_flow
+WHERE session_id = {session_id:String}
+  AND assigned_learner = {learner_name:String}
+  AND event_time >= {start_time:DateTime64(3)}
+  AND event_time < {end_time:DateTime64(3)}
+  AND (src_ip = {ip:String} OR dst_ip = {ip:String})
+GROUP BY src_ip, dst_ip, dst_port, protocol
+ORDER BY flow_count DESC
+LIMIT 500;
+```
+
+示例：
+
+```json
+{
+  "top_hosts": [
+    {"ip": "10.0.0.5", "flow_count": 1200},
+    {"ip": "10.0.0.8", "flow_count": 840}
+  ],
+  "top_ports": [
+    {"port": 443, "flow_count": 1800}
+  ],
+  "top_edges": [
+    {"src_ip": "10.0.0.5", "dst_ip": "8.8.8.8", "flow_count": 320}
+  ]
+}
+```
+
+简单说：`profile_json` 是画像统计，`metric_json` 是指标数值，`rule_json` 是判断结果，`topology_json` 是展示和研判用的拓扑摘要。
 
 补充说明：
 
@@ -278,7 +436,7 @@ CREATE INDEX idx_pg_learner_rule_gin ON pg_learner USING GIN (rule_json);
 4. Live flush 周期到达
    -> 重新计算当前学习器画像、指标、规则、拓扑
    -> UPSERT pg_learner.profile_json / metric_json / rule_json / topology_json
-   -> 更新 pg_learner.risk_score / risk_band / risk_reason
+   -> 更新 pg_learner.risk_score / risk_band / risk_reason / risk_version
 ```
 
 ---
@@ -313,7 +471,31 @@ Live flush 写的是聚合后的当前状态，例如：
 
 第一版可以不建这些表。只有当查询或 UI 性能需要时再拆。
 
-### 6.1 `ch_window_stats`
+### 6.1 `ch_ip_edge`
+
+IP 中心拓扑图的预聚合边表。只有当直接从 `ch_flow` 动态聚合无法满足前端交互性能时才需要创建。
+
+```sql
+CREATE TABLE ch_ip_edge (
+  session_id        String,
+  window_index      UInt64,
+  assigned_learner  String,
+  src_ip            String,
+  dst_ip            String,
+  dst_port          UInt16,
+  protocol          UInt16,
+  flow_count        UInt64,
+  first_seen        DateTime64(3),
+  last_seen         DateTime64(3),
+  updated_at        DateTime64(3) DEFAULT now64(3)
+)
+ENGINE = SummingMergeTree(flow_count)
+ORDER BY (session_id, assigned_learner, window_index, src_ip, dst_ip, dst_port, protocol);
+```
+
+查询某个 IP 的邻接拓扑时，条件仍然是 `src_ip = ip OR dst_ip = ip`，但扫描的是预聚合后的边而不是原始流。
+
+### 6.2 `ch_window_stats`
 
 窗口级吞吐和性能曲线。如果前端需要独立绘制窗口性能趋势，可从 `ch_flow` 聚合，也可单独落表。
 
@@ -339,7 +521,7 @@ ENGINE = MergeTree()
 ORDER BY (session_id, window_index);
 ```
 
-### 6.2 `pg_risk_alert`
+### 6.3 `pg_risk_alert`
 
 如果风险需要工单式处置，再从 `pg_learner.risk_*` 拆出风险告警表。
 
@@ -351,6 +533,7 @@ CREATE TABLE pg_risk_alert (
   trigger_time    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   risk_score      DOUBLE PRECISION,
   risk_band       VARCHAR(32),
+  risk_version    VARCHAR(64),
   title           VARCHAR(256) NOT NULL,
   description     TEXT,
   evidence_json   JSONB,
@@ -361,7 +544,7 @@ CREATE TABLE pg_risk_alert (
 );
 ```
 
-### 6.3 `pg_session`
+### 6.4 `pg_session`
 
 如果需要前端展示服务运行状态或多实例管理，再建 session 表。否则 `session_id` 可以先由服务配置或环境变量管理。
 
