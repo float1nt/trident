@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Card, Col, Empty, Row, Typography } from "antd";
 import {
   GRID_CHART_HEIGHT,
@@ -34,6 +34,8 @@ function buildSortedLearnerOptions(
       name,
       riskId: fromView?.risk_id ?? 0,
       riskName: fromView?.risk_name ?? name,
+      riskDescription: fromView?.risk_description ?? "—",
+      triggerTime: fromView?.trigger_time ?? "—",
       attackRatio: fromView?.attack_ratio ?? 0,
       dominantLabel: fromView?.dominant_label ?? "—",
       flowCount: fromView?.host?.flow_count ?? fromView?.endpoint?.flow_count,
@@ -42,6 +44,21 @@ function buildSortedLearnerOptions(
 
   return items.sort(
     (a, b) => b.attackRatio - a.attackRatio || a.name.localeCompare(b.name),
+  );
+}
+
+function EventCardInfoItem({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mb-1.5 last:mb-0">
+      <div className="text-[10px] leading-tight text-[#8c8c8c]">{label}</div>
+      <div className="text-[11px] leading-[16px] text-[#333]">{children}</div>
+    </div>
   );
 }
 
@@ -78,7 +95,6 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
           const metaText = `攻击 ${itemAttackPct} · ${itemDominant}${
             itemFlowCount != null ? ` · ${itemFlowCount.toLocaleString()} 流` : ""
           }`;
-          const cardTitle = option.riskName || option.name;
 
           return (
             <Col key={`learner-topology-grid-${option.name}`} xs={24} sm={12} xl={6}>
@@ -87,13 +103,13 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
                 hoverable
                 className="risk-event-topology-card"
                 title={
-                  <Text ellipsis={{ tooltip: cardTitle }} className="text-[11px]">
-                    {cardTitle}
+                  <Text ellipsis={{ tooltip: option.riskName }} className="text-[11px]">
+                    {option.riskName}
                   </Text>
                 }
                 styles={{
                   header: { minHeight: 36, padding: "4px 8px" },
-                  body: { padding: 4 },
+                  body: { padding: "8px 8px 4px" },
                 }}
                 onClick={() => {
                   if (option.riskId > 0) {
@@ -101,10 +117,21 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
                   }
                 }}
               >
+                <EventCardInfoItem label="风险说明">
+                  <span
+                    className="line-clamp-2 text-[11px] leading-[16px]"
+                    title={option.riskDescription}
+                  >
+                    {option.riskDescription}
+                  </span>
+                </EventCardInfoItem>
+                <EventCardInfoItem label="风险触发时间">
+                  {option.triggerTime}
+                </EventCardInfoItem>
                 <Text
                   type="secondary"
                   ellipsis={{ tooltip: metaText }}
-                  className="mb-1 block text-[10px] leading-tight"
+                  className="mb-1 mt-0.5 block text-[10px] leading-tight"
                 >
                   {metaText}
                 </Text>
