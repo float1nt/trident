@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from "react-router-dom";
 import App from "@/App";
 import LoginView from "@/views/LoginView";
 import NavPlaceholder from "@/views/NavPlaceholder";
+import SettingView from "@/views/setting/SettingView";
 import HomeView from "@/views/HomeView";
 import RiskTaskList from "@/views/risk/RiskTaskList";
 import RiskDetailPlaceholder from "@/views/risk/RiskDetailPlaceholder";
@@ -63,7 +64,7 @@ export const router = createBrowserRouter([
             },
             {
                 path: "setting",
-                element: <NavPlaceholder title="设置" />,
+                element: <SettingView />,
             },
             {
                 path: "lab",

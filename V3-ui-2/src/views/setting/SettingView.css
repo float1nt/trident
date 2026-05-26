@@ -1,0 +1,15 @@
+.setting-form .ant-form-item-label > label {
+  color: #333;
+  font-weight: 500;
+}
+
+.setting-protocol-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+.setting-protocol-group .ant-checkbox-wrapper {
+  margin-inline-start: 0;
+  min-width: 88px;
+}
