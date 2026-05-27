@@ -78,21 +78,6 @@ function buildSortedLearnerOptions(
   );
 }
 
-function EventCardInfoItem({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="mb-1.5 last:mb-0">
-      <div className="text-[10px] leading-tight text-[#8c8c8c]">{label}</div>
-      <div className="text-[11px] leading-[16px] text-[#333]">{children}</div>
-    </div>
-  );
-}
-
 /** 事件视角 — 学习器网络拓扑网格 */
 export function LearnerInternalTopologyPanel({
   data,
@@ -151,9 +136,8 @@ export function LearnerInternalTopologyPanel({
             gridView.host?.flow_count ?? gridView.endpoint?.flow_count;
           const itemAttackPct = `${(gridView.attack_ratio * 100).toFixed(2)}%`;
           const itemDominant = gridView.dominant_label || option.dominantLabel || "—";
-          const metaText = `攻击 ${itemAttackPct} · ${itemDominant}${
-            itemFlowCount != null ? ` · ${itemFlowCount.toLocaleString()} 流` : ""
-          }`;
+          const metaText = `攻击 ${itemAttackPct} · ${itemDominant}${itemFlowCount != null ? ` · ${itemFlowCount.toLocaleString()} 流` : ""
+            }`;
 
           return (
             <Col key={`learner-topology-grid-${option.name}`} xs={24} md={12}>
@@ -161,26 +145,42 @@ export function LearnerInternalTopologyPanel({
                 size="small"
                 className="risk-event-topology-card"
                 title={
-                  <div className="flex items-center justify-between gap-2">
-                    <Text
-                      ellipsis={{ tooltip: option.riskName }}
-                      className="min-w-0 flex-1 text-[11px]"
-                    >
-                      {option.riskName}
-                    </Text>
-                    <Button
-                      type="link"
-                      size="small"
-                      className="!h-auto shrink-0 !p-0 text-[11px]"
-                      disabled={option.riskId <= 0}
-                      onClick={() => {
-                        if (option.riskId > 0) {
-                          onRiskClick?.(option.riskId);
-                        }
-                      }}
-                    >
-                      查看详情
-                    </Button>
+
+
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Text
+                        ellipsis={{ tooltip: option.riskName }}
+                        className="min-w-0 flex-1 text-[11px]"
+                      >
+                        {option.riskName}
+                      </Text>
+                      <Button
+                        type="link"
+                        size="small"
+                        className="!h-auto shrink-0 !p-0 text-[11px]"
+                        disabled={option.riskId <= 0}
+                        onClick={() => {
+                          if (option.riskId > 0) {
+                            onRiskClick?.(option.riskId);
+                          }
+                        }}
+                      >
+                        查看详情
+                      </Button>
+
+                    </div>
+                    <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] font-normal leading-[16px]">
+                      <span className="shrink-0 whitespace-nowrap font-normal text-[#8c8c8c]">
+                        [{option.triggerTime}]
+                      </span>
+                      <span
+                        className="min-w-0 flex-1 truncate font-normal text-[#8c8c8c]"
+                        title={option.riskDescription}
+                      >
+                        {option.riskDescription}
+                      </span>
+                    </div>
                   </div>
                 }
                 styles={{
@@ -188,24 +188,14 @@ export function LearnerInternalTopologyPanel({
                   body: { padding: "8px 8px 4px" },
                 }}
               >
-                 <EventCardInfoItem label="">
-                  {option.triggerTime}
-                </EventCardInfoItem>
-                   <EventCardInfoItem label="">
-                  <span
-                    className="line-clamp-2 text-[11px] leading-[16px]"
-                    title={option.riskDescription}
-                  >
-                    {option.riskDescription}
-                  </span>
-                </EventCardInfoItem>
-                <Text
+
+                {/* <Text
                   type="secondary"
                   ellipsis={{ tooltip: metaText }}
                   className="mb-1 mt-0.5 block text-[10px] leading-tight"
                 >
                   {metaText}
-                </Text>
+                </Text> */}
                 <ChartPaneErrorBoundary title="拓扑图">
                   <TopologyChartPane
                     title=" "
@@ -215,7 +205,6 @@ export function LearnerInternalTopologyPanel({
                     repulsion={TOPOLOGY_REPULSION}
                     minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
                     chartHeight={GRID_CHART_HEIGHT}
-                   
                   />
                 </ChartPaneErrorBoundary>
               </Card>
