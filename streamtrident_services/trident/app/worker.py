@@ -57,7 +57,9 @@ def main() -> int:
         group=cfg.consumer_group,
         consumer=cfg.consumer_name,
     )
-    consumer.ensure_group()
+    reliable_consumer = cfg.consumer_mode == "reliable"
+    if reliable_consumer:
+        consumer.ensure_group()
     loader = FlowLoader(session_id=cfg.session_id, feature_profile=cfg.feature_profile)
     flow_repo = ChFlowRepository(cfg.clickhouse_dsn)
     learner_repo = LearnerRepository(cfg.postgres_dsn)
@@ -77,9 +79,12 @@ def main() -> int:
     )
     buffer = WindowBuffer(cfg.window_size)
 
-    pending = consumer.read_pending(count=cfg.read_count)
-    if not pending:
-        pending = consumer.autoclaim(min_idle_ms=cfg.pending_idle_ms, count=cfg.read_count)
+    if reliable_consumer:
+        pending = consumer.read_pending(count=cfg.read_count)
+        if not pending:
+            pending = consumer.autoclaim(min_idle_ms=cfg.pending_idle_ms, count=cfg.read_count)
+    else:
+        pending = []
     if pending:
         _process_messages(
             pending,
@@ -93,10 +98,17 @@ def main() -> int:
             consumer=consumer,
             buffer=None,
             force_window=True,
+            reliable_consumer=reliable_consumer,
         )
 
+    last_id = cfg.best_effort_start_id
     while not shutdown.stop:
-        messages = consumer.read_new(count=cfg.read_count, block_ms=cfg.block_ms)
+        if reliable_consumer:
+            messages = consumer.read_new(count=cfg.read_count, block_ms=cfg.block_ms)
+        else:
+            messages = consumer.read_best_effort(last_id=last_id, count=cfg.read_count, block_ms=cfg.block_ms)
+            if messages:
+                last_id = messages[-1].message_id
         if not messages:
             _log_batch(cfg.session_id, cfg.input_stream, read=0, written=0, acked=0, failed=0)
             if cfg.process_partial_window:
@@ -111,6 +123,7 @@ def main() -> int:
                         outputs=outputs,
                         engine=engine,
                         consumer=consumer,
+                        reliable_consumer=reliable_consumer,
                     )
             if args.once:
                 return 0
@@ -128,6 +141,7 @@ def main() -> int:
             consumer=consumer,
             buffer=buffer,
             force_window=False,
+            reliable_consumer=reliable_consumer,
         )
         if args.once:
             if cfg.process_partial_window:
@@ -142,6 +156,7 @@ def main() -> int:
                         outputs=outputs,
                         engine=engine,
                         consumer=consumer,
+                        reliable_consumer=reliable_consumer,
                     )
             return 0
     return 0
@@ -160,6 +175,7 @@ def _process_messages(
     consumer: RedisStreamConsumer,
     buffer: WindowBuffer | None,
     force_window: bool,
+    reliable_consumer: bool,
 ) -> None:
     t_parse_start = perf_counter()
     good: list[BufferedFlow] = []
@@ -189,7 +205,7 @@ def _process_messages(
         windows = buffer.add_many(good)
 
     acked_bad = 0
-    if bad_messages and getattr(cfg, "ack"):
+    if reliable_consumer and bad_messages and getattr(cfg, "ack"):
         acked_bad = consumer.ack(bad_messages)  # type: ignore[arg-type]
 
     if not windows:
@@ -216,6 +232,7 @@ def _process_messages(
             outputs=outputs,
             engine=engine,
             consumer=consumer,
+            reliable_consumer=reliable_consumer,
             pre_acked=acked_bad if index == 0 else 0,
             parse_failures=len(bad_messages) if index == 0 else 0,
             extra_metrics={"parse_seconds": parse_seconds if index == 0 else 0.0},
@@ -232,6 +249,7 @@ def _process_window(
     outputs: TridentOutputStreams,
     engine: OnlineEngine,
     consumer: RedisStreamConsumer,
+    reliable_consumer: bool,
     pre_acked: int = 0,
     parse_failures: int = 0,
     extra_metrics: dict[str, object] | None = None,
@@ -268,25 +286,28 @@ def _process_window(
         t_stage = perf_counter()
         assigned = assignment_writer.write(records, assignments, window_index=result.window_index)
         timings["assignment_write_seconds"] = perf_counter() - t_stage
-        t_stage = perf_counter()
-        outputs.publish_assignments(
-            [
-                {
-                    "session_id": cfg.session_id,
-                    "window_index": result.window_index,
-                    "flow_uid": assignment.flow_uid,
-                    "assigned_learner": assignment.assigned_learner,
-                    "is_unknown": int(assignment.is_unknown),
-                    "pred_loss": assignment.pred_loss,
-                    "threshold": assignment.threshold,
-                    "learner_snapshot_id": assignment.learner_snapshot_id,
-                    "learner_snapshot_version": assignment.learner_snapshot_version,
-                }
-                for assignment in assignments
-            ]
-        )
-        outputs.publish_alerts(result.alerts)
-        timings["redis_output_seconds"] = perf_counter() - t_stage
+        if cfg.redis_output_enabled:
+            t_stage = perf_counter()
+            outputs.publish_assignments(
+                [
+                    {
+                        "session_id": cfg.session_id,
+                        "window_index": result.window_index,
+                        "flow_uid": assignment.flow_uid,
+                        "assigned_learner": assignment.assigned_learner,
+                        "is_unknown": int(assignment.is_unknown),
+                        "pred_loss": assignment.pred_loss,
+                        "threshold": assignment.threshold,
+                        "learner_snapshot_id": assignment.learner_snapshot_id,
+                        "learner_snapshot_version": assignment.learner_snapshot_version,
+                    }
+                    for assignment in assignments
+                ]
+            )
+            outputs.publish_alerts(result.alerts)
+            timings["redis_output_seconds"] = perf_counter() - t_stage
+        else:
+            timings["redis_output_seconds"] = 0.0
         metrics = {
             "session_id": cfg.session_id,
             **result.metrics,
@@ -294,19 +315,21 @@ def _process_window(
             **(extra_metrics or {}),
             "window_total_seconds": perf_counter() - t_window_start,
             "redis_xlen": _safe_metric(lambda: consumer.xlen()),
-            "redis_pending": _safe_metric(lambda: consumer.pending_count()),
+            "redis_pending": _safe_metric(lambda: consumer.pending_count()) if reliable_consumer else 0,
             "read_count": len(messages),
             "ingest_write_count": written,
             "assignment_write_count": assigned,
-            "ack_enabled": int(cfg.ack),
+            "ack_enabled": int(cfg.ack and reliable_consumer),
+            "consumer_mode": cfg.consumer_mode,
         }
-        if cfg.ack and messages:
+        if reliable_consumer and cfg.ack and messages:
             t_stage = perf_counter()
             acked += consumer.ack(messages)
             timings["ack_seconds"] = perf_counter() - t_stage
         metrics["ack_seconds"] = timings.get("ack_seconds", 0.0)
         metrics.update(process_metrics())
-        outputs.publish_metrics(metrics)
+        if cfg.redis_output_enabled:
+            outputs.publish_metrics(metrics)
     except Exception:
         logging.exception(
             json.dumps(
@@ -346,7 +369,8 @@ def _process_window(
             **(extra_metrics or {}),
             "window_total_seconds": perf_counter() - t_window_start,
             "redis_xlen": _safe_metric(lambda: consumer.xlen()),
-            "redis_pending": _safe_metric(lambda: consumer.pending_count()),
+            "redis_pending": _safe_metric(lambda: consumer.pending_count()) if reliable_consumer else 0,
+            "consumer_mode": cfg.consumer_mode,
         },
     )
 

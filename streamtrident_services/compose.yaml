@@ -132,30 +132,39 @@ services:
       - "${TRIDENT_API_HOST_PORT:-8090}:8090"
     restart: unless-stopped
 
-  suricata-publisher:
+  suricata-cic:
     build:
       context: ./suricata
-    image: streamtrident/suricata-publisher:local
-    container_name: streamtrident-suricata-publisher
-    profiles: ["tools"]
+    image: streamtrident/suricata-cic:local
+    container_name: streamtrident-suricata-cic
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
     depends_on:
       redis:
         condition: service_healthy
-    configs:
-      - source: suricata_config
-        target: /app/config/suricata.yaml
-    command: ["python", "-m", "app.main", "--config", "config/suricata.yaml"]
-    stdin_open: true
-    tty: true
-    restart: "no"
+    environment:
+      IFACE: "${SURICATA_IFACE:-eth0}"
+      REDIS_HOST: "${SURICATA_REDIS_HOST:-127.0.0.1}"
+      REDIS_PORT: "${REDIS_HOST_PORT:-16379}"
+      REDIS_STREAM: "${SURICATA_REDIS_STREAM:-suricata:cic_flow}"
+      REDIS_STREAM_MAXLEN: "${SURICATA_REDIS_STREAM_MAXLEN:-1000000}"
+      CIC_MODE: "${CIC_MODE:-cic-flowmeter}"
+      CIC_FLOW_TIMEOUT_US: "${CIC_FLOW_TIMEOUT_US:-120000000}"
+      CIC_ACTIVE_IDLE_THRESHOLD_US: "${CIC_ACTIVE_IDLE_THRESHOLD_US:-5000000}"
+      SURICATA_RUNMODE: "${SURICATA_RUNMODE:-workers}"
+      SURICATA_EXTRA_ARGS: "${SURICATA_EXTRA_ARGS:-}"
+    volumes:
+      - ./suricata/logs:/var/log/suricata
+    restart: unless-stopped
 
 configs:
   trident_config:
     file: ./docker/trident.yaml
   redis_config:
     file: ./docker/redis.yaml
-  suricata_config:
-    file: ./docker/suricata.yaml
 
 volumes:
   redis-data:

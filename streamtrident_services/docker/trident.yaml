@@ -2,6 +2,8 @@ redis_url: redis://redis:6379/0
 input_stream: suricata:cic_flow
 consumer_group: trident-online
 consumer_name: trident-01
+consumer_mode: best_effort
+best_effort_start_id: $
 read_count: 512
 block_ms: 1000
 ack: true
@@ -16,6 +18,7 @@ postgres_dsn: postgresql://trident:trident@postgres:5432/trident
 assignment_stream: trident:assignments
 alert_stream: trident:alerts
 metrics_stream: trident:metrics
+redis_output_enabled: false
 
 model_store_dir: /var/lib/trident/models
 preprocessing_enabled: true

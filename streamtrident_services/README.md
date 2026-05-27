@@ -2,21 +2,22 @@
 
 三服务实时流处理工程骨架。这里不再使用单体 `backend/app/modules` 结构，而是把三个服务放在同一父目录下的三个顶层目录中：
 
-- `suricata/`：采集侧，归一化 flow JSON 并写入 Redis Stream
+- `suricata/`：采集侧，从网卡抓包，由修改版 Suricata 输出 CIC 风格 flow 到 Redis Stream
 - `redis/`：Redis 服务与 Stream 管理
 - `trident/`：Trident 在线算法、持久化、worker 和 API
 
-三者各自有独立的 `app/`、`config/`、`requirements.txt`、`Dockerfile` 和启动命令。父目录提供一份 `compose.yaml`，用于本地部署和联调 Redis、ClickHouse、PostgreSQL、Trident worker/API。
+父目录提供一份 `compose.yaml`，用于本地部署和联调 Suricata、Redis、ClickHouse、PostgreSQL、Trident worker/API。
 
 ## Service Layout
 
 ```text
 streamtrident_services/
 ├── suricata/
-│   ├── app/
-│   ├── config/
+│   ├── docker/
+│   ├── runtime/
+│   ├── logs/
 │   ├── Dockerfile
-│   └── requirements.txt
+│   └── README.md
 ├── redis/
 │   ├── app/
 │   ├── config/
@@ -31,7 +32,6 @@ streamtrident_services/
     └── requirements.txt
 ├── docker/
 │   ├── redis.yaml
-│   ├── suricata.yaml
 │   └── trident.yaml
 └── compose.yaml
 ```
@@ -46,6 +46,7 @@ docker compose up -d
 This starts:
 
 - Redis
+- Suricata CIC capture service
 - ClickHouse
 - PostgreSQL
 - one-shot Redis group initialization
@@ -67,14 +68,30 @@ Override them when needed:
 REDIS_HOST_PORT=6379 POSTGRES_HOST_PORT=5432 docker compose up -d
 ```
 
-To run the stdin publisher tool profile:
+Suricata uses host networking and captures from `SURICATA_IFACE`, defaulting to `eth0`. Set it to the actual host NIC when starting:
 
 ```bash
 cd streamtrident_services
-docker compose --profile tools run --rm suricata-publisher
+SURICATA_IFACE=ens33 docker compose up -d --build suricata-cic trident-worker trident-api
 ```
 
-`suricata-publisher` reads one JSON object per line from stdin and writes normalized fields to `suricata:cic_flow`.
+The capture service writes CIC flow records to Redis stream `suricata:cic_flow` by default. Trident worker consumes that stream and performs database persistence and algorithm processing.
+
+Useful Suricata settings:
+
+- `SURICATA_IFACE`: host interface to capture from, for example `eth0`, `ens33`, `enp0s3`
+- `SURICATA_REDIS_STREAM`: output stream name, default `suricata:cic_flow`
+- `SURICATA_REDIS_STREAM_MAXLEN`: Redis stream max length, default `1000000`
+- `CIC_FLOW_TIMEOUT_US`: flow timeout in microseconds, default `120000000`
+- `CIC_ACTIVE_IDLE_THRESHOLD_US`: CIC active/idle threshold in microseconds, default `5000000`
+
+After startup, verify that flow data is being written:
+
+```bash
+docker compose logs -f suricata-cic
+redis-cli -p 16379 XLEN suricata:cic_flow
+redis-cli -p 16379 XREVRANGE suricata:cic_flow + - COUNT 1
+```
 
 ## Local Commands
 

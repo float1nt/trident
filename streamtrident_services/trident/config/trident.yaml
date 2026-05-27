@@ -2,6 +2,8 @@ redis_url: redis://127.0.0.1:6379/0
 input_stream: suricata:cic_flow
 consumer_group: trident-online
 consumer_name: trident-01
+consumer_mode: best_effort
+best_effort_start_id: $
 read_count: 512
 block_ms: 1000
 ack: true
@@ -15,6 +17,7 @@ postgres_dsn: postgresql://trident:trident@127.0.0.1:5432/trident
 assignment_stream: trident:assignments
 alert_stream: trident:alerts
 metrics_stream: trident:metrics
+redis_output_enabled: false
 
 unknown_threshold: 0.35
 new_learner_min_size: 20

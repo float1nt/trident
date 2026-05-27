@@ -13,6 +13,8 @@ class TridentConfig:
     input_stream: str = "suricata:cic_flow"
     consumer_group: str = "trident-online"
     consumer_name: str = "trident-01"
+    consumer_mode: str = "best_effort"
+    best_effort_start_id: str = "$"
     read_count: int = 512
     block_ms: int = 1000
     ack: bool = True
@@ -24,6 +26,7 @@ class TridentConfig:
     assignment_stream: str = "trident:assignments"
     alert_stream: str = "trident:alerts"
     metrics_stream: str = "trident:metrics"
+    redis_output_enabled: bool = False
     unknown_threshold: float = 0.35
     new_learner_min_size: int = 20
     pending_idle_ms: int = 60000
@@ -101,6 +104,8 @@ def load_config(path: str | Path | None) -> TridentConfig:
         input_stream=str(payload.get("input_stream", "suricata:cic_flow")),
         consumer_group=str(payload.get("consumer_group", "trident-online")),
         consumer_name=str(payload.get("consumer_name", "trident-01")),
+        consumer_mode=str(payload.get("consumer_mode", "best_effort")),
+        best_effort_start_id=str(payload.get("best_effort_start_id", "$")),
         read_count=int(payload.get("read_count", 512)),
         block_ms=int(payload.get("block_ms", 1000)),
         ack=_bool(payload.get("ack"), True),
@@ -112,6 +117,7 @@ def load_config(path: str | Path | None) -> TridentConfig:
         assignment_stream=str(payload.get("assignment_stream", "trident:assignments")),
         alert_stream=str(payload.get("alert_stream", "trident:alerts")),
         metrics_stream=str(payload.get("metrics_stream", "trident:metrics")),
+        redis_output_enabled=_bool(payload.get("redis_output_enabled"), False),
         unknown_threshold=float(payload.get("unknown_threshold", 0.35)),
         new_learner_min_size=int(payload.get("new_learner_min_size", 20)),
         pending_idle_ms=int(payload.get("pending_idle_ms", 60000)),
