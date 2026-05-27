@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Segmented } from "antd";
 import type { EChartsOption } from "echarts";
 import EChartsRingChart from "@/components/EChartsRingChart";
 import {
@@ -277,18 +278,46 @@ function TopologyStatCard({
   );
 }
 
-/** 单张拓扑子图（IP 或 IP:端口），样式对齐 V3-ui 风险详情页 */
+export type TopologyGraphMode = "host" | "endpoint";
+
+function TopologyGraphModeToggle({
+  value,
+  onChange,
+  compact = false,
+}: {
+  value: TopologyGraphMode;
+  onChange: (mode: TopologyGraphMode) => void;
+  compact?: boolean;
+}) {
+  return (
+    <Segmented
+      size={compact ? "small" : "middle"}
+      className="shrink-0"
+      value={value}
+      onChange={(next) => onChange(next as TopologyGraphMode)}
+      options={[
+        { label: " I P ", value: "host" },
+        { label: "端口", value: "endpoint" },
+      ]}
+    />
+  );
+}
+
+/** 单张拓扑子图，支持 IP / 端口切换 */
 export function TopologyChartPane({
-  title,
-  graph,
+  title = "拓扑图",
+  hostGraph,
+  endpointGraph,
   viewIsBenign,
   repulsion,
   minEdgeFlows,
   chartHeight = 320,
   compact = false,
 }: {
-  title: string;
-  graph: TopologyGraph | undefined;
+  /** 标题文本，默认「拓扑图」 */
+  title?: string;
+  hostGraph: TopologyGraph | undefined;
+  endpointGraph: TopologyGraph | undefined;
   viewIsBenign: boolean | null | undefined;
   repulsion: number;
   minEdgeFlows: number;
@@ -296,6 +325,8 @@ export function TopologyChartPane({
   /** 缩小节点与边，便于一屏展示更多结点 */
   compact?: boolean;
 }) {
+  const [graphMode, setGraphMode] = useState<TopologyGraphMode>("host");
+  const graph = graphMode === "host" ? hostGraph : endpointGraph;
   const graphData = useMemo(
     () => buildGraphData(graph, viewIsBenign, minEdgeFlows, compact),
     [graph, viewIsBenign, minEdgeFlows, compact],
@@ -309,7 +340,14 @@ export function TopologyChartPane({
   return (
     <div className="min-w-0 flex-1 rounded-lg border border-[#e8eaed] bg-white">
       <div className="border-b border-[#e8eaed] px-3 py-2">
-        <h4 className="text-sm font-medium text-[#333]">{title}</h4>
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-sm font-medium text-[#333]">{title}</h4>
+          <TopologyGraphModeToggle
+            value={graphMode}
+            onChange={setGraphMode}
+            compact={compact}
+          />
+        </div>
         {graph ? (
           <div className={`flex gap-2 ${compact ? "mt-1.5" : "mt-2"}`}>
             <TopologyStatCard

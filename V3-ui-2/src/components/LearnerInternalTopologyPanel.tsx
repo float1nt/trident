@@ -145,30 +145,15 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
                 >
                   {metaText}
                 </Text>
-                <Row gutter={4} className="pointer-events-none">
-                  <Col span={12}>
-                    <TopologyChartPane
-                      title="IP"
-                      graph={gridView.host}
-                      viewIsBenign={null}
-                      repulsion={TOPOLOGY_REPULSION}
-                      minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                      chartHeight={GRID_CHART_HEIGHT}
-                      compact
-                    />
-                  </Col>
-                  <Col span={12}>
-                    <TopologyChartPane
-                      title="端口"
-                      graph={gridView.endpoint}
-                      viewIsBenign={null}
-                      repulsion={TOPOLOGY_REPULSION}
-                      minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                      chartHeight={GRID_CHART_HEIGHT}
-                      compact
-                    />
-                  </Col>
-                </Row>
+                <TopologyChartPane
+                  hostGraph={gridView.host}
+                  endpointGraph={gridView.endpoint}
+                  viewIsBenign={null}
+                  repulsion={TOPOLOGY_REPULSION}
+                  minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+                  chartHeight={GRID_CHART_HEIGHT}
+                  compact
+                />
               </Card>
             </Col>
           );
