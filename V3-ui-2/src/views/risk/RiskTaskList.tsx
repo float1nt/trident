@@ -316,7 +316,7 @@ const RiskTaskList = () => {
             </Card>
             <Card
               bordered={false}
-              className="min-h-0 flex-1 overflow-auto shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
+              className="h-[calc(100vh-250px)] overflow-auto shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
               styles={{ body: { padding: 16 } }}
               loading={eventLoading}
             >
