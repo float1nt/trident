@@ -5,7 +5,14 @@ from typing import Any
 
 from fastapi import FastAPI, Query
 
+from .api_schema import (
+    ApiResponse,
+    DashboardTopologyData,
+    FlowListData,
+    LearnerTopologyData,
+)
 from .config import TridentConfig, load_config
+from .page_queries import PageQueryService
 from .persistence.ch_flow_repository import ChFlowRepository
 from .persistence.learner_repository import LearnerRepository
 from .redis_consumer import RedisStreamConsumer
@@ -16,7 +23,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     app = FastAPI(title="Trident Service API")
     app.state.cfg = cfg
 
-    @app.get("/api/v1/health")
+    @app.get("/api/v1/health", response_model=ApiResponse)
     def health() -> dict[str, Any]:
         return _ok(
             {
@@ -27,7 +34,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
             }
         )
 
-    @app.get("/api/v1/runtime/summary")
+    @app.get("/api/v1/runtime/summary", response_model=ApiResponse)
     def runtime_summary() -> dict[str, Any]:
         redis_state = _redis(cfg)
         flow_repo = ChFlowRepository(cfg.clickhouse_dsn)
@@ -41,7 +48,107 @@ def create_app(config_path: str | None = None) -> FastAPI:
             }
         )
 
-    @app.get("/api/v1/flows")
+    @app.get("/overview/metrics", response_model=ApiResponse)
+    def overview_metrics(
+        timeRange: str = "24h",
+    ) -> dict[str, Any]:
+        return _ok(_pages(cfg).overview_metrics(time_range=timeRange))
+
+    @app.get("/overview/distributions", response_model=ApiResponse)
+    def overview_distributions(
+        timeRange: str = "24h",
+    ) -> dict[str, Any]:
+        return _ok(_pages(cfg).overview_distributions(time_range=timeRange))
+
+    @app.get("/overview/network-topology", response_model=ApiResponse)
+    def overview_network_topology(
+        timeRange: str = "24h",
+        top_n: int = Query(50, ge=1, le=500),
+    ) -> dict[str, Any]:
+        time_from = _time_range_start(timeRange)
+        data = _pages(cfg).dashboard_topology(
+            top_n=top_n,
+            time_from=time_from,
+        )
+        return _ok(DashboardTopologyData.model_validate(data).model_dump())
+
+    @app.get("/risks", response_model=ApiResponse)
+    def risks(
+        limit: int = Query(10, ge=1, le=1000),
+        offset: int = Query(0, ge=0),
+        name: str | None = None,
+        subjectIp: str | None = None,
+    ) -> dict[str, Any]:
+        return _ok(_pages(cfg).risk_list(limit=limit, offset=offset, name=name, subject_ip=subjectIp))
+
+    @app.get("/risk/events/topology", response_model=ApiResponse)
+    def risk_events_topology(
+        name: str | None = None,
+        triggerStart: str | None = None,
+        triggerEnd: str | None = None,
+        top_n: int = Query(50, ge=1, le=500),
+    ) -> dict[str, Any]:
+        data = _pages(cfg).risk_events_topology(
+            name=name,
+            trigger_start=triggerStart,
+            trigger_end=triggerEnd,
+            top_n=top_n,
+        )
+        return _ok(LearnerTopologyData.model_validate(data).model_dump())
+
+    @app.get("/risks/{risk_id}/network-topology", response_model=ApiResponse)
+    def risk_network_topology(
+        risk_id: int,
+        top_n: int = Query(50, ge=1, le=500),
+    ) -> dict[str, Any]:
+        data = _pages(cfg).risk_network_topology(risk_id=risk_id, top_n=top_n)
+        return _ok(DashboardTopologyData.model_validate(data).model_dump())
+
+    @app.get("/risks/{risk_id}/ips", response_model=ApiResponse)
+    def risk_ips(risk_id: int) -> dict[str, Any]:
+        return _ok(_pages(cfg).risk_ips(risk_id=risk_id))
+
+    @app.get("/risks/{risk_id}/traffic-logs", response_model=ApiResponse)
+    def risk_traffic_logs(
+        risk_id: int,
+        limit: int = Query(100, ge=1, le=1000),
+        offset: int = Query(0, ge=0),
+    ) -> dict[str, Any]:
+        return _ok(_pages(cfg).risk_traffic_logs(risk_id=risk_id, limit=limit, offset=offset))
+
+    @app.get("/risks/{risk_id}/protocol-distribution", response_model=ApiResponse)
+    def risk_protocol_distribution(risk_id: int) -> dict[str, Any]:
+        return _ok(_pages(cfg).risk_protocol_distribution(risk_id=risk_id))
+
+    @app.get("/risks/{risk_id}", response_model=ApiResponse)
+    def risk_by_id(risk_id: int) -> dict[str, Any]:
+        return _ok(_pages(cfg).risk_by_id(risk_id=risk_id))
+
+    @app.get("/risk/ips/{ip}/summary", response_model=ApiResponse)
+    def risk_ip_summary(ip: str) -> dict[str, Any]:
+        return _ok(_pages(cfg).ip_summary(ip=ip))
+
+    @app.get("/risk/ips/{ip}/events/topology", response_model=ApiResponse)
+    def risk_ip_events_topology(
+        ip: str,
+        top_n: int = Query(50, ge=1, le=500),
+    ) -> dict[str, Any]:
+        data = _pages(cfg).ip_events_topology(ip=ip, top_n=top_n)
+        return _ok(LearnerTopologyData.model_validate(data).model_dump())
+
+    @app.get("/risk/ips/{ip}/events", response_model=ApiResponse)
+    def risk_ip_events(ip: str) -> dict[str, Any]:
+        return _ok(_pages(cfg).ip_events(ip=ip))
+
+    @app.get("/risk/ips/{ip}/traffic-logs", response_model=ApiResponse)
+    def risk_ip_traffic_logs(
+        ip: str,
+        limit: int = Query(100, ge=1, le=1000),
+        offset: int = Query(0, ge=0),
+    ) -> dict[str, Any]:
+        return _ok(_pages(cfg).ip_traffic_logs(ip=ip, limit=limit, offset=offset))
+
+    @app.get("/api/v1/flows", response_model=ApiResponse)
     def list_flows(
         session_id: str | None = None,
         window_index: int | None = None,
@@ -50,9 +157,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
         time_from: str | None = None,
         time_to: str | None = None,
         limit: int = Query(100, ge=1, le=1000),
+        offset: int | None = Query(None, ge=0),
         cursor: str | None = None,
     ) -> dict[str, Any]:
-        rows = ChFlowRepository(cfg.clickhouse_dsn).list_flows(
+        result = ChFlowRepository(cfg.clickhouse_dsn).list_flows(
             session_id=session_id or cfg.session_id,
             window_index=window_index,
             learner_name=learner_name,
@@ -60,15 +168,16 @@ def create_app(config_path: str | None = None) -> FastAPI:
             time_from=time_from,
             time_to=time_to,
             limit=limit,
+            offset=offset,
             cursor=cursor,
         )
-        return _ok({"items": rows, "next_cursor": rows[-1]["flow_uid"] if rows else None})
+        return _ok(FlowListData.model_validate(result).model_dump())
 
-    @app.get("/api/v1/learners")
+    @app.get("/api/v1/learners", response_model=ApiResponse)
     def list_learners(session_id: str | None = None) -> dict[str, Any]:
         return _ok({"items": LearnerRepository(cfg.postgres_dsn).list_learners(session_id=session_id or cfg.session_id)})
 
-    @app.get("/api/v1/learners/{learner_name}")
+    @app.get("/api/v1/learners/{learner_name}", response_model=ApiResponse)
     def get_learner(learner_name: str, session_id: str | None = None) -> dict[str, Any]:
         learner = LearnerRepository(cfg.postgres_dsn).get_learner(
             session_id=session_id or cfg.session_id,
@@ -76,20 +185,22 @@ def create_app(config_path: str | None = None) -> FastAPI:
         )
         return _ok(learner or {})
 
-    @app.get("/api/v1/learners/{learner_name}/flows")
+    @app.get("/api/v1/learners/{learner_name}/flows", response_model=ApiResponse)
     def learner_flows(
         learner_name: str,
         session_id: str | None = None,
         limit: int = Query(100, ge=1, le=1000),
+        offset: int | None = Query(None, ge=0),
         cursor: str | None = None,
     ) -> dict[str, Any]:
-        rows = ChFlowRepository(cfg.clickhouse_dsn).list_flows(
+        result = ChFlowRepository(cfg.clickhouse_dsn).list_flows(
             session_id=session_id or cfg.session_id,
             learner_name=learner_name,
             limit=limit,
+            offset=offset,
             cursor=cursor,
         )
-        return _ok({"items": rows, "next_cursor": rows[-1]["flow_uid"] if rows else None})
+        return _ok(FlowListData.model_validate(result).model_dump())
 
     return app
 
@@ -103,8 +214,30 @@ def _redis(cfg: TridentConfig) -> RedisStreamConsumer:
     )
 
 
+def _pages(cfg: TridentConfig) -> PageQueryService:
+    return PageQueryService(
+        session_id=cfg.session_id,
+        flows=ChFlowRepository(cfg.clickhouse_dsn),
+        learners=LearnerRepository(cfg.postgres_dsn),
+        redis=_redis(cfg),
+    )
+
+
 def _ok(data: Any) -> dict[str, Any]:
-    return {"code": 0, "message": "ok", "data": data}
+    return {"code": 200, "message": "success", "data": data}
+
+
+def _time_range_start(value: str) -> str | None:
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    if value == "7d":
+        start = now - timedelta(days=7)
+    elif value == "30d":
+        start = now - timedelta(days=30)
+    else:
+        start = now - timedelta(hours=24)
+    return start.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _probe(call: Any) -> dict[str, Any]:

@@ -97,6 +97,18 @@ LIMIT 1
         )
         return rows[0] if rows else None
 
+    def get_learner_by_id(self, *, session_id: str, learner_id: int) -> dict[str, Any] | None:
+        rows = self._fetch_all(
+            """
+SELECT *
+FROM pg_learner
+WHERE session_id = %s AND id = %s
+LIMIT 1
+""",
+            (session_id, learner_id),
+        )
+        return rows[0] if rows else None
+
     def ping(self) -> bool:
         self._fetch_all("SELECT 1 AS ok", ())
         return True
