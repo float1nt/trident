@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Table, Input, Button, Space, Tooltip, Tag, Tabs, DatePicker, Card, Typography } from "antd";
 import type { Dayjs } from "dayjs";
@@ -6,8 +6,8 @@ import type { ColumnsType } from "antd/es/table";
 import type { IpRiskListItem } from "@/api/types";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
-import { fetchMockRiskList } from "@/mock/riskTasks";
-import { getMockEventLearnerTopology } from "@/mock/eventLearnerTopology";
+import { RiskService } from "@/api/services/RiskService";
+import type { LearnerNetworkTopologyJson } from "@/types/learnerTopology";
 import "./RiskTaskList.css";
 
 type RiskSearchForm = {
@@ -43,6 +43,16 @@ function getInitialViewTab(): RiskViewTab {
 const { RangePicker } = DatePicker;
 const { Title, Paragraph } = Typography;
 
+function formatTriggerRange(period: [Dayjs, Dayjs] | null) {
+  if (!period?.[0] || !period[1]) {
+    return { triggerStart: undefined, triggerEnd: undefined };
+  }
+  return {
+    triggerStart: period[0].format("YYYY-MM-DD HH:mm:ss"),
+    triggerEnd: period[1].format("YYYY-MM-DD HH:mm:ss"),
+  };
+}
+
 const RiskTaskList = () => {
   const navigate = useNavigate();
   const [activeView, setActiveView] = useState<RiskViewTab>(getInitialViewTab);
@@ -57,27 +67,47 @@ const RiskTaskList = () => {
   const [pageSize] = useState(10);
   const [loading, setLoading] = useState(false);
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
+  const [eventTopology, setEventTopology] =
+    useState<LearnerNetworkTopologyJson | null>(null);
+  const [eventLoading, setEventLoading] = useState(false);
 
   useEffect(() => {
     if (activeView !== "ip") return;
     void getListData();
   }, [page, filters, activeView]);
 
-  const eventLearnerTopology = useMemo(
-    () => getMockEventLearnerTopology({ name: eventFilters.name }),
-    [eventFilters.name],
-  );
+  useEffect(() => {
+    if (activeView !== "event") return;
+    void loadEventTopology();
+  }, [eventFilters, activeView]);
+
+  const loadEventTopology = async () => {
+    setEventLoading(true);
+    try {
+      const range = formatTriggerRange(eventFilters.triggerPeriod);
+      const data = await RiskService.getEventTopology({
+        name: eventFilters.name || undefined,
+        ...range,
+      });
+      setEventTopology(data);
+    } catch (error) {
+      console.error("获取事件拓扑失败", error);
+      setEventTopology(null);
+    } finally {
+      setEventLoading(false);
+    }
+  };
 
   const getListData = async (opts?: { page?: number; nextFilters?: RiskSearchForm }) => {
     const curPage = opts?.page ?? page;
     const curFilters = opts?.nextFilters ?? filters;
     setLoading(true);
     try {
-      const response = await fetchMockRiskList({
+      const response = await RiskService.listRisks({
         limit: pageSize,
         offset: (curPage - 1) * pageSize,
-        name: curFilters.name,
-        subjectIp: curFilters.subjectIp,
+        name: curFilters.name || undefined,
+        subjectIp: curFilters.subjectIp || undefined,
       });
       setListdata(response.risks);
       setTotal(response.total);
@@ -269,6 +299,7 @@ const RiskTaskList = () => {
               bordered={false}
               className="min-h-0 flex-1 overflow-auto shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
               styles={{ body: { padding: 16 } }}
+              loading={eventLoading}
             >
               <Title level={5} className="!mb-1 !mt-0">
                 风险事件网络拓扑（IP / 端口）
@@ -277,7 +308,7 @@ const RiskTaskList = () => {
                 默认展示全部风险事件；绿=良性、红=攻击。点击卡片右上角「详情」进入风险详情页。
               </Paragraph>
               <LearnerInternalTopologyPanel
-                data={eventLearnerTopology}
+                data={eventTopology}
                 onRiskClick={handleEventRiskClick}
               />
             </Card>

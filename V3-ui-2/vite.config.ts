@@ -14,13 +14,23 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 5175,
     proxy: {
+      // 认证、采集配置（backend-service）
+      "/api/auth": {
+        target: "http://127.0.0.1:9080",
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/api/, ""),
+      },
+      "/api/collection": {
+        target: "http://127.0.0.1:9080",
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/api/, ""),
+      },
+      // 总览、风险（streamtrident trident-api）
       "/api": {
-        // 开发后端 (http://172.16.88.180:9080)
-        target: "http://172.16.88.180:9080",
+        target: "http://127.0.0.1:8090",
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/api/, ""),
       },
     },
   },
 });
-

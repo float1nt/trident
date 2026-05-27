@@ -279,21 +279,45 @@ class PageQueryService:
         name: str | None = None,
         subject_ip: str | None = None,
     ) -> dict[str, Any]:
-        data = self.risk_ip_view(limit=limit, offset=offset, name=name, subject_ip=subject_ip)
-        return {
-            "total": data["total"],
-            "risks": [
+        sid = self.session_id
+        learner_rows = self.learners.list_learners(session_id=sid)
+        risk_names = _risk_learner_names(learner_rows)
+        raw = self.flows.risk_ip_view(
+            session_id=sid,
+            risk_learners=risk_names,
+            limit=10000,
+            offset=0,
+            learner_name_like=name,
+            subject_ip_like=subject_ip,
+        )
+        grouped: dict[str, dict[str, int]] = {}
+        for row in raw["items"]:
+            ip = str(row.get("subject_ip") or "")
+            learner = str(row.get("assigned_learner") or "") or "UNKNOWN"
+            if not ip:
+                continue
+            grouped.setdefault(ip, {})
+            grouped[ip][learner] = grouped[ip].get(learner, 0) + int(row.get("flow_count") or 0)
+
+        ip_rows: list[dict[str, Any]] = []
+        for seq, (ip, name_counts) in enumerate(
+            sorted(grouped.items(), key=lambda item: (-sum(item[1].values()), item[0])),
+            start=1,
+        ):
+            risks = [
+                {"name": risk_name, "triggerCount": count}
+                for risk_name, count in sorted(name_counts.items(), key=lambda item: (-item[1], item[0]))
+            ]
+            ip_rows.append(
                 {
-                    "id": item["id"],
-                    "subjectIp": item["subjectIp"],
-                    "name": item["name"],
-                    "triggerTime": item["triggerTime"],
-                    "description": item["description"],
-                    "features": item["features"],
+                    "id": seq,
+                    "subjectIp": ip,
+                    "riskCount": len(risks),
+                    "risks": risks,
                 }
-                for item in data["items"]
-            ],
-        }
+            )
+        total = len(ip_rows)
+        return {"total": total, "risks": ip_rows[offset : offset + limit]}
 
     def risk_events_topology(
         self,
