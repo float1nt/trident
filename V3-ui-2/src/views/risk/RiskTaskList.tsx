@@ -2,9 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Table, Input, Button, Space, Tooltip, Tag, Tabs, DatePicker, Card, Typography } from "antd";
 import type { Dayjs } from "dayjs";
-import { EyeOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import type { RiskItem } from "@/api/types";
+import type { IpRiskListItem } from "@/api/types";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
 import { fetchMockRiskList } from "@/mock/riskTasks";
@@ -14,13 +13,11 @@ import "./RiskTaskList.css";
 type RiskSearchForm = {
   name: string;
   subjectIp: string;
-  triggerTime: string;
 };
 
 const EMPTY_SEARCH: RiskSearchForm = {
   name: "",
   subjectIp: "",
-  triggerTime: "",
 };
 
 type EventSearchForm = {
@@ -59,7 +56,7 @@ const RiskTaskList = () => {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [loading, setLoading] = useState(false);
-  const [listdata, setListdata] = useState<RiskItem[]>([]);
+  const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
 
   useEffect(() => {
     if (activeView !== "ip") return;
@@ -81,7 +78,6 @@ const RiskTaskList = () => {
         offset: (curPage - 1) * pageSize,
         name: curFilters.name,
         subjectIp: curFilters.subjectIp,
-        triggerTime: curFilters.triggerTime,
       });
       setListdata(response.risks);
       setTotal(response.total);
@@ -140,7 +136,7 @@ const RiskTaskList = () => {
     setSearchInputs((prev) => ({ ...prev, [key]: value }));
   };
 
-  const columns: ColumnsType<RiskItem> = [
+  const columns: ColumnsType<IpRiskListItem> = [
     {
       title: "风险主体（IP）",
       dataIndex: "subjectIp",
@@ -152,54 +148,41 @@ const RiskTaskList = () => {
       ),
     },
     {
-      title: "风险名称",
-      dataIndex: "name",
-      key: "name",
-      width: 180,
+      title: "风险数",
+      dataIndex: "riskCount",
+      key: "riskCount",
+      width: 90,
       align: "center",
-      render: (text: string) =>
-        text ? (
-          <div className="flex justify-center max-w-full">
-            <Tooltip title={text}>
-              <Tag color="processing" className="!m-0 max-w-full truncate">
-                {text}
-              </Tag>
-            </Tooltip>
-          </div>
+      render: (count: number) =>
+        count > 0 ? (
+          <span className="font-medium">{count}</span>
         ) : (
           <span className="text-[#8c8c8c]">-</span>
         ),
     },
     {
-      title: "触发时间",
-      dataIndex: "triggerTime",
-      key: "triggerTime",
-      width: 170,
+      title: "风险名称",
+      dataIndex: "risks",
+      key: "risks",
+      width: 320,
       align: "center",
-    },
-    {
-      title: "风险说明",
-      dataIndex: "description",
-      key: "description",
-      width: 280,
-      align: "center",
-      render: (text: string) => (
-        <TextWithTooltip
-          text={text || ""}
-          emptyText="-"
-          className="text-gray-600"
-        />
-      ),
-    },
-    {
-      title: "风险特征",
-      dataIndex: "features",
-      key: "features",
-      width: 220,
-      align: "center",
-      render: (text: string) => (
-        <TextWithTooltip text={text || ""} emptyText="-" />
-      ),
+      render: (risks: IpRiskListItem["risks"]) =>
+        risks?.length ? (
+          <div className="flex flex-wrap justify-center gap-1 max-w-full">
+            {risks.map((risk) => {
+              const label = `${risk.name}（${risk.triggerCount}）`;
+              return (
+                <Tooltip key={risk.name} title={label}>
+                  <Tag color="processing" className="!m-0 max-w-full truncate">
+                    {label}
+                  </Tag>
+                </Tooltip>
+              );
+            })}
+          </div>
+        ) : (
+          <span className="text-[#8c8c8c]">-</span>
+        ),
     },
     {
       title: "操作",
@@ -207,14 +190,15 @@ const RiskTaskList = () => {
       width: 100,
       fixed: "right",
       align: "center",
-      render: (_: unknown, record: RiskItem) => (
+      render: (_: unknown, record: IpRiskListItem) => (
         <Tooltip title="查看详情">
           <Button
             variant="link"
             color="primary"
-            icon={<EyeOutlined />}
             onClick={() => handleIpDetail(record.subjectIp)}
-          />
+          >
+            详情
+          </Button>
         </Tooltip>
       ),
     },
@@ -316,13 +300,6 @@ const RiskTaskList = () => {
                   value={searchInputs.subjectIp}
                   onChange={(e) => updateSearchInput("subjectIp", e.target.value)}
                 />
-                <Input
-                  className="risk-filter-field"
-                  prefix="触发时间"
-                  placeholder="请输入"
-                  value={searchInputs.triggerTime}
-                  onChange={(e) => updateSearchInput("triggerTime", e.target.value)}
-                />
               </div>
               <div className="mt-3 flex justify-end">
                 <Space>
@@ -348,7 +325,7 @@ const RiskTaskList = () => {
                   showTotal: (t) => `共 ${t} 条`,
                   onChange: setPage,
                 }}
-                scroll={{ x: 1100, y: "calc(100vh - 420px)" }}
+                scroll={{ x: 710, y: "calc(100vh - 420px)" }}
                 bordered
               />
             </div>
