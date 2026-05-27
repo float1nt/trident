@@ -73,7 +73,7 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
     return (
       <Empty
         description="暂无学习器拓扑数据，请调整筛选条件后重试。"
-        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10"
+        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] h-[calc(100vh-325px)] pt-[20px] !m-0"
       />
     );
   }

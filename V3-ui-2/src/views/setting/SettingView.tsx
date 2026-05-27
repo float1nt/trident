@@ -52,8 +52,8 @@ export default function SettingView() {
   };
 
   return (
-    <div className="setting-page bg-[#f6faff] p-[12px] h-full w-full rounded-[8px]">
-      <div className="setting-card bg-white rounded-[8px] p-8 min-h-[400px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+    <div className="setting-page bg-[#f6faff] p-[12px] h-[calc(100vh-86px)] overflow-y-auto w-full rounded-[8px]">
+      <div className="setting-card bg-white rounded-[8px] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
         <div className="mb-6 flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
           <span
             className="h-[16px] w-[3px] shrink-0 rounded-[2px] bg-[#4368f0]"
@@ -123,11 +123,14 @@ export default function SettingView() {
               />
             </Form.Item>
 
-            <Form.Item wrapperCol={{ offset: 140 }}>
+            {/* <Form.Item wrapperCol={{ offset: 140 }}>
               <Button type="primary" htmlType="submit" loading={submitting}>
                 确认
               </Button>
-            </Form.Item>
+            </Form.Item> */}
+            <Button className="mb-[20px]" type="primary" htmlType="submit" loading={submitting}>
+                确认
+              </Button>
           </Form>
         </Spin>
       </div>

@@ -54,7 +54,7 @@ function getInitialViewTab(): RiskViewTab {
 }
 
 const { RangePicker } = DatePicker;
-const { Title, Paragraph } = Typography;
+const { Paragraph } = Typography;
 
 function formatTriggerRange(period: [Dayjs, Dayjs] | null) {
   if (!period?.[0] || !period[1]) {
@@ -325,11 +325,18 @@ const RiskTaskList = () => {
               </div>
             </Card>
             <div className="min-h-0 flex-1 rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-              <div className="mb-4 flex items-center justify-between gap-4">
-                <Title level={5} className="!mb-0 !mt-0 shrink-0">
-                  总共{eventCardCount}类风险，涉及{eventIpTotal}个风险IP
-                </Title>
-                <Paragraph type="secondary" className="!mb-0 text-xs text-right">
+              <div className="risk-event-summary-row">
+                <div className="risk-event-summary">
+                  <span className="risk-event-summary__bar" aria-hidden />
+                  <p className="risk-event-summary__text">
+                    总共
+                    <span className="risk-event-summary__num">{eventCardCount}</span>
+                    类风险，涉及
+                    <span className="risk-event-summary__num">{eventIpTotal}</span>
+                    个风险 IP
+                  </p>
+                </div>
+                <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
                   绿色代表正常，红色代表攻击。
                 </Paragraph>
               </div>
