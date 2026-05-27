@@ -1,0 +1,10 @@
+# Reduce Cursor indexing / AI context scanning (see also .vscode/settings.json)
+node_modules/
+dist/
+dist-ssr/
+.vite/
+outputs/
+**/stress_outputs/
+cic2017/
+cicids2019/
+data/

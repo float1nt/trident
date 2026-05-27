@@ -1,26 +1,23 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Table, Input, Button, Space, Tooltip, Tag, Tabs, DatePicker, Card, Typography } from "antd";
 import type { Dayjs } from "dayjs";
-import { EyeOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import type { RiskItem } from "@/api/types";
+import type { IpRiskListItem } from "@/api/types";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
-import { fetchMockRiskList } from "@/mock/riskTasks";
-import { getMockEventLearnerTopology } from "@/mock/eventLearnerTopology";
+import { RiskService } from "@/api/services/RiskService";
+import type { LearnerNetworkTopologyJson } from "@/types/learnerTopology";
 import "./RiskTaskList.css";
 
 type RiskSearchForm = {
   name: string;
   subjectIp: string;
-  triggerTime: string;
 };
 
 const EMPTY_SEARCH: RiskSearchForm = {
   name: "",
   subjectIp: "",
-  triggerTime: "",
 };
 
 type EventSearchForm = {
@@ -46,6 +43,16 @@ function getInitialViewTab(): RiskViewTab {
 const { RangePicker } = DatePicker;
 const { Title, Paragraph } = Typography;
 
+function formatTriggerRange(period: [Dayjs, Dayjs] | null) {
+  if (!period?.[0] || !period[1]) {
+    return { triggerStart: undefined, triggerEnd: undefined };
+  }
+  return {
+    triggerStart: period[0].format("YYYY-MM-DD HH:mm:ss"),
+    triggerEnd: period[1].format("YYYY-MM-DD HH:mm:ss"),
+  };
+}
+
 const RiskTaskList = () => {
   const navigate = useNavigate();
   const [activeView, setActiveView] = useState<RiskViewTab>(getInitialViewTab);
@@ -59,29 +66,48 @@ const RiskTaskList = () => {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [loading, setLoading] = useState(false);
-  const [listdata, setListdata] = useState<RiskItem[]>([]);
+  const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
+  const [eventTopology, setEventTopology] =
+    useState<LearnerNetworkTopologyJson | null>(null);
+  const [eventLoading, setEventLoading] = useState(false);
 
   useEffect(() => {
     if (activeView !== "ip") return;
     void getListData();
   }, [page, filters, activeView]);
 
-  const eventLearnerTopology = useMemo(
-    () => getMockEventLearnerTopology({ name: eventFilters.name }),
-    [eventFilters.name],
-  );
+  useEffect(() => {
+    if (activeView !== "event") return;
+    void loadEventTopology();
+  }, [eventFilters, activeView]);
+
+  const loadEventTopology = async () => {
+    setEventLoading(true);
+    try {
+      const range = formatTriggerRange(eventFilters.triggerPeriod);
+      const data = await RiskService.getEventTopology({
+        name: eventFilters.name || undefined,
+        ...range,
+      });
+      setEventTopology(data);
+    } catch (error) {
+      console.error("获取事件拓扑失败", error);
+      setEventTopology(null);
+    } finally {
+      setEventLoading(false);
+    }
+  };
 
   const getListData = async (opts?: { page?: number; nextFilters?: RiskSearchForm }) => {
     const curPage = opts?.page ?? page;
     const curFilters = opts?.nextFilters ?? filters;
     setLoading(true);
     try {
-      const response = await fetchMockRiskList({
+      const response = await RiskService.listRisks({
         limit: pageSize,
         offset: (curPage - 1) * pageSize,
-        name: curFilters.name,
-        subjectIp: curFilters.subjectIp,
-        triggerTime: curFilters.triggerTime,
+        name: curFilters.name || undefined,
+        subjectIp: curFilters.subjectIp || undefined,
       });
       setListdata(response.risks);
       setTotal(response.total);
@@ -140,7 +166,7 @@ const RiskTaskList = () => {
     setSearchInputs((prev) => ({ ...prev, [key]: value }));
   };
 
-  const columns: ColumnsType<RiskItem> = [
+  const columns: ColumnsType<IpRiskListItem> = [
     {
       title: "风险主体（IP）",
       dataIndex: "subjectIp",
@@ -152,54 +178,41 @@ const RiskTaskList = () => {
       ),
     },
     {
-      title: "风险名称",
-      dataIndex: "name",
-      key: "name",
-      width: 180,
+      title: "风险数",
+      dataIndex: "riskCount",
+      key: "riskCount",
+      width: 90,
       align: "center",
-      render: (text: string) =>
-        text ? (
-          <div className="flex justify-center max-w-full">
-            <Tooltip title={text}>
-              <Tag color="processing" className="!m-0 max-w-full truncate">
-                {text}
-              </Tag>
-            </Tooltip>
-          </div>
+      render: (count: number) =>
+        count > 0 ? (
+          <span className="font-medium">{count}</span>
         ) : (
           <span className="text-[#8c8c8c]">-</span>
         ),
     },
     {
-      title: "触发时间",
-      dataIndex: "triggerTime",
-      key: "triggerTime",
-      width: 170,
+      title: "风险名称",
+      dataIndex: "risks",
+      key: "risks",
+      width: 320,
       align: "center",
-    },
-    {
-      title: "风险说明",
-      dataIndex: "description",
-      key: "description",
-      width: 280,
-      align: "center",
-      render: (text: string) => (
-        <TextWithTooltip
-          text={text || ""}
-          emptyText="-"
-          className="text-gray-600"
-        />
-      ),
-    },
-    {
-      title: "风险特征",
-      dataIndex: "features",
-      key: "features",
-      width: 220,
-      align: "center",
-      render: (text: string) => (
-        <TextWithTooltip text={text || ""} emptyText="-" />
-      ),
+      render: (risks: IpRiskListItem["risks"]) =>
+        risks?.length ? (
+          <div className="flex flex-wrap justify-center gap-1 max-w-full">
+            {risks.map((risk) => {
+              const label = `${risk.name}（${risk.triggerCount}）`;
+              return (
+                <Tooltip key={risk.name} title={label}>
+                  <Tag color="processing" className="!m-0 max-w-full truncate">
+                    {label}
+                  </Tag>
+                </Tooltip>
+              );
+            })}
+          </div>
+        ) : (
+          <span className="text-[#8c8c8c]">-</span>
+        ),
     },
     {
       title: "操作",
@@ -207,14 +220,15 @@ const RiskTaskList = () => {
       width: 100,
       fixed: "right",
       align: "center",
-      render: (_: unknown, record: RiskItem) => (
+      render: (_: unknown, record: IpRiskListItem) => (
         <Tooltip title="查看详情">
           <Button
             variant="link"
             color="primary"
-            icon={<EyeOutlined />}
             onClick={() => handleIpDetail(record.subjectIp)}
-          />
+          >
+            详情
+          </Button>
         </Tooltip>
       ),
     },
@@ -285,6 +299,7 @@ const RiskTaskList = () => {
               bordered={false}
               className="min-h-0 flex-1 overflow-auto shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
               styles={{ body: { padding: 16 } }}
+              loading={eventLoading}
             >
               <Title level={5} className="!mb-1 !mt-0">
                 风险事件网络拓扑（IP / 端口）
@@ -293,7 +308,7 @@ const RiskTaskList = () => {
                 默认展示全部风险事件；绿=良性、红=攻击。点击卡片右上角「详情」进入风险详情页。
               </Paragraph>
               <LearnerInternalTopologyPanel
-                data={eventLearnerTopology}
+                data={eventTopology}
                 onRiskClick={handleEventRiskClick}
               />
             </Card>
@@ -315,13 +330,6 @@ const RiskTaskList = () => {
                   placeholder="请输入"
                   value={searchInputs.subjectIp}
                   onChange={(e) => updateSearchInput("subjectIp", e.target.value)}
-                />
-                <Input
-                  className="risk-filter-field"
-                  prefix="触发时间"
-                  placeholder="请输入"
-                  value={searchInputs.triggerTime}
-                  onChange={(e) => updateSearchInput("triggerTime", e.target.value)}
                 />
               </div>
               <div className="mt-3 flex justify-end">
@@ -348,7 +356,7 @@ const RiskTaskList = () => {
                   showTotal: (t) => `共 ${t} 条`,
                   onChange: setPage,
                 }}
-                scroll={{ x: 1100, y: "calc(100vh - 420px)" }}
+                scroll={{ x: 710, y: "calc(100vh - 420px)" }}
                 bordered
               />
             </div>
