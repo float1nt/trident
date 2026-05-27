@@ -310,9 +310,7 @@ def _process_window(
             reliable_consumer=reliable_consumer,
             redis_output_enabled=cfg.redis_output_enabled,
         )
-        t_stage = perf_counter()
-        written = flow_repo.insert_ingested(records)
-        timings["ingest_write_seconds"] = perf_counter() - t_stage
+        timings["ingest_write_seconds"] = 0.0
         t_stage = perf_counter()
         result = engine.process_window(window)
         timings["engine_seconds"] = perf_counter() - t_stage
@@ -333,6 +331,7 @@ def _process_window(
         assignments = _with_snapshot_refs(result.assignments, snapshots_by_learner)
         t_stage = perf_counter()
         assigned = assignment_writer.write(records, assignments, window_index=result.window_index)
+        written = assigned
         timings["assignment_write_seconds"] = perf_counter() - t_stage
         if cfg.redis_output_enabled:
             t_stage = perf_counter()
@@ -365,8 +364,9 @@ def _process_window(
             "redis_xlen": _safe_metric(lambda: consumer.xlen()),
             "redis_pending": _safe_metric(lambda: consumer.pending_count()) if reliable_consumer else 0,
             "read_count": len(messages),
-            "ingest_write_count": written,
+            "ingest_write_count": 0,
             "assignment_write_count": assigned,
+            "clickhouse_write_count": assigned,
             "ack_enabled": int(cfg.ack and reliable_consumer),
             "consumer_mode": cfg.consumer_mode,
         }

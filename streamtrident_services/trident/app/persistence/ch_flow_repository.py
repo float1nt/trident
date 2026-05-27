@@ -58,11 +58,6 @@ class ChFlowRepository:
     def __init__(self, dsn: str) -> None:
         self.client = ClickHouseHTTPClient(dsn)
 
-    def insert_ingested(self, records: list[FlowRecord]) -> int:
-        rows = [record.to_clickhouse_row() for record in records]
-        self.client.insert_json_each_row("ch_flow", rows)
-        return len(rows)
-
     def insert_assignments(self, updates: list[AssignmentUpdate]) -> int:
         rows = [update.to_clickhouse_row() for update in updates]
         self.client.insert_json_each_row("ch_flow", rows)

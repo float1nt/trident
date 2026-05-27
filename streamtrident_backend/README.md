@@ -6,6 +6,7 @@
 
 - [`docs/DESIGN.md`](docs/DESIGN.md)
 - [`docs/P0_IMPLEMENTATION_PLAN.md`](docs/P0_IMPLEMENTATION_PLAN.md)
+- [`docs/RULE_ENGINE_DESIGN.md`](docs/RULE_ENGINE_DESIGN.md)
 
 ## 范围
 

@@ -1,0 +1,910 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import math
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import uuid
+from urllib import parse
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import pandas as pd
+import redis
+import requests
+import yaml
+
+
+ROOT = Path(__file__).resolve().parents[2]
+SERVICE_ROOT = ROOT / "streamtrident_services"
+TRIDENT_ROOT = SERVICE_ROOT / "trident"
+DEFAULT_OUT_ROOT = ROOT / "outputs" / "streamtrident_accuracy_eval"
+
+STREAM = "suricata:cic_flow"
+REDIS_URL = "redis://127.0.0.1:16379/0"
+CLICKHOUSE_DSN = "http://default:trident@127.0.0.1:18123/default"
+POSTGRES_DSN = "postgresql://trident:trident@127.0.0.1:15432/trident"
+
+STRICT_LABEL_SPECS = [
+    {
+        "name": "BENIGN",
+        "path": ROOT / "data" / "cic2017" / "monday.csv",
+        "labels": {"BENIGN"},
+        "target": 20000,
+    },
+    {
+        "name": "PORTSCAN",
+        "path": ROOT / "data" / "cic2017" / "friday.csv",
+        "labels": {"Portscan"},
+        "target": 10000,
+    },
+    {
+        "name": "DDOS",
+        "path": ROOT / "data" / "cic2017" / "friday.csv",
+        "labels": {"DDoS"},
+        "target": 10000,
+    },
+    {
+        "name": "DOS_HULK",
+        "path": ROOT / "data" / "cic2017" / "wednesday.csv",
+        "labels": {"DoS Hulk"},
+        "target": 10000,
+    },
+    {
+        "name": "SYN",
+        "path": ROOT / "data" / "cicids2019" / "Syn.csv",
+        "labels": {"Syn"},
+        "target": 10000,
+    },
+    {
+        "name": "DRDOS_DNS",
+        "path": ROOT / "data" / "cicids2019" / "DrDoS_DNS.csv",
+        "labels": {"DrDoS_DNS"},
+        "target": 10000,
+    },
+    {
+        "name": "DRDOS_NTP",
+        "path": ROOT / "data" / "cicids2019" / "DrDoS_NTP.csv",
+        "labels": {"DrDoS_NTP"},
+        "target": 10000,
+    },
+]
+
+COARSE_MAP = {
+    "BENIGN": "BENIGN",
+    "PORTSCAN": "PORTSCAN",
+    "DDOS": "DOS_DDOS",
+    "DOS_HULK": "DOS_DDOS",
+    "SYN": "SYN_FLOOD",
+    "DRDOS_DNS": "DRDOS_UDP_FAMILY",
+    "DRDOS_NTP": "DRDOS_UDP_FAMILY",
+}
+
+CANONICAL_COLUMNS = {
+    "flow id": "Flow ID",
+    "source ip": "Src IP",
+    "src ip": "Src IP",
+    "source port": "Src Port",
+    "src port": "Src Port",
+    "destination ip": "Dst IP",
+    "dst ip": "Dst IP",
+    "destination port": "Dst Port",
+    "dst port": "Dst Port",
+    "protocol": "Protocol",
+    "timestamp": "Timestamp",
+    "total fwd packets": "Total Fwd Packet",
+    "total fwd packet": "Total Fwd Packet",
+    "total backward packets": "Total Bwd packets",
+    "total bwd packets": "Total Bwd packets",
+    "total length of fwd packets": "Total Length of Fwd Packet",
+    "total length of fwd packet": "Total Length of Fwd Packet",
+    "total length of bwd packets": "Total Length of Bwd Packet",
+    "total length of bwd packet": "Total Length of Bwd Packet",
+    "min packet length": "Packet Length Min",
+    "packet length min": "Packet Length Min",
+    "max packet length": "Packet Length Max",
+    "packet length max": "Packet Length Max",
+    "avg fwd segment size": "Fwd Segment Size Avg",
+    "fwd segment size avg": "Fwd Segment Size Avg",
+    "avg bwd segment size": "Bwd Segment Size Avg",
+    "bwd segment size avg": "Bwd Segment Size Avg",
+    "init_win_bytes_forward": "FWD Init Win Bytes",
+    "fwd init win bytes": "FWD Init Win Bytes",
+    "init_win_bytes_backward": "Bwd Init Win Bytes",
+    "bwd init win bytes": "Bwd Init Win Bytes",
+    "act_data_pkt_fwd": "Fwd Act Data Pkts",
+    "fwd act data pkts": "Fwd Act Data Pkts",
+    "min_seg_size_forward": "Fwd Seg Size Min",
+    "fwd seg size min": "Fwd Seg Size Min",
+    "fwd avg bulk rate": "Fwd Bulk Rate Avg",
+    "fwd bulk rate avg": "Fwd Bulk Rate Avg",
+    "bwd avg bulk rate": "Bwd Bulk Rate Avg",
+    "bwd bulk rate avg": "Bwd Bulk Rate Avg",
+}
+
+ALWAYS_KEEP = {
+    "Flow ID",
+    "Src IP",
+    "Src Port",
+    "Dst IP",
+    "Dst Port",
+    "Protocol",
+    "Timestamp",
+    "Label",
+}
+
+
+@dataclass(frozen=True)
+class ExperimentPlan:
+    name: str
+    protocol_filter: int | None
+    specs: list[dict[str, Any]]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Black-box StreamTrident learner clustering accuracy evaluation")
+    parser.add_argument("--out-root", default=str(DEFAULT_OUT_ROOT))
+    parser.add_argument("--skip-deps", action="store_true", help="Do not run docker compose up for Redis/ClickHouse/Postgres")
+    parser.add_argument("--timeout", type=int, default=1800)
+    parser.add_argument("--force-split", action="store_true", help="Always run tcp-only and udp-only after mixed")
+    parser.add_argument("--benign-warmup", type=int, default=50000, help="BENIGN rows injected before evaluation and excluded from scoring")
+    args = parser.parse_args()
+
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+    run_root = Path(args.out_root) / run_id
+    run_root.mkdir(parents=True, exist_ok=True)
+
+    manifest: dict[str, Any] = {
+        "run_id": run_id,
+        "created_at": utc_now(),
+        "project": "streamtrident_services",
+        "method": "learner majority-label backfill accuracy",
+        "outputs": {},
+    }
+    write_json(run_root / "manifest.json", manifest)
+
+    if not args.skip_deps:
+        run(["docker", "compose", "-f", str(SERVICE_ROOT / "compose.yaml"), "up", "-d", "redis", "clickhouse", "postgres"], cwd=ROOT)
+    wait_for_deps()
+
+    plans = [ExperimentPlan("mixed_tcp_udp", None, STRICT_LABEL_SPECS)]
+    mixed_summary = run_one(plans[0], run_root=run_root, timeout=args.timeout, benign_warmup=args.benign_warmup)
+    split_needed = args.force_split or should_run_split(mixed_summary)
+    manifest["mixed_summary"] = mixed_summary
+    manifest["split_decision"] = {
+        "run_split": split_needed,
+        "reason": mixed_summary.get("split_decision_reason", ""),
+    }
+    write_json(run_root / "manifest.json", manifest)
+
+    summaries = [mixed_summary]
+    if split_needed:
+        tcp_summary = run_one(ExperimentPlan("tcp_only", 6, STRICT_LABEL_SPECS), run_root=run_root, timeout=args.timeout, benign_warmup=args.benign_warmup)
+        udp_summary = run_one(ExperimentPlan("udp_only", 17, STRICT_LABEL_SPECS), run_root=run_root, timeout=args.timeout, benign_warmup=args.benign_warmup)
+        summaries.extend([tcp_summary, udp_summary])
+
+    write_json(run_root / "all_summaries.json", {"run_id": run_id, "summaries": summaries})
+    write_markdown_report(run_root / "REPORT.md", summaries, manifest)
+    print(json.dumps({"run_root": str(run_root), "summaries": summaries}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def run_one(plan: ExperimentPlan, *, run_root: Path, timeout: int, benign_warmup: int) -> dict[str, Any]:
+    exp_root = run_root / plan.name
+    exp_root.mkdir(parents=True, exist_ok=True)
+    session_id = f"accuracy-{plan.name}-{uuid.uuid4().hex[:10]}"
+    config_path = exp_root / "trident_eval_config.yaml"
+    model_store = exp_root / "models"
+    redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+    before_id = redis_client.xinfo_stream(STREAM)["last-generated-id"] if redis_client.exists(STREAM) else "0-0"
+    write_config(config_path, session_id=session_id, model_store=model_store, best_effort_start_id=before_id)
+    run(
+        [
+            sys.executable,
+            "-m",
+            "app.migrate",
+            "--config",
+            str(config_path),
+            "--migrations-dir",
+            str(TRIDENT_ROOT / "migrations"),
+        ],
+        cwd=TRIDENT_ROOT,
+        env=python_env(),
+    )
+
+    warmup_path = exp_root / "warmup_benign.csv"
+    warmup_summary = build_warmup_dataset(plan, warmup_path, target=benign_warmup)
+    metadata_path = exp_root / "flow_labels.csv"
+    dataset_summary = build_dataset(plan, metadata_path)
+    expected = int(dataset_summary["total_rows"])
+    if expected == 0:
+        summary = {
+            "experiment": plan.name,
+            "session_id": session_id,
+            "status": "skipped_empty_dataset",
+            "dataset": dataset_summary,
+        }
+        write_json(exp_root / "summary.json", summary)
+        return summary
+
+    worker_log = (exp_root / "worker.log").open("w", encoding="utf-8")
+    worker = subprocess.Popen(
+        [sys.executable, "-m", "app.worker", "--config", str(config_path)],
+        cwd=TRIDENT_ROOT,
+        env=python_env(),
+        stdout=worker_log,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        time.sleep(2.0)
+        warmup_injected = 0
+        if int(warmup_summary["total_rows"]) > 0:
+            warmup_injected = inject_metadata(warmup_path, redis_client, session_id=session_id, stream=STREAM)
+            wait_for_processing(session_id=session_id, expected=warmup_injected, timeout=timeout, stage="warmup")
+        injected = inject_metadata(metadata_path, redis_client, session_id=session_id, stream=STREAM)
+        wait_for_processing(session_id=session_id, expected=warmup_injected + injected, timeout=timeout, stage="eval")
+    finally:
+        terminate(worker)
+        worker_log.close()
+
+    assignments_path = exp_root / "assignments.csv"
+    assignments = fetch_assignments(session_id=session_id, out_path=assignments_path, flow_prefix=f"{plan.name}:")
+    summary = evaluate(
+        plan=plan,
+        session_id=session_id,
+        dataset_summary=dataset_summary,
+        warmup_summary=warmup_summary,
+        metadata_path=metadata_path,
+        assignments=assignments,
+        exp_root=exp_root,
+        redis_before_id=before_id,
+    )
+    write_json(exp_root / "summary.json", summary)
+    return summary
+
+
+def build_warmup_dataset(plan: ExperimentPlan, out_path: Path, *, target: int) -> dict[str, Any]:
+    spec = {
+        "name": "BENIGN_WARMUP",
+        "path": ROOT / "data" / "cic2017" / "monday.csv",
+        "labels": {"BENIGN"},
+        "target": int(target),
+    }
+    rows_written = 0
+    per_protocol: dict[str, int] = {}
+    with out_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "flow_uid",
+                "strict_label",
+                "coarse_label",
+                "protocol",
+                "event_time",
+                "src_ip",
+                "src_port",
+                "dst_ip",
+                "dst_port",
+                "source_flow_id",
+                "features_json",
+                "raw_event_json",
+            ],
+        )
+        writer.writeheader()
+        for _, raw in iter_matching_rows(Path(spec["path"]), labels=set(spec["labels"]), protocol_filter=plan.protocol_filter):
+            canonical = canonicalize_row(raw)
+            flow_uid = f"warmup:{plan.name}:BENIGN:{rows_written}:{uuid.uuid4().hex[:12]}"
+            event_time = normalize_event_time(canonical.get("Timestamp", ""))
+            protocol = int(to_int(canonical.get("Protocol", 0)))
+            source_flow_id = str(canonical.get("Flow ID") or flow_uid)
+            writer.writerow(
+                {
+                    "flow_uid": flow_uid,
+                    "strict_label": "BENIGN_WARMUP",
+                    "coarse_label": "BENIGN",
+                    "protocol": protocol,
+                    "event_time": event_time,
+                    "src_ip": str(canonical.get("Src IP") or ""),
+                    "src_port": int(to_int(canonical.get("Src Port", 0))),
+                    "dst_ip": str(canonical.get("Dst IP") or ""),
+                    "dst_port": int(to_int(canonical.get("Dst Port", 0))),
+                    "source_flow_id": source_flow_id,
+                    "features_json": json.dumps(features_from_row(canonical), ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+                    "raw_event_json": json.dumps(
+                        {
+                            "flow_uid": flow_uid,
+                            "source_flow_id": source_flow_id,
+                            "strict_label": "BENIGN_WARMUP",
+                            "coarse_label": "BENIGN",
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                }
+            )
+            rows_written += 1
+            per_protocol[str(protocol)] = per_protocol.get(str(protocol), 0) + 1
+            if rows_written >= int(target):
+                break
+    return {
+        "experiment": plan.name,
+        "protocol_filter": plan.protocol_filter,
+        "total_rows": rows_written,
+        "per_label": {"BENIGN_WARMUP": rows_written},
+        "per_protocol": per_protocol,
+        "target": int(target),
+    }
+
+
+def build_dataset(plan: ExperimentPlan, out_path: Path) -> dict[str, Any]:
+    rows_written = 0
+    per_label: dict[str, int] = {}
+    per_protocol: dict[str, int] = {}
+    with out_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "flow_uid",
+                "strict_label",
+                "coarse_label",
+                "protocol",
+                "event_time",
+                "src_ip",
+                "src_port",
+                "dst_ip",
+                "dst_port",
+                "source_flow_id",
+                "features_json",
+                "raw_event_json",
+            ],
+        )
+        writer.writeheader()
+        for spec in plan.specs:
+            label_name = str(spec["name"])
+            target = int(spec["target"])
+            count = 0
+            for row_index, raw in iter_matching_rows(Path(spec["path"]), labels=set(spec["labels"]), protocol_filter=plan.protocol_filter):
+                canonical = canonicalize_row(raw)
+                flow_uid = f"{plan.name}:{label_name}:{count}:{uuid.uuid4().hex[:12]}"
+                event_time = normalize_event_time(canonical.get("Timestamp", ""))
+                protocol = int(to_int(canonical.get("Protocol", 0)))
+                source_flow_id = str(canonical.get("Flow ID") or flow_uid)
+                record = {
+                    "flow_uid": flow_uid,
+                    "strict_label": label_name,
+                    "coarse_label": COARSE_MAP[label_name],
+                    "protocol": protocol,
+                    "event_time": event_time,
+                    "src_ip": str(canonical.get("Src IP") or ""),
+                    "src_port": int(to_int(canonical.get("Src Port", 0))),
+                    "dst_ip": str(canonical.get("Dst IP") or ""),
+                    "dst_port": int(to_int(canonical.get("Dst Port", 0))),
+                    "source_flow_id": source_flow_id,
+                    "features_json": json.dumps(features_from_row(canonical), ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+                    "raw_event_json": json.dumps(
+                        {
+                            "flow_uid": flow_uid,
+                            "source_flow_id": source_flow_id,
+                            "strict_label": label_name,
+                            "coarse_label": COARSE_MAP[label_name],
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                }
+                writer.writerow(record)
+                rows_written += 1
+                count += 1
+                per_label[label_name] = per_label.get(label_name, 0) + 1
+                per_protocol[str(protocol)] = per_protocol.get(str(protocol), 0) + 1
+                if count >= target:
+                    break
+    return {
+        "experiment": plan.name,
+        "protocol_filter": plan.protocol_filter,
+        "total_rows": rows_written,
+        "per_label": per_label,
+        "per_protocol": per_protocol,
+        "targets": {str(spec["name"]): int(spec["target"]) for spec in plan.specs},
+    }
+
+
+def iter_matching_rows(path: Path, *, labels: set[str], protocol_filter: int | None):
+    usecols = None
+    chunks = pd.read_csv(path, chunksize=20000, low_memory=False, usecols=usecols)
+    for chunk in chunks:
+        chunk.columns = [str(col).strip() for col in chunk.columns]
+        if "Label" not in chunk.columns:
+            continue
+        mask = chunk["Label"].isin(labels)
+        if protocol_filter is not None and "Protocol" in chunk.columns:
+            mask &= pd.to_numeric(chunk["Protocol"], errors="coerce").fillna(-1).astype(int).eq(protocol_filter)
+        elif protocol_filter is not None:
+            continue
+        selected = chunk.loc[mask]
+        for idx, row in selected.iterrows():
+            yield int(idx), row.to_dict()
+
+
+def canonicalize_row(raw: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in raw.items():
+        clean = str(key).strip()
+        norm = " ".join(clean.lower().split())
+        canonical = CANONICAL_COLUMNS.get(norm, clean)
+        out[canonical] = clean_value(value)
+    return out
+
+
+def features_from_row(row: dict[str, Any]) -> dict[str, float]:
+    features: dict[str, float] = {}
+    for key, value in row.items():
+        if key in ALWAYS_KEEP or key in {"Attempted Category", "year_tag", "original_label", "benign_type"}:
+            continue
+        number = to_float(value)
+        if number is not None:
+            features[key] = number
+    return features
+
+
+def inject_metadata(path: Path, client: redis.Redis, *, session_id: str, stream: str) -> int:
+    injected = 0
+    pipe = client.pipeline(transaction=False)
+    batch = 0
+    with path.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            fields = {
+                "event_type": "cic_flow",
+                "session_id": session_id,
+                "flow_uid": row["flow_uid"],
+                "event_time": row["event_time"],
+                "src_ip": row["src_ip"],
+                "dst_ip": row["dst_ip"],
+                "src_port": row["src_port"],
+                "dst_port": row["dst_port"],
+                "protocol": row["protocol"],
+                "source_flow_id": row["source_flow_id"],
+                "features_json": row["features_json"],
+                "raw_event_json": row["raw_event_json"],
+            }
+            pipe.xadd(stream, fields, maxlen=2_000_000, approximate=True)
+            injected += 1
+            batch += 1
+            if batch >= 1000:
+                pipe.execute()
+                batch = 0
+        if batch:
+            pipe.execute()
+    return injected
+
+
+def wait_for_processing(*, session_id: str, expected: int, timeout: int, stage: str) -> None:
+    start = time.time()
+    last = -1
+    while time.time() - start < timeout:
+        assigned = clickhouse_count(
+            f"SELECT count() FROM ch_flow FINAL WHERE session_id = {quote(session_id)} AND record_stage = 'assigned'"
+        )
+        processed = clickhouse_count(f"SELECT count() FROM ch_flow FINAL WHERE session_id = {quote(session_id)}")
+        if processed != last:
+            print(
+                json.dumps(
+                    {
+                        "event": "processing_progress",
+                        "stage": stage,
+                        "session_id": session_id,
+                        "processed_final_rows": processed,
+                        "assigned": assigned,
+                        "expected": expected,
+                    }
+                )
+            )
+            last = processed
+        if processed >= expected:
+            return
+        time.sleep(5)
+    raise TimeoutError(f"timeout waiting for processing: session={session_id} processed={last} expected={expected}")
+
+
+def fetch_assignments(*, session_id: str, out_path: Path, flow_prefix: str | None = None) -> list[dict[str, Any]]:
+    prefix_filter = f"AND startsWith(flow_uid, {quote(flow_prefix)})" if flow_prefix else ""
+    sql = f"""
+SELECT
+  flow_uid,
+  assigned_learner,
+  is_unknown,
+  window_index,
+  pred_loss,
+  threshold
+FROM ch_flow FINAL
+WHERE session_id = {quote(session_id)}
+  AND record_stage = 'assigned'
+  {prefix_filter}
+ORDER BY flow_uid ASC
+FORMAT JSONEachRow
+"""
+    rows = clickhouse_json_each_row(sql)
+    with out_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["flow_uid", "assigned_learner", "is_unknown", "window_index", "pred_loss", "threshold"])
+        writer.writeheader()
+        writer.writerows(rows)
+    return rows
+
+
+def evaluate(
+    *,
+    plan: ExperimentPlan,
+    session_id: str,
+    dataset_summary: dict[str, Any],
+    warmup_summary: dict[str, Any],
+    metadata_path: Path,
+    assignments: list[dict[str, Any]],
+    exp_root: Path,
+    redis_before_id: str,
+) -> dict[str, Any]:
+    labels: dict[str, dict[str, Any]] = {}
+    with metadata_path.open("r", newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            labels[row["flow_uid"]] = row
+    assignment_by_uid = {str(row["flow_uid"]): row for row in assignments}
+    joined: list[dict[str, Any]] = []
+    for uid, meta in labels.items():
+        assigned = assignment_by_uid.get(uid)
+        learner = str(assigned.get("assigned_learner") or "") if assigned else ""
+        is_unknown = int(assigned.get("is_unknown") or 0) if assigned else 1
+        joined.append(
+            {
+                "flow_uid": uid,
+                "strict_label": meta["strict_label"],
+                "coarse_label": meta["coarse_label"],
+                "protocol": int(meta["protocol"]),
+                "assigned_learner": learner,
+                "is_unknown": is_unknown,
+            }
+        )
+
+    strict_majority = majority_by_learner(joined, "strict_label")
+    coarse_majority = majority_by_learner(joined, "coarse_label")
+    for row in joined:
+        learner = row["assigned_learner"]
+        row["pred_strict_label"] = strict_majority.get(learner, "__UNKNOWN__") if learner else "__UNKNOWN__"
+        row["pred_coarse_label"] = coarse_majority.get(learner, "__UNKNOWN__") if learner else "__UNKNOWN__"
+        row["strict_correct"] = int(row["pred_strict_label"] == row["strict_label"])
+        row["coarse_correct"] = int(row["pred_coarse_label"] == row["coarse_label"])
+
+    write_csv(exp_root / "joined_predictions.csv", joined)
+    learner_summary = build_learner_summary(joined)
+    write_csv(exp_root / "learner_summary.csv", learner_summary)
+
+    strict_metrics = metrics(joined, true_key="strict_label", pred_key="pred_strict_label")
+    coarse_metrics = metrics(joined, true_key="coarse_label", pred_key="pred_coarse_label")
+    protocol_metrics = {
+        str(proto): {
+            "strict": metrics([r for r in joined if int(r["protocol"]) == proto], true_key="strict_label", pred_key="pred_strict_label"),
+            "coarse": metrics([r for r in joined if int(r["protocol"]) == proto], true_key="coarse_label", pred_key="pred_coarse_label"),
+        }
+        for proto in sorted({int(r["protocol"]) for r in joined})
+    }
+    confusion_strict = confusion(joined, true_key="strict_label", pred_key="pred_strict_label")
+    confusion_coarse = confusion(joined, true_key="coarse_label", pred_key="pred_coarse_label")
+    write_json(exp_root / "confusion_strict.json", confusion_strict)
+    write_json(exp_root / "confusion_coarse.json", confusion_coarse)
+
+    return {
+        "experiment": plan.name,
+        "session_id": session_id,
+        "redis_before_id": redis_before_id,
+        "dataset": dataset_summary,
+        "warmup": warmup_summary,
+        "assigned_rows": len(assignments),
+        "expected_rows": len(labels),
+        "learner_count": len({r["assigned_learner"] for r in joined if r["assigned_learner"]}),
+        "unknown_rows": sum(1 for r in joined if int(r["is_unknown"]) == 1 or not r["assigned_learner"]),
+        "strict": strict_metrics,
+        "coarse": coarse_metrics,
+        "protocol_metrics": protocol_metrics,
+        "split_decision_reason": split_reason(protocol_metrics),
+    }
+
+
+def majority_by_learner(rows: list[dict[str, Any]], label_key: str) -> dict[str, str]:
+    counts: dict[str, Counter[str]] = defaultdict(Counter)
+    for row in rows:
+        learner = str(row["assigned_learner"])
+        if not learner or int(row["is_unknown"]) == 1:
+            continue
+        counts[learner][str(row[label_key])] += 1
+    return {learner: counter.most_common(1)[0][0] for learner, counter in counts.items() if counter}
+
+
+def build_learner_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[str(row["assigned_learner"] or "__UNKNOWN__")].append(row)
+    out = []
+    for learner, items in sorted(grouped.items()):
+        strict = Counter(str(r["strict_label"]) for r in items)
+        coarse = Counter(str(r["coarse_label"]) for r in items)
+        protocol = Counter(str(r["protocol"]) for r in items)
+        strict_top, strict_count = strict.most_common(1)[0]
+        coarse_top, coarse_count = coarse.most_common(1)[0]
+        out.append(
+            {
+                "assigned_learner": learner,
+                "flow_count": len(items),
+                "strict_majority": strict_top,
+                "strict_purity": strict_count / len(items),
+                "coarse_majority": coarse_top,
+                "coarse_purity": coarse_count / len(items),
+                "protocol_counts": json.dumps(dict(protocol), ensure_ascii=False, sort_keys=True),
+                "strict_counts": json.dumps(dict(strict), ensure_ascii=False, sort_keys=True),
+                "coarse_counts": json.dumps(dict(coarse), ensure_ascii=False, sort_keys=True),
+            }
+        )
+    return out
+
+
+def metrics(rows: list[dict[str, Any]], *, true_key: str, pred_key: str) -> dict[str, Any]:
+    if not rows:
+        return {"total": 0, "accuracy_including_unknown": None, "assigned_only_accuracy": None, "coverage": 0.0}
+    assigned = [r for r in rows if r["assigned_learner"] and int(r["is_unknown"]) == 0]
+    correct_all = sum(1 for r in rows if r[true_key] == r[pred_key])
+    correct_assigned = sum(1 for r in assigned if r[true_key] == r[pred_key])
+    per_label = {}
+    for label in sorted({str(r[true_key]) for r in rows}):
+        label_rows = [r for r in rows if str(r[true_key]) == label]
+        label_assigned = [r for r in label_rows if r["assigned_learner"] and int(r["is_unknown"]) == 0]
+        per_label[label] = {
+            "total": len(label_rows),
+            "accuracy_including_unknown": safe_div(sum(1 for r in label_rows if r[true_key] == r[pred_key]), len(label_rows)),
+            "assigned_only_accuracy": safe_div(sum(1 for r in label_assigned if r[true_key] == r[pred_key]), len(label_assigned)),
+            "coverage": safe_div(len(label_assigned), len(label_rows)),
+        }
+    return {
+        "total": len(rows),
+        "accuracy_including_unknown": correct_all / len(rows),
+        "assigned_only_accuracy": safe_div(correct_assigned, len(assigned)),
+        "coverage": len(assigned) / len(rows),
+        "unknown_rate": 1.0 - len(assigned) / len(rows),
+        "per_label": per_label,
+    }
+
+
+def confusion(rows: list[dict[str, Any]], *, true_key: str, pred_key: str) -> dict[str, dict[str, int]]:
+    matrix: dict[str, Counter[str]] = defaultdict(Counter)
+    for row in rows:
+        matrix[str(row[true_key])][str(row[pred_key])] += 1
+    return {label: dict(counter) for label, counter in sorted(matrix.items())}
+
+
+def should_run_split(summary: dict[str, Any]) -> bool:
+    protocol_metrics = summary.get("protocol_metrics") or {}
+    reason = split_reason(protocol_metrics)
+    summary["split_decision_reason"] = reason
+    return reason != "mixed_protocol_gap_within_threshold"
+
+
+def split_reason(protocol_metrics: dict[str, Any]) -> str:
+    tcp = protocol_metrics.get("6", {}).get("coarse", {}).get("assigned_only_accuracy")
+    udp = protocol_metrics.get("17", {}).get("coarse", {}).get("assigned_only_accuracy")
+    if tcp is None or udp is None:
+        return "missing_tcp_or_udp_metric"
+    if abs(float(tcp) - float(udp)) >= 0.10:
+        return "tcp_udp_coarse_accuracy_gap_ge_10pp"
+    if float(tcp) < 0.75 or float(udp) < 0.75:
+        return "tcp_or_udp_coarse_accuracy_below_75pct"
+    return "mixed_protocol_gap_within_threshold"
+
+
+def write_config(path: Path, *, session_id: str, model_store: Path, best_effort_start_id: str) -> None:
+    payload = {
+        "redis_url": REDIS_URL,
+        "input_stream": STREAM,
+        "consumer_group": "trident-online",
+        "consumer_name": f"accuracy-{uuid.uuid4().hex[:8]}",
+        "consumer_mode": "best_effort",
+        "best_effort_start_id": best_effort_start_id,
+        "read_count": 2048,
+        "block_ms": 1000,
+        "ack": True,
+        "session_id": session_id,
+        "window_size": 1000,
+        "feature_profile": "compact_stats_no_env",
+        "clickhouse_dsn": CLICKHOUSE_DSN,
+        "postgres_dsn": POSTGRES_DSN,
+        "assignment_stream": "trident:assignments",
+        "alert_stream": "trident:alerts",
+        "metrics_stream": "trident:metrics",
+        "redis_output_enabled": False,
+        "process_partial_window": True,
+        "algorithm_backend": "ae",
+        "cpu_only": True,
+        "seed": 42,
+        "init_epochs": 5,
+        "new_class_epochs": 4,
+        "increment_epochs": 1,
+        "model_store_dir": str(model_store),
+        "preprocessing_enabled": True,
+        "preprocessing_drop_all_zero": False,
+        "small_learner_recluster_enabled": False,
+    }
+    path.write_text(yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
+
+
+def wait_for_deps() -> None:
+    deadline = time.time() + 240
+    redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+    while time.time() < deadline:
+        try:
+            redis_client.ping()
+            clickhouse_count("SELECT 1")
+            return
+        except Exception:
+            time.sleep(2)
+    raise TimeoutError("dependencies did not become ready")
+
+
+def clickhouse_count(sql: str) -> int:
+    text = clickhouse_execute(sql)
+    try:
+        return int(str(text).strip().splitlines()[0])
+    except Exception:
+        return 0
+
+
+def clickhouse_json_each_row(sql: str) -> list[dict[str, Any]]:
+    text = clickhouse_execute(sql)
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def clickhouse_execute(sql: str) -> str:
+    response = requests.post(clickhouse_query_url(sql), data=b"", timeout=120)
+    response.raise_for_status()
+    return response.text
+
+
+def clickhouse_query_url(sql: str) -> str:
+    parsed = parse.urlsplit(CLICKHOUSE_DSN)
+    params = dict(parse.parse_qsl(parsed.query, keep_blank_values=True))
+    if parsed.username:
+        params.setdefault("user", parse.unquote(parsed.username))
+    if parsed.password:
+        params.setdefault("password", parse.unquote(parsed.password))
+    path = parsed.path
+    if path and path != "/":
+        params.setdefault("database", path.strip("/"))
+        path = "/"
+    params["query"] = sql
+    netloc = parsed.hostname or ""
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    return parse.urlunsplit((parsed.scheme, netloc, path or "/", parse.urlencode(params), parsed.fragment))
+
+
+def run(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None) -> None:
+    print(json.dumps({"event": "run", "cmd": cmd, "cwd": str(cwd)}, ensure_ascii=False))
+    subprocess.run(cmd, cwd=str(cwd), env=env, check=True)
+
+
+def python_env() -> dict[str, str]:
+    env = os.environ.copy()
+    current = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(TRIDENT_ROOT) + (os.pathsep + current if current else "")
+    return env
+
+
+def terminate(proc: subprocess.Popen[str]) -> None:
+    if proc.poll() is not None:
+        return
+    proc.send_signal(signal.SIGTERM)
+    try:
+        proc.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=10)
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        path.write_text("", encoding="utf-8")
+        return
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_markdown_report(path: Path, summaries: list[dict[str, Any]], manifest: dict[str, Any]) -> None:
+    lines = [
+        "# StreamTrident Accuracy Evaluation",
+        "",
+        f"- run_id: `{manifest['run_id']}`",
+        f"- created_at: `{manifest['created_at']}`",
+        f"- method: learner majority-label backfill accuracy",
+        "",
+        "| experiment | rows | learners | unknown_rate | strict_acc | coarse_acc | assigned_strict_acc | assigned_coarse_acc |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for summary in summaries:
+        strict = summary.get("strict") or {}
+        coarse = summary.get("coarse") or {}
+        lines.append(
+            "| {experiment} | {rows} | {learners} | {unknown:.4f} | {sa:.4f} | {ca:.4f} | {saa:.4f} | {caa:.4f} |".format(
+                experiment=summary.get("experiment"),
+                rows=summary.get("expected_rows", 0),
+                learners=summary.get("learner_count", 0),
+                unknown=float(coarse.get("unknown_rate") or 0),
+                sa=float(strict.get("accuracy_including_unknown") or 0),
+                ca=float(coarse.get("accuracy_including_unknown") or 0),
+                saa=float(strict.get("assigned_only_accuracy") or 0),
+                caa=float(coarse.get("assigned_only_accuracy") or 0),
+            )
+        )
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def quote(value: str) -> str:
+    return "'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def normalize_event_time(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return utc_now()
+    parsed = pd.to_datetime(text, errors="coerce", utc=True)
+    if pd.isna(parsed):
+        return utc_now()
+    return parsed.isoformat().replace("+00:00", "Z")
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def clean_value(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    return value
+
+
+def to_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def to_int(value: Any) -> int:
+    number = to_float(value)
+    return int(number or 0)
+
+
+def safe_div(a: int, b: int) -> float | None:
+    return None if b == 0 else a / b
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
