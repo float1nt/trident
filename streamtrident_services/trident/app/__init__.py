@@ -1,0 +1,2 @@
+"""Trident service skeleton."""
+

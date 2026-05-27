@@ -1,0 +1,164 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: streamtrident-redis
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --bind
+      - 0.0.0.0
+    ports:
+      - "${REDIS_HOST_PORT:-16379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: streamtrident-clickhouse
+    ports:
+      - "${CLICKHOUSE_HTTP_HOST_PORT:-18123}:8123"
+      - "${CLICKHOUSE_NATIVE_HOST_PORT:-19000}:9000"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: trident
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: streamtrident-postgres
+    ports:
+      - "${POSTGRES_HOST_PORT:-15432}:5432"
+    environment:
+      POSTGRES_DB: trident
+      POSTGRES_USER: trident
+      POSTGRES_PASSWORD: trident
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trident -d trident"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  redis-admin:
+    build:
+      context: ./redis
+    image: streamtrident/redis-admin:local
+    container_name: streamtrident-redis-admin
+    depends_on:
+      redis:
+        condition: service_healthy
+    configs:
+      - source: redis_config
+        target: /app/config/redis.yaml
+    command: ["python", "-m", "app.main", "ensure-group", "--config", "config/redis.yaml"]
+    restart: "no"
+
+  trident-migrate:
+    build:
+      context: ./trident
+    image: streamtrident/trident:local
+    container_name: streamtrident-migrate
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    configs:
+      - source: trident_config
+        target: /app/config/trident.yaml
+    command: ["python", "-m", "app.migrate", "--config", "config/trident.yaml"]
+    restart: "no"
+
+  trident-worker:
+    build:
+      context: ./trident
+    image: streamtrident/trident:local
+    container_name: streamtrident-worker
+    depends_on:
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      trident-migrate:
+        condition: service_completed_successfully
+    configs:
+      - source: trident_config
+        target: /app/config/trident.yaml
+    volumes:
+      - trident-models:/var/lib/trident/models
+    command: ["python", "-m", "app.worker", "--config", "config/trident.yaml"]
+    restart: unless-stopped
+
+  trident-api:
+    build:
+      context: ./trident
+    image: streamtrident/trident:local
+    container_name: streamtrident-api
+    depends_on:
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      trident-migrate:
+        condition: service_completed_successfully
+    configs:
+      - source: trident_config
+        target: /app/config/trident.yaml
+    volumes:
+      - trident-models:/var/lib/trident/models
+    command: ["python", "-m", "app.api", "--config", "config/trident.yaml", "--host", "0.0.0.0", "--port", "8090"]
+    ports:
+      - "${TRIDENT_API_HOST_PORT:-8090}:8090"
+    restart: unless-stopped
+
+  suricata-publisher:
+    build:
+      context: ./suricata
+    image: streamtrident/suricata-publisher:local
+    container_name: streamtrident-suricata-publisher
+    profiles: ["tools"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    configs:
+      - source: suricata_config
+        target: /app/config/suricata.yaml
+    command: ["python", "-m", "app.main", "--config", "config/suricata.yaml"]
+    stdin_open: true
+    tty: true
+    restart: "no"
+
+configs:
+  trident_config:
+    file: ./docker/trident.yaml
+  redis_config:
+    file: ./docker/redis.yaml
+  suricata_config:
+    file: ./docker/suricata.yaml
+
+volumes:
+  redis-data:
+  clickhouse-data:
+  postgres-data:
+  trident-models:

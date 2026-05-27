@@ -1,0 +1,5 @@
+url: redis://redis:6379/0
+input_stream: suricata:cic_flow
+consumer_group: trident-online
+consumer_name: trident-01
+start_id: "0"

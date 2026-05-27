@@ -1,0 +1,6 @@
+redis_url: redis://127.0.0.1:6379/0
+output_stream: suricata:cic_flow
+stream_maxlen: 1000000
+event_type: cic_flow
+session_id: suricata-live
+
