@@ -58,11 +58,6 @@ class ChFlowRepository:
     def __init__(self, dsn: str) -> None:
         self.client = ClickHouseHTTPClient(dsn)
 
-    def insert_ingested(self, records: list[FlowRecord]) -> int:
-        rows = [record.to_clickhouse_row() for record in records]
-        self.client.insert_json_each_row("ch_flow", rows)
-        return len(rows)
-
     def insert_assignments(self, updates: list[AssignmentUpdate]) -> int:
         rows = [update.to_clickhouse_row() for update in updates]
         self.client.insert_json_each_row("ch_flow", rows)
@@ -116,6 +111,7 @@ SELECT
     src_port,
     dst_port,
     protocol,
+    app_proto,
     feature_profile,
     features_json,
     assigned_learner,
@@ -330,10 +326,11 @@ FORMAT JSONEachRow
             ]
         )
         abnormal = _abnormal_expr(risk_learners)
+        main_protocol = _main_protocol_sql()
         sql = f"""
 SELECT
     count() AS total_flows,
-    uniqExact(protocol) AS protocol_count,
+    uniqExact({main_protocol}) AS protocol_count,
     countIf({abnormal}) AS risk_flows,
     countIf(NOT ({abnormal})) AS normal_flows,
     uniqExactIf(src_ip, {abnormal}) AS risk_ip_count,
@@ -365,8 +362,9 @@ FORMAT JSONEachRow
             ]
         )
         capped = max(1, min(int(limit), 1000))
+        main_protocol = _main_protocol_sql()
         sql = f"""
-SELECT protocol, count() AS value
+SELECT {main_protocol} AS protocol, count() AS value
 FROM ch_flow FINAL
 {where}
 GROUP BY protocol
@@ -475,6 +473,7 @@ FORMAT JSONEachRow
         total_text = self.client.execute(total_sql)
         total_rows = [_parse_json(line) for line in total_text.splitlines() if line.strip()]
         total = int(total_rows[0].get("total") or 0) if total_rows else 0
+        main_protocol = _main_protocol_sql()
         sql = f"""
 SELECT
     src_ip AS subject_ip,
@@ -484,7 +483,7 @@ SELECT
     sum(is_unknown) AS unknown_count,
     any(dst_ip) AS top_dst_ip,
     any(dst_port) AS top_dst_port,
-    any(protocol) AS top_protocol
+    any({main_protocol}) AS top_protocol
 FROM ch_flow FINAL
 {where}
 GROUP BY src_ip, assigned_learner
@@ -537,6 +536,10 @@ def _time_filter(column: str, time_from: str | None, time_to: str | None) -> str
     if time_to:
         parts.append(f"{column} <= parseDateTime64BestEffort({_quote(time_to)}, 3)")
     return " AND ".join(parts) if parts else None
+
+
+def _main_protocol_sql() -> str:
+    return "if(app_proto != '', app_proto, multiIf(protocol = 1, 'ICMP', protocol = 6, 'TCP', protocol = 17, 'UDP', toString(protocol)))"
 
 
 def _in_filter(column: str, values: list[str]) -> str | None:

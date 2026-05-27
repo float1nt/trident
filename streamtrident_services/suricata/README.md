@@ -1,20 +1,62 @@
-# Suricata Service
+# Suricata CIC Service
 
-独立的流量采集与 Redis Stream 写入服务。
+This service runs the modified Suricata binary and captures packets from a host
+network interface. It emits CICFlowMeter-style `cic-flow` events directly to
+Redis Stream `suricata:cic_flow`.
 
-当前阶段不实现 Trident 算法，也不依赖 `trident/` 或 `redis/` 目录代码。它只负责：
+## Runtime
 
-- 接收 Suricata CIC / EVE 风格 JSON
-- 归一化五元组、时间戳和特征字段
-- 写入 Redis Stream `suricata:cic_flow`
+The image packages prebuilt runtime files from this repository:
 
-## Run
+- `runtime/bin/suricata`
+- `runtime/etc/suricata/suricata.yaml`
+- `runtime/etc/suricata/classification.config`
+- `runtime/etc/suricata/reference.config`
+- `runtime/rules/empty.rules`
 
-```bash
-cd streamtrident_services/suricata
-pip install -r requirements.txt
-python -m app.main --config config/suricata.yaml
+The entrypoint generates a live Suricata config that enables Redis EVE output:
+
+```text
+network interface -> modified Suricata -> Redis Stream -> Trident worker
 ```
 
-默认从 stdin 读取一行一个 JSON 对象。
+## Start
 
+Set the capture interface and start the compose stack:
+
+```bash
+cd streamtrident_services
+SURICATA_IFACE=eth0 make up
+```
+
+Restart only capture:
+
+```bash
+SURICATA_IFACE=eth0 make restart-capture
+```
+
+## Configuration
+
+Environment variables:
+
+- `SURICATA_IFACE`: host NIC to capture, default `eth0`
+- `SURICATA_REDIS_HOST`: Redis host from host network, default `127.0.0.1`
+- `REDIS_HOST_PORT`: Redis host port, default `16379`
+- `SURICATA_REDIS_STREAM`: Redis stream key, default `suricata:cic_flow`
+- `SURICATA_REDIS_STREAM_MAXLEN`: Redis stream maxlen, default `1000000`
+- `CIC_MODE`: CIC output mode, default `cic-flowmeter`
+- `CIC_FLOW_TIMEOUT_US`: flow timeout, default `120000000`
+- `CIC_ACTIVE_IDLE_THRESHOLD_US`: active/idle threshold, default `5000000`
+- `SURICATA_RUNMODE`: Suricata runmode, default `workers`
+- `SURICATA_EXTRA_ARGS`: extra Suricata CLI args
+
+Because the container uses `network_mode: host`, Redis is reached through the
+host port (`127.0.0.1:${REDIS_HOST_PORT}`), not through the compose service name.
+
+## Verify
+
+```bash
+docker logs -f streamtrident-suricata-cic
+redis-cli -h 127.0.0.1 -p 16379 XLEN suricata:cic_flow
+redis-cli -h 127.0.0.1 -p 16379 XREVRANGE suricata:cic_flow + - COUNT 1
+```

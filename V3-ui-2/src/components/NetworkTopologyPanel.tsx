@@ -60,7 +60,24 @@ export type DatasetNetworkTopologyJson = {
   views: Record<string, TopologyLabelView>;
 };
 
-export const GRID_CHART_HEIGHT = 120;
+export const GRID_CHART_HEIGHT = 160;
+
+const COMPACT_MAX_NODES = 28;
+
+function trimGraphForCompactDisplay(
+  graph: TopologyGraph | undefined,
+  maxNodes = COMPACT_MAX_NODES,
+): TopologyGraph | undefined {
+  if (!graph || graph.nodes.length <= maxNodes) return graph;
+  const nodes = [...graph.nodes]
+    .sort((a, b) => b.flow_count - a.flow_count)
+    .slice(0, maxNodes);
+  const ids = new Set(nodes.map((n) => n.id));
+  const links = graph.links.filter(
+    (l) => ids.has(l.source) && ids.has(l.target),
+  );
+  return { ...graph, nodes, links };
+}
 
 type GraphNode = {
   id: string;
@@ -94,11 +111,12 @@ function initialGraphZoom(nodeCount: number, compact = false): number {
   else if (nodeCount <= 75) z = 0.36;
   const base = Math.min(1, z * 2);
   if (!compact) return base;
+  // 紧凑模式 + 节点很多时提高 zoom，否则 50 个节点在 120px 里几乎看不见
   if (nodeCount <= 8) return base * 0.55;
   if (nodeCount <= 15) return base * 0.45;
-  if (nodeCount <= 30) return base * 0.36;
-  if (nodeCount <= 50) return base * 0.3;
-  return Math.max(0.08, base * 0.24);
+  if (nodeCount <= 30) return base * 0.38;
+  if (nodeCount <= 50) return Math.max(0.32, base * 0.22);
+  return Math.max(0.2, base * 0.15);
 }
 
 function compactForceParams(
@@ -109,9 +127,9 @@ function compactForceParams(
   const n = Math.max(nodeCount, 1);
   if (compact) {
     return {
-      repulsion: Math.min(repulsion * 0.55, 28 + n * 1.2),
-      edgeLength: [14, Math.min(56, 20 + n * 0.7)] as [number, number],
-      gravity: 0.24,
+      repulsion: Math.min(repulsion * 0.45, 24 + n * 0.8),
+      edgeLength: [20, Math.min(48, 16 + n * 0.5)] as [number, number],
+      gravity: 0.35,
     };
   }
   return {
@@ -132,11 +150,12 @@ function buildGraphData(
 
   const nodes: GraphNode[] = graph.nodes.map((n) => {
     const t = n.flow_count / maxFlow;
+    const nodeCount = graph.nodes.length;
     const size = compact
-      ? 4 + Math.sqrt(t) * 5
+      ? 8 + Math.sqrt(t) * 6
       : 6 + Math.sqrt(t) * 14;
-    const minSize = compact ? 3 : 5;
-    const maxSize = compact ? 10 : 22;
+    const minSize = compact ? (nodeCount > 25 ? 6 : nodeCount > 12 ? 5 : 3) : 5;
+    const maxSize = compact ? 18 : 22;
     return {
       id: n.id,
       name: n.id,
@@ -386,9 +405,10 @@ function TopologyGraphModeToggle({
   );
 }
 
-/** 单张拓扑子图，支持 IP / 端口切换 */
+/** 单张拓扑子图；传 hostGraph+endpointGraph 时可切换 IP/端口，传 graph 时展示单图 */
 export function TopologyChartPane({
   title = "拓扑图",
+  graph,
   hostGraph,
   endpointGraph,
   viewIsBenign,
@@ -399,8 +419,10 @@ export function TopologyChartPane({
 }: {
   /** 标题文本，默认「拓扑图」 */
   title?: string;
-  hostGraph: TopologyGraph | undefined;
-  endpointGraph: TopologyGraph | undefined;
+  /** 单图模式（与 hostGraph/endpointGraph 二选一） */
+  graph?: TopologyGraph | undefined;
+  hostGraph?: TopologyGraph | undefined;
+  endpointGraph?: TopologyGraph | undefined;
   viewIsBenign: boolean | null | undefined;
   repulsion: number;
   minEdgeFlows: number;
@@ -408,30 +430,41 @@ export function TopologyChartPane({
   /** 缩小节点与边，便于一屏展示更多结点 */
   compact?: boolean;
 }) {
+  const hasDualGraph = hostGraph !== undefined || endpointGraph !== undefined;
   const [graphMode, setGraphMode] = useState<TopologyGraphMode>("host");
-  const graph = graphMode === "host" ? hostGraph : endpointGraph;
+  const activeGraph = hasDualGraph
+    ? graphMode === "host"
+      ? hostGraph
+      : endpointGraph
+    : graph;
+  const displayGraph = useMemo(
+    () => (compact ? trimGraphForCompactDisplay(activeGraph) : activeGraph),
+    [activeGraph, compact],
+  );
   const graphData = useMemo(
-    () => buildGraphData(graph, viewIsBenign, minEdgeFlows, compact),
-    [graph, viewIsBenign, minEdgeFlows, compact],
+    () => buildGraphData(displayGraph, viewIsBenign, minEdgeFlows, compact),
+    [displayGraph, viewIsBenign, minEdgeFlows, compact],
   );
   const option = useMemo(
     () => buildChartOption(graphData, repulsion, viewIsBenign, compact),
     [graphData, repulsion, viewIsBenign, compact],
   );
-  const stats = graph?.stats ?? {};
+  const stats = activeGraph?.stats ?? {};
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-[#e8eaed] bg-white">
       <div className="shrink-0 border-b border-[#e8eaed] px-3 py-2">
         <div className="flex items-center justify-between gap-2">
           <h4 className="text-sm font-medium text-[#333]">{title}</h4>
-          <TopologyGraphModeToggle
-            value={graphMode}
-            onChange={setGraphMode}
-            compact={compact}
-          />
+          {hasDualGraph ? (
+            <TopologyGraphModeToggle
+              value={graphMode}
+              onChange={setGraphMode}
+              compact={compact}
+            />
+          ) : null}
         </div>
-        {graph ? (
+        {activeGraph ? (
           <div
             className={`grid grid-cols-[2fr_2fr_2fr_3fr] gap-2 ${
               compact ? "mt-1.5" : "mt-2"
@@ -439,12 +472,16 @@ export function TopologyChartPane({
           >
             <TopologyStatCard
               label="IP数量"
-              value={graph.nodes.length}
+              value={
+                compact && activeGraph.nodes.length > (displayGraph?.nodes.length ?? 0)
+                  ? `${displayGraph?.nodes.length ?? 0} / ${activeGraph.nodes.length}`
+                  : (displayGraph?.nodes.length ?? activeGraph.nodes.length)
+              }
               compact={compact}
             />
             <TopologyStatCard
               label="访问次数"
-              value={graph.links.length}
+              value={displayGraph?.links.length ?? activeGraph.links.length}
               compact={compact}
             />
             <TopologyStatCard
@@ -468,7 +505,13 @@ export function TopologyChartPane({
         className="min-h-0 flex-1"
         style={{ minHeight: chartHeight }}
       >
-        <EChartsRingChart option={option} className="h-full w-full" />
+        {graphData.nodes.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-xs text-[#8c8c8c]">
+            暂无节点
+          </div>
+        ) : (
+          <EChartsRingChart option={option} className="h-full w-full" />
+        )}
       </div>
     </div>
   );

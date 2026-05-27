@@ -84,6 +84,7 @@ const RiskTaskList = () => {
   const [eventTopology, setEventTopology] =
     useState<LearnerNetworkTopologyJson | null>(null);
   const [eventIpTotal, setEventIpTotal] = useState(0);
+  const [eventLoadError, setEventLoadError] = useState<string | null>(null);
 
   const eventCardCount = useMemo(() => {
     if (!eventTopology) return 0;
@@ -94,6 +95,7 @@ const RiskTaskList = () => {
   }, [eventTopology]);
 
   const loadEventTopology = useCallback(async () => {
+    setEventLoadError(null);
     const ok = await runEventLoad(async () => {
       const range = formatTriggerRange(eventFilters.triggerPeriod);
       const [data, ipListRes] = await Promise.all([
@@ -109,6 +111,13 @@ const RiskTaskList = () => {
       ]);
       setEventTopology(data);
       setEventIpTotal(ipListRes.total);
+      const count = data.learners?.length ?? 0;
+      if (count === 0 && eventFilters.triggerPeriod) {
+        setEventLoadError(
+          "当前触发时段内没有学习器，请点「重置」清空时段或扩大时间范围。",
+        );
+      }
+      return data;
     });
     if (ok === undefined) {
       setEventTopology(null);
@@ -180,6 +189,7 @@ const RiskTaskList = () => {
   const handleEventReset = () => {
     setEventSearchInputs(EMPTY_EVENT_SEARCH);
     setEventFilters(EMPTY_EVENT_SEARCH);
+    setEventLoadError(null);
   };
 
   const handleViewChange = (key: string) => {
@@ -340,9 +350,15 @@ const RiskTaskList = () => {
                   绿色代表正常，红色代表攻击。
                 </Paragraph>
               </div>
+              {eventLoadError ? (
+                <Paragraph type="danger" className="!mb-3 text-xs">
+                  {eventLoadError}
+                </Paragraph>
+              ) : null}
               <LearnerInternalTopologyPanel
                 data={eventTopology}
                 onRiskClick={handleEventRiskClick}
+                emptyHint={eventLoadError ?? undefined}
               />
             </div>
           </>

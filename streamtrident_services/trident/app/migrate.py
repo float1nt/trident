@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 from .config import load_config
+from .logging_utils import configure_logging, emit_event, emit_exception
 from .persistence.clickhouse_http import ClickHouseHTTPClient
 
 
@@ -17,12 +19,33 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    log_dir = Path(os.getenv("TRIDENT_LOG_DIR", "/var/log/trident"))
+    log_file = os.getenv("TRIDENT_LOG_FILE", "migrate.log")
+    configure_logging(service_name="trident-migrate", log_path=log_dir / log_file)
     cfg = load_config(args.config)
     root = Path(args.migrations_dir)
+    emit_event(
+        "migrate_started",
+        clickhouse_dsn=cfg.clickhouse_dsn,
+        postgres_dsn=cfg.postgres_dsn,
+        target=args.target,
+        migrations_dir=str(root),
+    )
     if args.target in {"all", "clickhouse"}:
-        apply_clickhouse(root / "clickhouse", cfg.clickhouse_dsn)
+        try:
+            applied = apply_clickhouse(root / "clickhouse", cfg.clickhouse_dsn)
+            emit_event("migrate_clickhouse_finished", applied_count=len(applied), applied_files=applied)
+        except Exception:
+            emit_exception("migrate_clickhouse_failed", target=str(root / "clickhouse"))
+            raise
     if args.target in {"all", "postgres"}:
-        apply_postgres(root / "postgres", cfg.postgres_dsn)
+        try:
+            applied = apply_postgres(root / "postgres", cfg.postgres_dsn)
+            emit_event("migrate_postgres_finished", applied_count=len(applied), applied_files=applied)
+        except Exception:
+            emit_exception("migrate_postgres_failed", target=str(root / "postgres"))
+            raise
+    emit_event("migrate_finished", target=args.target)
     return 0
 
 

@@ -83,6 +83,11 @@ services:
     configs:
       - source: trident_config
         target: /app/config/trident.yaml
+    environment:
+      TRIDENT_LOG_DIR: /var/log/trident
+      TRIDENT_LOG_FILE: migrate.log
+    volumes:
+      - ./trident/logs:/var/log/trident
     command: ["python", "-m", "app.migrate", "--config", "config/trident.yaml"]
     restart: "no"
 
@@ -103,8 +108,12 @@ services:
     configs:
       - source: trident_config
         target: /app/config/trident.yaml
+    environment:
+      TRIDENT_LOG_DIR: /var/log/trident
+      TRIDENT_LOG_FILE: worker.log
     volumes:
       - trident-models:/var/lib/trident/models
+      - ./trident/logs:/var/log/trident
     command: ["python", "-m", "app.worker", "--config", "config/trident.yaml"]
     restart: unless-stopped
 
@@ -122,40 +131,77 @@ services:
         condition: service_healthy
       trident-migrate:
         condition: service_completed_successfully
+      suricata-agent:
+        condition: service_started
     configs:
       - source: trident_config
         target: /app/config/trident.yaml
+    environment:
+      TRIDENT_LOG_DIR: /var/log/trident
+      TRIDENT_LOG_FILE: api.log
+      TRIDENT_SURICATA_AGENT_URLS: "${TRIDENT_SURICATA_AGENT_URLS:-http://suricata-agent:19100}"
+      TRIDENT_SURICATA_AGENT_TOKEN: "${TRIDENT_SURICATA_AGENT_TOKEN:-}"
     volumes:
       - trident-models:/var/lib/trident/models
+      - ./trident/logs:/var/log/trident
     command: ["python", "-m", "app.api", "--config", "config/trident.yaml", "--host", "0.0.0.0", "--port", "8090"]
     ports:
       - "${TRIDENT_API_HOST_PORT:-8090}:8090"
     restart: unless-stopped
 
-  suricata-publisher:
+  suricata-cic:
     build:
       context: ./suricata
-    image: streamtrident/suricata-publisher:local
-    container_name: streamtrident-suricata-publisher
-    profiles: ["tools"]
+    image: streamtrident/suricata-cic:local
+    container_name: streamtrident-suricata-cic
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
     depends_on:
       redis:
         condition: service_healthy
-    configs:
-      - source: suricata_config
-        target: /app/config/suricata.yaml
-    command: ["python", "-m", "app.main", "--config", "config/suricata.yaml"]
-    stdin_open: true
-    tty: true
-    restart: "no"
+    environment:
+      IFACE: "${SURICATA_IFACE:-eth0}"
+      REDIS_HOST: "${SURICATA_REDIS_HOST:-127.0.0.1}"
+      REDIS_PORT: "${REDIS_HOST_PORT:-16379}"
+      REDIS_STREAM: "${SURICATA_REDIS_STREAM:-suricata:cic_flow}"
+      REDIS_STREAM_MAXLEN: "${SURICATA_REDIS_STREAM_MAXLEN:-1000000}"
+      CIC_MODE: "${CIC_MODE:-cic-flowmeter}"
+      CIC_FLOW_TIMEOUT_US: "${CIC_FLOW_TIMEOUT_US:-120000000}"
+      CIC_ACTIVE_IDLE_THRESHOLD_US: "${CIC_ACTIVE_IDLE_THRESHOLD_US:-5000000}"
+      SURICATA_RUNMODE: "${SURICATA_RUNMODE:-workers}"
+      SURICATA_EXTRA_ARGS: "${SURICATA_EXTRA_ARGS:-}"
+      SURICATA_FILTER_CONFIG: /etc/suricata-cic/filter.json
+    volumes:
+      - ./suricata/logs:/var/log/suricata
+      - ./suricata/config:/etc/suricata-cic:ro
+    restart: unless-stopped
+
+  suricata-agent:
+    build:
+      context: ./suricata-agent
+    image: streamtrident/suricata-agent:local
+    container_name: streamtrident-suricata-agent
+    environment:
+      SURICATA_FILTER_CONFIG_PATH: /etc/suricata-cic/filter.json
+      SURICATA_CONTAINER: streamtrident-suricata-cic
+      SURICATA_RESTART_TIMEOUT: "10"
+      SURICATA_AGENT_TOKEN: "${TRIDENT_SURICATA_AGENT_TOKEN:-}"
+      DOCKER_SOCKET: /var/run/docker.sock
+    volumes:
+      - ./suricata/config:/etc/suricata-cic
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "${SURICATA_AGENT_HOST_PORT:-19100}:19100"
+    restart: unless-stopped
 
 configs:
   trident_config:
     file: ./docker/trident.yaml
   redis_config:
     file: ./docker/redis.yaml
-  suricata_config:
-    file: ./docker/suricata.yaml
 
 volumes:
   redis-data:

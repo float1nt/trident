@@ -45,6 +45,14 @@ class RedisStreamConsumer:
         )
         return _flatten_messages(batch)
 
+    def read_best_effort(self, *, last_id: str, count: int, block_ms: int) -> list[RedisStreamMessage]:
+        batch = self.client.xread(
+            {self.stream: last_id},
+            count=count,
+            block=block_ms,
+        )
+        return _flatten_messages(batch)
+
     def read_pending(self, *, count: int) -> list[RedisStreamMessage]:
         batch = self.client.xreadgroup(
             self.group,

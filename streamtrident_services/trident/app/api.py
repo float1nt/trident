@@ -1,27 +1,82 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import asynccontextmanager
+import os
 from typing import Any
+from pathlib import Path
 
 from fastapi import FastAPI, Query
 
+from .api_routes.auth import register_auth_routes
 from .api_schema import (
     ApiResponse,
     DashboardTopologyData,
     FlowListData,
     LearnerTopologyData,
 )
+from .collection_settings import (
+    CollectionSettings,
+    PROTOCOL_OPTIONS,
+    apply_suricata_config,
+)
 from .config import TridentConfig, load_config
-from .page_queries import PageQueryService
-from .persistence.ch_flow_repository import ChFlowRepository
-from .persistence.learner_repository import LearnerRepository
-from .redis_consumer import RedisStreamConsumer
+from .logging_utils import configure_logging, emit_event
 
 
 def create_app(config_path: str | None = None) -> FastAPI:
     cfg = load_config(config_path)
-    app = FastAPI(title="Trident Service API")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        emit_event(
+            "api_started",
+            session_id=cfg.session_id,
+            redis_url=cfg.redis_url,
+            input_stream=cfg.input_stream,
+            consumer_mode=cfg.consumer_mode,
+            clickhouse_dsn=cfg.clickhouse_dsn,
+            postgres_dsn=cfg.postgres_dsn,
+        )
+        yield
+        emit_event("api_stopped", session_id=cfg.session_id)
+
+    app = FastAPI(title="Trident Service API", lifespan=lifespan)
     app.state.cfg = cfg
+    register_auth_routes(app, _auth_manager())
+
+    @app.get("/collection/settings", response_model=ApiResponse)
+    def get_collection_settings() -> dict[str, Any]:
+        settings = _collection_settings_repo(cfg).get_settings(session_id=cfg.session_id)
+        return _ok(settings.model_dump())
+
+    @app.put("/collection/settings", response_model=ApiResponse)
+    def put_collection_settings(payload: CollectionSettings) -> dict[str, Any]:
+        settings = _collection_settings_repo(cfg).save_settings(
+            session_id=cfg.session_id,
+            settings=payload,
+        )
+        apply_result = apply_suricata_config(settings)
+        if not apply_result.get("applied"):
+            emit_event("collection_settings_apply_failed", apply_result=apply_result)
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=502, detail=apply_result)
+        return _ok(settings.model_dump())
+
+    @app.get("/collection/protocols", response_model=ApiResponse)
+    def collection_protocols() -> dict[str, Any]:
+        return _ok(PROTOCOL_OPTIONS)
+
+    @app.post("/collection/settings/apply", response_model=ApiResponse)
+    def apply_collection_settings() -> dict[str, Any]:
+        settings = _collection_settings_repo(cfg).get_settings(session_id=cfg.session_id)
+        apply_result = apply_suricata_config(settings)
+        if not apply_result.get("applied"):
+            emit_event("collection_settings_apply_failed", apply_result=apply_result)
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=502, detail=apply_result)
+        return _ok(apply_result)
 
     @app.get("/api/v1/health", response_model=ApiResponse)
     def health() -> dict[str, Any]:
@@ -29,8 +84,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
             {
                 "session_id": cfg.session_id,
                 "redis": _probe(lambda: _redis(cfg).ping()),
-                "clickhouse": _probe(lambda: ChFlowRepository(cfg.clickhouse_dsn).ping()),
-                "postgres": _probe(lambda: LearnerRepository(cfg.postgres_dsn).ping()),
+                "clickhouse": _probe(lambda: _flow_repo(cfg).ping()),
+                "postgres": _probe(lambda: _learner_repo(cfg).ping()),
             }
         )
 
@@ -206,6 +261,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
 
 def _redis(cfg: TridentConfig) -> RedisStreamConsumer:
+    from .redis_consumer import RedisStreamConsumer
+
     return RedisStreamConsumer(
         cfg.redis_url,
         stream=cfg.input_stream,
@@ -214,11 +271,37 @@ def _redis(cfg: TridentConfig) -> RedisStreamConsumer:
     )
 
 
+def _flow_repo(cfg: TridentConfig):
+    from .persistence.ch_flow_repository import ChFlowRepository
+
+    return ChFlowRepository(cfg.clickhouse_dsn)
+
+
+def _learner_repo(cfg: TridentConfig):
+    from .persistence.learner_repository import LearnerRepository
+
+    return LearnerRepository(cfg.postgres_dsn)
+
+
+def _auth_manager():
+    from .auth import AuthManager
+
+    return AuthManager()
+
+
+def _collection_settings_repo(cfg: TridentConfig):
+    from .collection_settings import CollectionSettingsRepository
+
+    return CollectionSettingsRepository(cfg.postgres_dsn)
+
+
 def _pages(cfg: TridentConfig) -> PageQueryService:
+    from .page_queries import PageQueryService
+
     return PageQueryService(
         session_id=cfg.session_id,
-        flows=ChFlowRepository(cfg.clickhouse_dsn),
-        learners=LearnerRepository(cfg.postgres_dsn),
+        flows=_flow_repo(cfg),
+        learners=_learner_repo(cfg),
         redis=_redis(cfg),
     )
 
@@ -266,8 +349,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     import uvicorn
 
+    log_dir = Path(os.getenv("TRIDENT_LOG_DIR", "/var/log/trident"))
+    log_file = os.getenv("TRIDENT_LOG_FILE", "api.log")
+    configure_logging(service_name="trident-api", log_path=log_dir / log_file)
     args = parse_args()
-    uvicorn.run(create_app(args.config), host=args.host, port=args.port)
+    emit_event("api_bootstrap", host=args.host, port=args.port, config=args.config)
+    uvicorn.run(create_app(args.config), host=args.host, port=args.port, access_log=False, log_config=None)
     return 0
 
 

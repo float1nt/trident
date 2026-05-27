@@ -18,6 +18,7 @@ def test_loads_redis_fields_to_normalized_flow() -> None:
             "src_port": "12345",
             "dst_port": "443",
             "protocol": "TCP",
+            "app_proto": "tls",
             "features_json": "{\"bytes\":100}",
             "raw_event_json": "{\"source\":\"unit\"}",
         },
@@ -29,9 +30,11 @@ def test_loads_redis_fields_to_normalized_flow() -> None:
     assert record.src_port == 12345
     assert record.dst_port == 443
     assert record.protocol == 6
+    assert record.app_proto == "tls"
     assert json.loads(record.features_json) == {"bytes": 100}
     assert record.record_version == 1710000000123
     assert record.to_clickhouse_row()["event_time"] == "2026-05-26 10:00:00.000"
+    assert record.to_clickhouse_row()["app_proto"] == "tls"
 
 
 def test_bad_features_json_falls_back_to_empty_object() -> None:
@@ -47,3 +50,4 @@ def test_bad_features_json_falls_back_to_empty_object() -> None:
     assert json.loads(record.features_json) == {}
     assert record.src_port == 0
     assert record.dst_port == 0
+    assert record.app_proto == "unknown"
