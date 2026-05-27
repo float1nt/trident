@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Table, Input, Button, Space, Tooltip, Tag, DatePicker, Card, Typography } from "antd";
 import PageTabs from "@/components/PageTabs";
@@ -70,7 +70,16 @@ const RiskTaskList = () => {
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
   const [eventTopology, setEventTopology] =
     useState<LearnerNetworkTopologyJson | null>(null);
+  const [eventIpTotal, setEventIpTotal] = useState(0);
   const [eventLoading, setEventLoading] = useState(false);
+
+  const eventCardCount = useMemo(() => {
+    if (!eventTopology) return 0;
+    const names = eventTopology.learners?.length
+      ? eventTopology.learners.filter((k) => eventTopology.views[k])
+      : Object.keys(eventTopology.views);
+    return names.length;
+  }, [eventTopology]);
 
   useEffect(() => {
     if (activeView !== "ip") return;
@@ -86,14 +95,23 @@ const RiskTaskList = () => {
     setEventLoading(true);
     try {
       const range = formatTriggerRange(eventFilters.triggerPeriod);
-      const data = await RiskService.getEventTopology({
-        name: eventFilters.name || undefined,
-        ...range,
-      });
+      const [data, ipListRes] = await Promise.all([
+        RiskService.getEventTopology({
+          name: eventFilters.name || undefined,
+          ...range,
+        }),
+        RiskService.listRisks({
+          limit: 1,
+          offset: 0,
+          name: eventFilters.name || undefined,
+        }),
+      ]);
       setEventTopology(data);
+      setEventIpTotal(ipListRes.total);
     } catch (error) {
       console.error("获取事件拓扑失败", error);
       setEventTopology(null);
+      setEventIpTotal(0);
     } finally {
       setEventLoading(false);
     }
@@ -302,12 +320,14 @@ const RiskTaskList = () => {
               styles={{ body: { padding: 16 } }}
               loading={eventLoading}
             >
-              <Title level={5} className="!mb-1 !mt-0">
-                风险事件网络拓扑（IP / 端口）
-              </Title>
-              <Paragraph type="secondary" className="!mb-4 text-xs">
-                默认展示全部风险事件；绿=良性、红=攻击。点击卡片右上角「详情」进入风险详情页。
-              </Paragraph>
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <Title level={5} className="!mb-0 !mt-0 shrink-0">
+                  总共{eventCardCount}类风险，涉及{eventIpTotal}个风险IP
+                </Title>
+                <Paragraph type="secondary" className="!mb-0 text-xs text-right">
+                  绿色代表正常，红色代表攻击。
+                </Paragraph>
+              </div>
               <LearnerInternalTopologyPanel
                 data={eventTopology}
                 onRiskClick={handleEventRiskClick}
