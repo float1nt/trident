@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { Segmented } from "antd";
+import { Button } from "antd";
 import type { EChartsOption } from "echarts";
 import EChartsRingChart from "@/components/EChartsRingChart";
+import "./NetworkTopologyPanel.css";
 import {
   CHART_AXIS_LINE,
   CHART_GREEN,
@@ -289,17 +290,32 @@ function TopologyGraphModeToggle({
   onChange: (mode: TopologyGraphMode) => void;
   compact?: boolean;
 }) {
+  const options: { mode: TopologyGraphMode; label: string }[] = [
+    { mode: "host", label: "IP" },
+    { mode: "endpoint", label: "端口" },
+  ];
+
   return (
-    <Segmented
-      size={compact ? "small" : "middle"}
-      className="shrink-0"
-      value={value}
-      onChange={(next) => onChange(next as TopologyGraphMode)}
-      options={[
-        { label: " I P ", value: "host" },
-        { label: "端口", value: "endpoint" },
-      ]}
-    />
+    <div
+      className={`topology-graph-mode-toggle${
+        compact ? " topology-graph-mode-toggle--compact" : ""
+      }`}
+    >
+      {options.map(({ mode, label }) => {
+        const selected = value === mode;
+        return (
+          <Button
+            key={mode}
+            type="default"
+            size={compact ? "small" : "middle"}
+            className={selected ? "ant-btn-topology-selected" : undefined}
+            onClick={() => onChange(mode)}
+          >
+            {label}
+          </Button>
+        );
+      })}
+    </div>
   );
 }
 

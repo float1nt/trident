@@ -131,45 +131,43 @@ export default function HomeView() {
           />
           流量分析
         </div>
-        <div className="mt-4 flex flex-col gap-4">
-          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
-              <TopologyChartPane
-                title="总拓扑"
-                hostGraph={combinedView?.host}
-                endpointGraph={combinedView?.endpoint}
-                viewIsBenign={combinedView?.is_benign}
-                repulsion={TOPOLOGY_REPULSION}
-                minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                chartHeight={TOPOLOGY_CHART_HEIGHT}
-              />
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[3fr_2fr] lg:grid-rows-2">
+          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-[8px] lg:row-span-2">
+            <TopologyChartPane
+              title="总拓扑"
+              hostGraph={combinedView?.host}
+              endpointGraph={combinedView?.endpoint}
+              viewIsBenign={combinedView?.is_benign}
+              repulsion={TOPOLOGY_REPULSION}
+              minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+              chartHeight={TOPOLOGY_CHART_HEIGHT}
+            />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
-                <TopologyChartPane
-                  title="良性流量总拓扑"
-                  hostGraph={benignView?.host}
-                  endpointGraph={benignView?.endpoint}
-                  viewIsBenign={benignView?.is_benign}
-                  repulsion={TOPOLOGY_REPULSION}
-                  minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                  chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
-                  compact
-                />
-            </div>
+          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
+            <TopologyChartPane
+              title="攻击流量总拓扑"
+              hostGraph={attackView?.host}
+              endpointGraph={attackView?.endpoint}
+              viewIsBenign={attackView?.is_benign}
+              repulsion={TOPOLOGY_REPULSION}
+              minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+              chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
+              compact
+            />
+          </div>
 
-            <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
-                <TopologyChartPane
-                  title="攻击流量总拓扑"
-                  hostGraph={attackView?.host}
-                  endpointGraph={attackView?.endpoint}
-                  viewIsBenign={attackView?.is_benign}
-                  repulsion={TOPOLOGY_REPULSION}
-                  minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                  chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
-                  compact
-                />
-            </div>
+          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
+            <TopologyChartPane
+              title="良性流量总拓扑"
+              hostGraph={benignView?.host}
+              endpointGraph={benignView?.endpoint}
+              viewIsBenign={benignView?.is_benign}
+              repulsion={TOPOLOGY_REPULSION}
+              minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+              chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
+              compact
+            />
           </div>
         </div>
       </div>

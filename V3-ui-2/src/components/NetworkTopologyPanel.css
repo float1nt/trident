@@ -1,0 +1,44 @@
+.topology-graph-mode-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid #e8eaed;
+  border-radius: 4px;
+  background: #fff;
+  padding: 2px;
+}
+
+.topology-graph-mode-toggle--compact {
+  padding: 2px;
+}
+
+.topology-graph-mode-toggle .ant-btn {
+  min-width: 44px;
+  box-shadow: none !important;
+  background-color: #fff !important;
+  border-color: #e8eaed !important;
+  color: #8c8c8c !important;
+  font-weight: 500;
+  border-radius: 3px;
+}
+
+.topology-graph-mode-toggle .ant-btn:hover,
+.topology-graph-mode-toggle .ant-btn:focus,
+.topology-graph-mode-toggle .ant-btn:active {
+  box-shadow: none !important;
+  background-color: #fff !important;
+  border-color: #e8eaed !important;
+  color: #8c8c8c !important;
+}
+
+.topology-graph-mode-toggle .ant-btn-topology-selected,
+.topology-graph-mode-toggle .ant-btn-topology-selected:hover,
+.topology-graph-mode-toggle .ant-btn-topology-selected:focus,
+.topology-graph-mode-toggle .ant-btn-topology-selected:active {
+  border-color: #4368f0 !important;
+  color: #4368f0 !important;
+  background-color: #fff !important;
+}
+
+.topology-graph-mode-toggle .ant-btn:focus-visible {
+  outline: none;
+}
