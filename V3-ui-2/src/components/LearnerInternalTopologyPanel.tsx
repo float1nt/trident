@@ -215,20 +215,9 @@ export function LearnerInternalTopologyPanel({
                     repulsion={TOPOLOGY_REPULSION}
                     minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
                     chartHeight={GRID_CHART_HEIGHT}
-                    compact
+                   
                   />
                 </ChartPaneErrorBoundary>
-                <EventCardInfoItem label="风险说明">
-                  <span
-                    className="line-clamp-2 text-[11px] leading-[16px]"
-                    title={option.riskDescription}
-                  >
-                    {option.riskDescription}
-                  </span>
-                </EventCardInfoItem>
-                <EventCardInfoItem label="风险触发时间">
-                  {option.triggerTime}
-                </EventCardInfoItem>
               </Card>
             </Col>
           );

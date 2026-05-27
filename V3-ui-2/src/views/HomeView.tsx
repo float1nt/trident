@@ -141,6 +141,7 @@ export default function HomeView() {
               repulsion={TOPOLOGY_REPULSION}
               minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
               chartHeight={TOPOLOGY_CHART_HEIGHT}
+              fillContainer
             />
           </div>
 
@@ -154,6 +155,7 @@ export default function HomeView() {
               minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
               chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
               compact
+              fillContainer
             />
           </div>
 
@@ -167,6 +169,7 @@ export default function HomeView() {
               minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
               chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
               compact
+              fillContainer
             />
           </div>
         </div>
