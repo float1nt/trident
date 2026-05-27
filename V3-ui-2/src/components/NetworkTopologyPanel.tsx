@@ -421,8 +421,8 @@ export function TopologyChartPane({
   const stats = graph?.stats ?? {};
 
   return (
-    <div className="min-w-0 flex-1 rounded-lg border border-[#e8eaed] bg-white">
-      <div className="border-b border-[#e8eaed] px-3 py-2">
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-[#e8eaed] bg-white">
+      <div className="shrink-0 border-b border-[#e8eaed] px-3 py-2">
         <div className="flex items-center justify-between gap-2">
           <h4 className="text-sm font-medium text-[#333]">{title}</h4>
           <TopologyGraphModeToggle
@@ -464,7 +464,12 @@ export function TopologyChartPane({
           </div>
         ) : null}
       </div>
-      <EChartsRingChart option={option} height={chartHeight} />
+      <div
+        className="min-h-0 flex-1"
+        style={{ minHeight: chartHeight }}
+      >
+        <EChartsRingChart option={option} className="h-full w-full" />
+      </div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 .topology-graph-mode-toggle {
   display: inline-flex;
   flex-shrink: 0;
-  border: 1px solid #e8eaed;
+  border: none !important;
   border-radius: 4px;
   background: #fff;
   padding: 2px;

@@ -131,8 +131,8 @@ export default function HomeView() {
           />
           流量分析
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-[12px] lg:grid-cols-[3fr_2fr] lg:grid-rows-2">
-          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-[8px] lg:row-span-2">
+        <div className="mt-4 grid grid-cols-1 gap-[12px] lg:min-h-[520px] lg:grid-cols-[3fr_2fr] lg:grid-rows-[1fr_1fr] lg:items-stretch">
+          <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px] lg:row-span-2">
             <TopologyChartPane
               title="总拓扑"
               hostGraph={combinedView?.host}
@@ -144,7 +144,7 @@ export default function HomeView() {
             />
           </div>
 
-          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
+          <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
             <TopologyChartPane
               title="攻击流量总拓扑"
               hostGraph={attackView?.host}
@@ -157,7 +157,7 @@ export default function HomeView() {
             />
           </div>
 
-          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
+          <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
             <TopologyChartPane
               title="良性流量总拓扑"
               hostGraph={benignView?.host}
