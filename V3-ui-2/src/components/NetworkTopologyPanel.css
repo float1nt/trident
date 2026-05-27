@@ -12,13 +12,25 @@
 }
 
 .topology-graph-mode-toggle .ant-btn {
-  min-width: 44px;
+  min-width: 40px;
+  height: 22px;
+  padding-inline: 8px;
+  font-size: 11px;
+  line-height: 20px;
   box-shadow: none !important;
   background-color: #fff !important;
   border-color: #e8eaed !important;
   color: #8c8c8c !important;
   font-weight: 500;
   border-radius: 3px;
+}
+
+.topology-graph-mode-toggle--compact .ant-btn {
+  min-width: 34px;
+  height: 20px;
+  padding-inline: 6px;
+  font-size: 10px;
+  line-height: 18px;
 }
 
 .topology-graph-mode-toggle .ant-btn:hover,

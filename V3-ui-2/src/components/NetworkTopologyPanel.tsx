@@ -190,12 +190,22 @@ function buildGraphData(
   return { nodes, links };
 }
 
-function formatTrafficAnalysisLabel(
+function getTrafficAnalysisText(
   viewIsBenign: boolean | null | undefined,
 ): string {
   if (viewIsBenign === true) return "良性";
   if (viewIsBenign === false) return "攻击";
   return "混合";
+}
+
+function formatTrafficAnalysisHtml(label: string): string {
+  if (label === "良性") {
+    return `流量分析:<span style="color:${CHART_GREEN}">良性</span>`;
+  }
+  if (label === "攻击") {
+    return `流量分析:<span style="color:${CHART_RED}">攻击</span>`;
+  }
+  return `流量分析:${label}`;
 }
 
 function formatNodeProtocols(node: Pick<TopologyNode, "protocols" | "protocol">): string {
@@ -216,18 +226,18 @@ function formatNodeTooltip(
   return [
     ipLabel,
     `访问次数:${node.flow_count.toLocaleString("zh-CN")}`,
-    `流量分析:${formatTrafficAnalysisLabel(viewIsBenign)}`,
+    formatTrafficAnalysisHtml(getTrafficAnalysisText(viewIsBenign)),
     `协议:${formatNodeProtocols(node)}`,
   ].join("<br/>");
 }
 
-function formatEdgeTrafficAnalysisLabel(
+function getEdgeTrafficAnalysisText(
   edge: TopologyLink,
   viewIsBenign: boolean | null | undefined,
 ): string {
   if (edge.is_benign === true) return "良性";
   if (edge.is_benign === false) return "攻击";
-  return formatTrafficAnalysisLabel(viewIsBenign);
+  return getTrafficAnalysisText(viewIsBenign);
 }
 
 function formatEdgeTooltip(
@@ -237,7 +247,7 @@ function formatEdgeTooltip(
   return [
     `${edge.source} → ${edge.target}`,
     `访问次数:${edge.value.toLocaleString("zh-CN")}`,
-    `流量分析:${formatEdgeTrafficAnalysisLabel(edge, viewIsBenign)}`,
+    formatTrafficAnalysisHtml(getEdgeTrafficAnalysisText(edge, viewIsBenign)),
     `协议:${formatNodeProtocols(edge)}`,
   ].join("<br/>");
 }
@@ -364,7 +374,7 @@ function TopologyGraphModeToggle({
           <Button
             key={mode}
             type="default"
-            size={compact ? "small" : "small"}
+            size="small"
             className={selected ? "ant-btn-topology-selected" : undefined}
             onClick={() => onChange(mode)}
           >
@@ -439,7 +449,7 @@ export function TopologyChartPane({
               compact={compact}
             />
             <TopologyStatCard
-              label="主目的端口访问比"
+              label="主目的端口访问占比"
               value={
                 stats.top_dst_port_ratio != null
                   ? `${(Number(stats.top_dst_port_ratio) * 100).toFixed(1)}%`
