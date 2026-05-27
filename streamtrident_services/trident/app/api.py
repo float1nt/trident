@@ -15,6 +15,11 @@ from .api_schema import (
     FlowListData,
     LearnerTopologyData,
 )
+from .collection_settings import (
+    CollectionSettings,
+    PROTOCOL_OPTIONS,
+    apply_suricata_config,
+)
 from .config import TridentConfig, load_config
 from .logging_utils import configure_logging, emit_event
 
@@ -38,6 +43,40 @@ def create_app(config_path: str | None = None) -> FastAPI:
     app = FastAPI(title="Trident Service API", lifespan=lifespan)
     app.state.cfg = cfg
     register_auth_routes(app, _auth_manager())
+
+    @app.get("/collection/settings", response_model=ApiResponse)
+    def get_collection_settings() -> dict[str, Any]:
+        settings = _collection_settings_repo(cfg).get_settings(session_id=cfg.session_id)
+        return _ok(settings.model_dump())
+
+    @app.put("/collection/settings", response_model=ApiResponse)
+    def put_collection_settings(payload: CollectionSettings) -> dict[str, Any]:
+        settings = _collection_settings_repo(cfg).save_settings(
+            session_id=cfg.session_id,
+            settings=payload,
+        )
+        apply_result = apply_suricata_config(settings)
+        if not apply_result.get("applied"):
+            emit_event("collection_settings_apply_failed", apply_result=apply_result)
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=502, detail=apply_result)
+        return _ok(settings.model_dump())
+
+    @app.get("/collection/protocols", response_model=ApiResponse)
+    def collection_protocols() -> dict[str, Any]:
+        return _ok(PROTOCOL_OPTIONS)
+
+    @app.post("/collection/settings/apply", response_model=ApiResponse)
+    def apply_collection_settings() -> dict[str, Any]:
+        settings = _collection_settings_repo(cfg).get_settings(session_id=cfg.session_id)
+        apply_result = apply_suricata_config(settings)
+        if not apply_result.get("applied"):
+            emit_event("collection_settings_apply_failed", apply_result=apply_result)
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=502, detail=apply_result)
+        return _ok(apply_result)
 
     @app.get("/api/v1/health", response_model=ApiResponse)
     def health() -> dict[str, Any]:
@@ -248,6 +287,12 @@ def _auth_manager():
     from .auth import AuthManager
 
     return AuthManager()
+
+
+def _collection_settings_repo(cfg: TridentConfig):
+    from .collection_settings import CollectionSettingsRepository
+
+    return CollectionSettingsRepository(cfg.postgres_dsn)
 
 
 def _pages(cfg: TridentConfig) -> PageQueryService:

@@ -1,8 +1,8 @@
 COMPOSE ?= docker compose
 SERVICE ?=
-LOGS ?= trident-api trident-worker suricata-cic
+LOGS ?= trident-api trident-worker suricata-cic suricata-agent
 
-.PHONY: help up down ps build rebuild restart restart-trident restart-capture logs logs-all migrate worker api suricata clean
+.PHONY: help up down ps build rebuild restart restart-trident restart-capture logs logs-all migrate worker api suricata suricata-agent clean
 
 help:
 	@printf '%s\n' \
@@ -21,6 +21,7 @@ help:
 		'  make worker            Recreate trident worker' \
 		'  make api               Recreate trident API' \
 		'  make suricata          Recreate Suricata CIC capture service' \
+		'  make suricata-agent    Recreate Suricata local control agent' \
 		'  make clean             Stop containers and remove volumes'
 
 up:
@@ -49,7 +50,7 @@ restart-trident:
 	$(COMPOSE) up -d --build --force-recreate trident-migrate trident-worker trident-api
 
 restart-capture:
-	$(COMPOSE) up -d --build --force-recreate suricata-cic
+	$(COMPOSE) up -d --build --force-recreate suricata-agent suricata-cic
 
 logs:
 	$(COMPOSE) logs -f --tail=200 $(LOGS)
@@ -68,6 +69,9 @@ api:
 
 suricata:
 	$(COMPOSE) up -d --build --force-recreate suricata-cic
+
+suricata-agent:
+	$(COMPOSE) up -d --build --force-recreate suricata-agent
 
 clean:
 	$(COMPOSE) down -v
