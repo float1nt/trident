@@ -13,6 +13,7 @@ const { Text } = Typography;
 
 const TOPOLOGY_REPULSION = 70;
 const TOPOLOGY_MIN_EDGE_FLOWS = 1;
+const NEW_LEARNER_PATTERN = /^NEW[_-]?(\d+)$/i;
 
 export type { LearnerNetworkTopologyJson, LearnerTopologyOption };
 
@@ -21,6 +22,20 @@ type Props = {
   onRiskClick?: (riskId: number) => void;
   emptyHint?: string;
 };
+
+function formatUnmatchedLearnerName(
+  learnerName: string,
+  isBenign: boolean | null | undefined,
+  attackRatio: number | undefined,
+): string {
+  const m = learnerName.match(NEW_LEARNER_PATTERN);
+  if (!m) return learnerName;
+  const learnerIndex = m[1] ? `（学习器${m[1]}）` : "";
+  const likelyBenign = Boolean(isBenign) || (attackRatio ?? 0) <= 0.35;
+  return likelyBenign
+    ? `良性流量${learnerIndex}`
+    : `待观察流量${learnerIndex}`;
+}
 
 class ChartPaneErrorBoundary extends Component<
   { children: ReactNode; title: string },
@@ -61,14 +76,32 @@ function buildSortedLearnerOptions(
 
   const items: LearnerTopologyOption[] = names.map((name) => {
     const fromView = data.views[name];
+    const fallbackName = formatUnmatchedLearnerName(
+      name,
+      fromView?.is_benign,
+      fromView?.attack_ratio,
+    );
+    const displayRiskName =
+      fromView?.risk_name && !NEW_LEARNER_PATTERN.test(fromView.risk_name)
+        ? fromView.risk_name
+        : fallbackName;
+    const displayRiskDesc =
+      fromView?.risk_description && !NEW_LEARNER_PATTERN.test(fromView.risk_description)
+        ? fromView.risk_description
+        : fromView?.is_benign
+          ? "当前窗口未命中攻击规则，行为接近正常业务。"
+          : "当前窗口暂未命中明确攻击规则，建议继续观察后续流量。";
     return {
       name,
       riskId: fromView?.risk_id ?? 0,
-      riskName: fromView?.risk_name ?? name,
-      riskDescription: fromView?.risk_description ?? "—",
+      riskName: displayRiskName,
+      riskDescription: displayRiskDesc,
       triggerTime: fromView?.trigger_time ?? "—",
       attackRatio: fromView?.attack_ratio ?? 0,
-      dominantLabel: fromView?.dominant_label ?? "—",
+      dominantLabel:
+        fromView?.dominant_label && !NEW_LEARNER_PATTERN.test(fromView.dominant_label)
+          ? fromView.dominant_label
+          : displayRiskName,
       flowCount: fromView?.host?.flow_count ?? fromView?.endpoint?.flow_count,
     };
   });
