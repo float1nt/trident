@@ -1,0 +1,64 @@
+.page {
+  padding: 0;
+  min-height: auto;
+  background: var(--notion-bg);
+  color: var(--notion-text-primary);
+}
+
+.page .ant-typography,
+.page .ant-typography-caption,
+.page .ant-typography-secondary {
+  color: var(--notion-text-secondary) !important;
+}
+
+.page .ant-btn-default {
+  color: var(--notion-text-primary);
+  border-color: var(--notion-border);
+  background: var(--notion-surface-alt);
+}
+
+.page .ant-input,
+.page .ant-input-affix-wrapper,
+.page .ant-select .ant-select-selector {
+  color: var(--notion-text-primary) !important;
+  background: var(--notion-surface-alt) !important;
+  border-color: var(--notion-border) !important;
+}
+
+.page .ant-input::placeholder {
+  color: var(--notion-text-secondary);
+}
+
+.page .ant-select .ant-select-selection-item,
+.page .ant-select .ant-select-selection-placeholder,
+.page .ant-select .ant-select-arrow {
+  color: var(--notion-text-primary) !important;
+}
+
+.page .ant-slider-mark-text {
+  color: var(--notion-text-secondary) !important;
+}
+
+.page .ant-tag.ant-tag-default {
+  color: var(--notion-text-primary);
+  background: var(--notion-surface-alt);
+  border-color: var(--notion-border);
+}
+
+.panel-card {
+  background: var(--notion-surface) !important;
+  border-color: var(--notion-border) !important;
+}
+
+.panel-card .ant-card-head,
+.panel-card .ant-card-body {
+  color: var(--notion-text-primary);
+}
+
+.panel-card .ant-statistic-title {
+  color: var(--notion-text-secondary);
+}
+
+.panel-card .ant-statistic-content {
+  color: var(--notion-text-primary);
+}
