@@ -62,3 +62,14 @@
 .risk-filter-range__picker.ant-picker-focused {
   box-shadow: none !important;
 }
+
+/* 风险页整页 loading 遮罩区域 */
+.task-list-page .risk-page-spin {
+  display: block;
+  width: 100%;
+  min-height: calc(100vh - 120px);
+}
+
+.task-list-page .risk-page-spin .ant-spin-container {
+  min-height: calc(100vh - 120px);
+}

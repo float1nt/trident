@@ -1,7 +1,18 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useApi } from "@/hooks/useApi";
 import { useNavigate } from "react-router-dom";
-import { Table, Input, Button, Space, Tooltip, Tag, DatePicker, Card, Typography } from "antd";
+import {
+  Table,
+  Input,
+  Button,
+  Space,
+  Tooltip,
+  Tag,
+  DatePicker,
+  Card,
+  Spin,
+  Typography,
+} from "antd";
 import PageTabs from "@/components/PageTabs";
 import type { Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
@@ -249,9 +260,12 @@ const RiskTaskList = () => {
     },
   ];
 
+  const pageLoading = activeView === "event" ? eventLoading : loading;
+
   return (
     <div className="task-list-page bg-[#f6faff] p-[12px] h-full w-full rounded-[8px]">
-      <div className="flex h-full min-h-0 flex-col gap-[12px]">
+      <Spin spinning={pageLoading} wrapperClassName="risk-page-spin">
+        <div className="flex h-full min-h-0 flex-col gap-[12px]">
         <div className="rounded-[8px] bg-[#fff] px-[16px] py-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
           <PageTabs
             activeKey={activeView}
@@ -310,12 +324,7 @@ const RiskTaskList = () => {
                 </div>
               </div>
             </Card>
-            <Card
-              bordered={false}
-              className="h-[calc(100vh-250px)] overflow-auto shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
-              styles={{ body: { padding: 16 } }}
-              loading={eventLoading}
-            >
+            <div className="min-h-0 flex-1 rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
               <div className="mb-4 flex items-center justify-between gap-4">
                 <Title level={5} className="!mb-0 !mt-0 shrink-0">
                   总共{eventCardCount}类风险，涉及{eventIpTotal}个风险IP
@@ -328,7 +337,7 @@ const RiskTaskList = () => {
                 data={eventTopology}
                 onRiskClick={handleEventRiskClick}
               />
-            </Card>
+            </div>
           </>
         ) : (
           <>
@@ -365,7 +374,6 @@ const RiskTaskList = () => {
                 dataSource={listdata}
                 rowKey="id"
                 size="middle"
-                loading={loading}
                 pagination={{
                   current: page,
                   pageSize: pageSize,
@@ -379,7 +387,8 @@ const RiskTaskList = () => {
             </div>
           </>
         )}
-      </div>
+        </div>
+      </Spin>
     </div>
   );
 };
