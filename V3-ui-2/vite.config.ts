@@ -27,7 +27,8 @@ export default defineConfig({
       },
       // 总览、风险（streamtrident trident-api）
       "/api": {
-        target: "http://127.0.0.1:8090",
+        // target: "http://127.0.0.1:8090",
+        target: "http://172.16.2.110:18090/",
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/api/, ""),
       },
