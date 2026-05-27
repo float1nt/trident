@@ -83,6 +83,11 @@ services:
     configs:
       - source: trident_config
         target: /app/config/trident.yaml
+    environment:
+      TRIDENT_LOG_DIR: /var/log/trident
+      TRIDENT_LOG_FILE: migrate.log
+    volumes:
+      - ./trident/logs:/var/log/trident
     command: ["python", "-m", "app.migrate", "--config", "config/trident.yaml"]
     restart: "no"
 
@@ -103,8 +108,12 @@ services:
     configs:
       - source: trident_config
         target: /app/config/trident.yaml
+    environment:
+      TRIDENT_LOG_DIR: /var/log/trident
+      TRIDENT_LOG_FILE: worker.log
     volumes:
       - trident-models:/var/lib/trident/models
+      - ./trident/logs:/var/log/trident
     command: ["python", "-m", "app.worker", "--config", "config/trident.yaml"]
     restart: unless-stopped
 
@@ -125,8 +134,12 @@ services:
     configs:
       - source: trident_config
         target: /app/config/trident.yaml
+    environment:
+      TRIDENT_LOG_DIR: /var/log/trident
+      TRIDENT_LOG_FILE: api.log
     volumes:
       - trident-models:/var/lib/trident/models
+      - ./trident/logs:/var/log/trident
     command: ["python", "-m", "app.api", "--config", "config/trident.yaml", "--host", "0.0.0.0", "--port", "8090"]
     ports:
       - "${TRIDENT_API_HOST_PORT:-8090}:8090"

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import asynccontextmanager
+import os
 from typing import Any
+from pathlib import Path
 
 from fastapi import FastAPI, Query
 
@@ -13,11 +16,26 @@ from .api_schema import (
     LearnerTopologyData,
 )
 from .config import TridentConfig, load_config
+from .logging_utils import configure_logging, emit_event
 
 
 def create_app(config_path: str | None = None) -> FastAPI:
     cfg = load_config(config_path)
-    app = FastAPI(title="Trident Service API")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        emit_event(
+            "api_started",
+            session_id=cfg.session_id,
+            redis_url=cfg.redis_url,
+            input_stream=cfg.input_stream,
+            consumer_mode=cfg.consumer_mode,
+            clickhouse_dsn=cfg.clickhouse_dsn,
+            postgres_dsn=cfg.postgres_dsn,
+        )
+        yield
+        emit_event("api_stopped", session_id=cfg.session_id)
+
+    app = FastAPI(title="Trident Service API", lifespan=lifespan)
     app.state.cfg = cfg
     register_auth_routes(app, _auth_manager())
 
@@ -286,8 +304,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     import uvicorn
 
+    log_dir = Path(os.getenv("TRIDENT_LOG_DIR", "/var/log/trident"))
+    log_file = os.getenv("TRIDENT_LOG_FILE", "api.log")
+    configure_logging(service_name="trident-api", log_path=log_dir / log_file)
     args = parse_args()
-    uvicorn.run(create_app(args.config), host=args.host, port=args.port)
+    emit_event("api_bootstrap", host=args.host, port=args.port, config=args.config)
+    uvicorn.run(create_app(args.config), host=args.host, port=args.port, access_log=False, log_config=None)
     return 0
 
 

@@ -105,6 +105,16 @@ python -m app.worker --config config/trident.yaml --once
 python -m app.api --config config/trident.yaml --host 127.0.0.1 --port 8090
 ```
 
+## Logs
+
+Each service writes its own logs to a dedicated host directory:
+
+- `suricata/` -> `suricata/logs/`
+- `trident/` -> `trident/logs/`
+
+Trident app logs are JSON-line files and are rotated by the application itself.
+Suricata keeps its native log files under `suricata/logs/`.
+
 ## Current Boundary
 
 - 不引用 `trident_demo`

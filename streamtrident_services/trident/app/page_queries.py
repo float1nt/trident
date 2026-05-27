@@ -627,7 +627,8 @@ def _protocol_name(value: Any) -> str:
     try:
         proto = int(value)
     except (TypeError, ValueError):
-        return str(value or "UNKNOWN")
+        text = str(value or "UNKNOWN").strip()
+        return text.upper() if text else "UNKNOWN"
     return {1: "ICMP", 6: "TCP", 17: "UDP"}.get(proto, str(proto))
 
 
@@ -721,7 +722,7 @@ def _traffic_log_item(row: dict[str, Any], *, subject_ip: str | None = None) -> 
         "id": str(row.get("flow_uid") or row.get("mq_message_id") or ""),
         "time": _format_time(row.get("event_time")) or "-",
         "ip": str(row.get("dst_ip") if subject_ip else row.get("src_ip") or ""),
-        "protocol": _protocol_name(row.get("protocol")),
+        "protocol": _protocol_name(row.get("app_proto") or row.get("protocol")),
     }
 
 

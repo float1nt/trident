@@ -17,7 +17,7 @@ class FakeFlows:
         }
 
     def protocol_distribution(self, **_: Any) -> list[dict[str, Any]]:
-        return [{"protocol": 6, "value": 8}, {"protocol": 17, "value": 2}]
+        return [{"protocol": "tls", "value": 8}, {"protocol": "dns", "value": 2}]
 
     def top_subject_ips_by_learner(self, **_: Any) -> dict[str, list[str]]:
         return {"NEW_1": ["10.0.0.8"]}
@@ -34,7 +34,7 @@ class FakeFlows:
                     "unknown_count": 3,
                     "top_dst_ip": "203.0.113.17",
                     "top_dst_port": 443,
-                    "top_protocol": 6,
+                    "top_protocol": "tls",
                 }
             ],
         }
@@ -72,7 +72,7 @@ def test_dashboard_overview_maps_database_rows_to_page_shape() -> None:
     assert data["metrics"]["total_flows"] == 10
     assert data["metrics"]["risk_learner_count"] == 1
     assert data["traffic_distribution"][1] == {"name": "疑似异常流量", "value": 3}
-    assert data["protocol_distribution"] == [{"name": "TCP", "value": 8}, {"name": "UDP", "value": 2}]
+    assert data["protocol_distribution"] == [{"name": "TLS", "value": 8}, {"name": "DNS", "value": 2}]
 
 
 def test_risk_events_default_to_medium_and_high_learners() -> None:
@@ -94,4 +94,4 @@ def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
     assert data["items"][0]["subjectIp"] == "10.0.0.8"
     assert data["items"][0]["name"] == "NEW_1"
     assert data["items"][0]["id"] == 11
-    assert "top_protocol=TCP" in data["items"][0]["description"]
+    assert "top_protocol=TLS" in data["items"][0]["description"]

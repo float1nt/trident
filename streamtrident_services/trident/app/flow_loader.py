@@ -16,6 +16,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "src_port": ("src_port", "source_port", "Source Port", "Src Port"),
     "dst_port": ("dst_port", "destination_port", "Destination Port", "Dst Port"),
     "protocol": ("protocol", "proto", "Protocol"),
+    "app_proto": ("app_proto", "application_protocol", "app_protocol", "Application Protocol"),
     "source_flow_id": ("source_flow_id", "flow_id", "flowid", "Flow ID"),
 }
 
@@ -30,6 +31,7 @@ class FlowRecord:
     src_port: int
     dst_port: int
     protocol: int
+    app_proto: str
     feature_profile: str
     features_json: str
     mq_type: str
@@ -51,6 +53,7 @@ class FlowRecord:
             "src_port": self.src_port,
             "dst_port": self.dst_port,
             "protocol": self.protocol,
+            "app_proto": self.app_proto,
             "feature_profile": self.feature_profile,
             "features_json": self.features_json,
             "window_index": self.window_index,
@@ -80,6 +83,7 @@ class FlowLoader:
         src_port = _uint16(_pick(merged, "src_port", 0))
         dst_port = _uint16(_pick(merged, "dst_port", 0))
         protocol = _protocol(_pick(merged, "protocol", 0))
+        app_proto = _app_proto(_pick(merged, "app_proto", "unknown"))
         source_flow_id = str(_pick(merged, "source_flow_id", ""))
         features = _features(merged)
         raw_event = _raw_event(fields, raw_payload)
@@ -94,6 +98,7 @@ class FlowLoader:
             src_port=src_port,
             dst_port=dst_port,
             protocol=protocol,
+            app_proto=app_proto,
             feature_profile=self.feature_profile,
             features_json=json.dumps(features, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
             mq_type=str(merged.get("event_type") or "cic_flow"),
@@ -114,6 +119,7 @@ def stable_flow_uid(
     src_port: int,
     dst_port: int,
     protocol: int,
+    app_proto: str,
     source_flow_id: str,
     mq_message_id: str,
 ) -> str:
@@ -126,6 +132,7 @@ def stable_flow_uid(
             str(src_port),
             str(dst_port),
             str(protocol),
+            app_proto,
             source_flow_id,
             mq_message_id,
         ]
@@ -227,6 +234,16 @@ def _protocol(value: Any) -> int:
         if normalized in {"icmp", "icmpv4"}:
             return 1
     return _uint16(value)
+
+
+def _app_proto(value: Any) -> str:
+    if isinstance(value, str):
+        text = value.strip()
+        return text if text else "unknown"
+    if value is None:
+        return "unknown"
+    text = str(value).strip()
+    return text if text else "unknown"
 
 
 def _record_version(message_id: str) -> int:

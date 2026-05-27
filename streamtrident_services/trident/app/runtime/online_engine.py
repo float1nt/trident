@@ -15,6 +15,7 @@ from ..config import TridentConfig
 from ..flow_loader import FlowRecord
 from ..window_buffer import FlowWindow
 from .model_store import ModelStore
+from .learner_overlap import LearnerOverlapConfig, LearnerOverlapSnapshot, build_learner_overlap_snapshot
 from .preprocessing import preprocess_records
 from .quality import build_learner_audit, feature_drift_score
 from .trident_algorithms import Learner, TMagnifier, TScissors, TSieve
@@ -89,6 +90,8 @@ class OnlineEngine:
         self.increment_iforest_guards: dict[str, dict[str, Any]] = {}
         self.small_recluster_counter = 0
         self.gate_stats: dict[str, int] = defaultdict(int)
+        self.learner_overlap_snapshot: LearnerOverlapSnapshot | None = None
+        self.learner_overlap_config = LearnerOverlapConfig()
         self._load_learners(learner_rows or [])
 
     def process_window(self, window: FlowWindow) -> WindowResult:
@@ -174,6 +177,7 @@ class OnlineEngine:
         updated_learner_names = self._incremental_update(accepted_by_learner, window_index=window.window_index)
         recluster_created = self._maybe_recluster_small_learners(window.window_index)
         new_learner_names.extend(recluster_created)
+        self._refresh_learner_overlap_snapshot()
 
         snapshot_names = list(dict.fromkeys([*new_learner_names, *updated_learner_names]))
         snapshot_requests = [
@@ -386,6 +390,28 @@ class OnlineEngine:
                 },
             },
         }
+        overlap_group = None
+        overlap_member_count = 0
+        overlap_internal_jaccard = 0.0
+        overlap_meta: dict[str, Any] = {}
+        if self.learner_overlap_snapshot is not None:
+            overlap_group = self.learner_overlap_snapshot.mapping.get(name)
+            overlap_meta = dict(self.learner_overlap_snapshot.meta)
+            if overlap_group:
+                aggregate = next(
+                    (item for item in self.learner_overlap_snapshot.aggregates if item.aggregate_name == overlap_group),
+                    None,
+                )
+                if aggregate is not None:
+                    overlap_member_count = int(aggregate.member_count)
+                    overlap_internal_jaccard = float(aggregate.avg_internal_jaccard)
+                profile_json["learner_overlap"] = {
+                    "aggregate_name": overlap_group,
+                    "member_count": overlap_member_count,
+                    "internal_avg_jaccard": overlap_internal_jaccard,
+                    "selected_edge_count": int(overlap_meta.get("selected_edge_count", 0)),
+                    "used_edge_count_after_algo": int(overlap_meta.get("used_edge_count_after_algo", 0)),
+                }
         model_ref = self.model_store.save(
             session_id=self.session_id,
             learner_name=name,
@@ -403,6 +429,11 @@ class OnlineEngine:
             "unknown_buffer_size": int(len(self.tmagnifier.unknown_buffer)),
             "gate_stats": dict(self.gate_stats),
         }
+        if overlap_group is not None:
+            metric_json["overlap_group_name"] = overlap_group
+            metric_json["overlap_group_size"] = overlap_member_count
+            metric_json["overlap_internal_avg_jaccard"] = overlap_internal_jaccard
+            metric_json["overlap_accept_count"] = int(self.learner_overlap_snapshot.accept_count.get(name, 0))
         return {
             "session_id": self.session_id,
             "learner_name": name,
@@ -427,6 +458,19 @@ class OnlineEngine:
             "threshold": float(learner.threshold),
             "model_state_hash": _state_hash(profile_json),
         }
+
+    def _refresh_learner_overlap_snapshot(self) -> None:
+        if len(self.tsieve.learners) < 2:
+            self.learner_overlap_snapshot = None
+            return
+        try:
+            self.learner_overlap_snapshot = build_learner_overlap_snapshot(
+                tsieve=self.tsieve,
+                learner_histories=self.learner_histories,
+                config=self.learner_overlap_config,
+            )
+        except Exception:
+            self.learner_overlap_snapshot = None
 
     def _load_learners(self, rows: list[dict[str, Any]]) -> None:
         for row in rows:

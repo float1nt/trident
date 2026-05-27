@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import json
-import logging
+import os
 import signal
 from time import perf_counter
+from pathlib import Path
 
 from .config import TridentConfig, load_config
 from .flow_loader import FlowLoader
+from .logging_utils import configure_logging, emit_event, emit_exception
 from .output_streams import TridentOutputStreams
 from .persistence.ch_flow_repository import ChFlowRepository
 from .persistence.learner_repository import LearnerRepository
@@ -28,7 +29,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def _configure_logging() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    log_dir = Path(os.getenv("TRIDENT_LOG_DIR", "/var/log/trident"))
+    log_file = os.getenv("TRIDENT_LOG_FILE", "worker.log")
+    configure_logging(service_name="trident-worker", log_path=log_dir / log_file)
 
 
 class ShutdownFlag:
@@ -38,7 +41,7 @@ class ShutdownFlag:
     def install(self) -> None:
         def _handler(signum: int, _frame: object) -> None:
             self.stop = True
-            logging.info(json.dumps({"event": "shutdown_requested", "signal": signum}, separators=(",", ":")))
+            emit_event("shutdown_requested", signal=signum)
 
         signal.signal(signal.SIGTERM, _handler)
         signal.signal(signal.SIGINT, _handler)
@@ -79,10 +82,32 @@ def main() -> int:
     )
     buffer = WindowBuffer(cfg.window_size)
 
+    emit_event(
+        "worker_started",
+        session_id=cfg.session_id,
+        input_stream=cfg.input_stream,
+        consumer_mode=cfg.consumer_mode,
+        reliable_consumer=cfg.consumer_mode == "reliable",
+        read_count=cfg.read_count,
+        block_ms=cfg.block_ms,
+        window_size=cfg.window_size,
+        feature_profile=cfg.feature_profile,
+        redis_output_enabled=cfg.redis_output_enabled,
+        ack_enabled=cfg.ack,
+    )
+
     if reliable_consumer:
         pending = consumer.read_pending(count=cfg.read_count)
         if not pending:
             pending = consumer.autoclaim(min_idle_ms=cfg.pending_idle_ms, count=cfg.read_count)
+        emit_event(
+            "reliable_consumer_recovery",
+            session_id=cfg.session_id,
+            pending_count=len(pending),
+            pending_idle_ms=cfg.pending_idle_ms,
+            consumer_group=cfg.consumer_group,
+            consumer_name=cfg.consumer_name,
+        )
     else:
         pending = []
     if pending:
@@ -102,6 +127,7 @@ def main() -> int:
         )
 
     last_id = cfg.best_effort_start_id
+    last_idle_log = 0.0
     while not shutdown.stop:
         if reliable_consumer:
             messages = consumer.read_new(count=cfg.read_count, block_ms=cfg.block_ms)
@@ -110,10 +136,15 @@ def main() -> int:
             if messages:
                 last_id = messages[-1].message_id
         if not messages:
-            _log_batch(cfg.session_id, cfg.input_stream, read=0, written=0, acked=0, failed=0)
             if cfg.process_partial_window:
                 window = buffer.flush()
                 if window is not None:
+                    emit_event(
+                        "partial_window_flush",
+                        session_id=cfg.session_id,
+                        window_index=window.window_index,
+                        buffered_count=len(window.items),
+                    )
                     _process_window(
                         window,
                         cfg=cfg,
@@ -125,6 +156,19 @@ def main() -> int:
                         consumer=consumer,
                         reliable_consumer=reliable_consumer,
                     )
+            now = perf_counter()
+            if now - last_idle_log >= 60:
+                last_idle_log = now
+                emit_event(
+                    "worker_idle_heartbeat",
+                    session_id=cfg.session_id,
+                    input_stream=cfg.input_stream,
+                    consumer_mode=cfg.consumer_mode,
+                    redis_xlen=_safe_metric(lambda: consumer.xlen()),
+                    redis_pending=_safe_metric(lambda: consumer.pending_count()) if reliable_consumer else 0,
+                    buffered_count=buffer.buffered_count if buffer else 0,
+                    last_stream_id=last_id if not reliable_consumer else None,
+                )
             if args.once:
                 return 0
             continue
@@ -142,7 +186,7 @@ def main() -> int:
             buffer=buffer,
             force_window=False,
             reliable_consumer=reliable_consumer,
-        )
+            )
         if args.once:
             if cfg.process_partial_window:
                 window = buffer.flush()
@@ -159,6 +203,7 @@ def main() -> int:
                         reliable_consumer=reliable_consumer,
                     )
             return 0
+        last_idle_log = 0.0
     return 0
 
 
@@ -186,15 +231,10 @@ def _process_messages(
             good.append(BufferedFlow(message=message, record=record))  # type: ignore[arg-type]
         except Exception:
             bad_messages.append(message)
-            logging.exception(
-                json.dumps(
-                    {
-                        "event": "flow_parse_failed",
-                        "stream": getattr(message, "stream", ""),
-                        "message_id": getattr(message, "message_id", ""),
-                    },
-                    separators=(",", ":"),
-                )
+            emit_exception(
+                "flow_parse_failed",
+                stream=getattr(message, "stream", ""),
+                message_id=getattr(message, "message_id", ""),
             )
 
     parse_seconds = perf_counter() - t_parse_start
@@ -209,16 +249,16 @@ def _process_messages(
         acked_bad = consumer.ack(bad_messages)  # type: ignore[arg-type]
 
     if not windows:
-        _log_batch(
-            cfg.session_id,
-            cfg.input_stream,
+        emit_event(
+            "batch_ingested",
+            session_id=cfg.session_id,
+            stream=cfg.input_stream,
             read=len(messages),
-            written=0,
-            assigned=0,
+            parsed=len(good),
+            parse_failed=len(bad_messages),
             acked=acked_bad,
-            failed=len(bad_messages),
-            window_index=None,
-            metrics={"parse_seconds": parse_seconds, "buffered_count": buffer.buffered_count if buffer else 0},
+            buffered_count=buffer.buffered_count if buffer else 0,
+            parse_seconds=parse_seconds,
         )
         return
 
@@ -262,6 +302,14 @@ def _process_window(
     t_window_start = perf_counter()
     timings: dict[str, float] = {}
     try:
+        emit_event(
+            "window_processing_started",
+            session_id=cfg.session_id,
+            window_index=window.window_index,
+            record_count=len(records),
+            reliable_consumer=reliable_consumer,
+            redis_output_enabled=cfg.redis_output_enabled,
+        )
         t_stage = perf_counter()
         written = flow_repo.insert_ingested(records)
         timings["ingest_write_seconds"] = perf_counter() - t_stage
@@ -330,17 +378,28 @@ def _process_window(
         metrics.update(process_metrics())
         if cfg.redis_output_enabled:
             outputs.publish_metrics(metrics)
+        emit_event(
+            "window_processing_finished",
+            session_id=cfg.session_id,
+            window_index=window.window_index,
+            read=len(messages),
+            written=written,
+            assigned=assigned,
+            acked=acked,
+            parse_failures=parse_failures,
+            learner_count=result.metrics.get("learner_count", 0),
+            unknown_count=result.metrics.get("unknown_count", 0),
+            timings=timings,
+            consumer_mode=cfg.consumer_mode,
+            redis_xlen=metrics.get("redis_xlen", -1),
+            redis_pending=metrics.get("redis_pending", -1),
+        )
     except Exception:
-        logging.exception(
-            json.dumps(
-                {
-                    "event": "window_processing_failed",
-                    "session_id": cfg.session_id,
-                    "window_index": window.window_index,
-                    "read": len(messages),
-                },
-                separators=(",", ":"),
-            )
+        emit_exception(
+            "window_processing_failed",
+            session_id=cfg.session_id,
+            window_index=window.window_index,
+            read=len(messages),
         )
         _log_batch(
             cfg.session_id,
@@ -412,22 +471,17 @@ def _log_batch(
     window_index: int | None = None,
     metrics: dict[str, object] | None = None,
 ) -> None:
-    logging.info(
-        json.dumps(
-            {
-                "event": "trident_worker_batch",
-                "session_id": session_id,
-                "stream": stream,
-                "window_index": window_index,
-                "read": read,
-                "written": written,
-                "assigned": assigned,
-                "acked": acked,
-                "failed": failed,
-                "metrics": metrics or {},
-            },
-            separators=(",", ":"),
-        )
+    emit_event(
+        "trident_worker_batch",
+        session_id=session_id,
+        stream=stream,
+        window_index=window_index,
+        read=read,
+        written=written,
+        assigned=assigned,
+        acked=acked,
+        failed=failed,
+        metrics=metrics or {},
     )
 
 
