@@ -221,25 +221,26 @@ export default function IpDetailPlaceholder() {
                       ))}
                     </div>
                   ) : null}
-                  {summary?.description ? (
-                    <p className="mb-0 mt-0 w-full text-sm leading-[22px] text-[#666]">
-                      {summary.description}
-                    </p>
+                  {(summary?.latestTriggerTime || summary?.description) ? (
+                    <div className="mb-0 mt-0 flex min-w-0 w-full flex-wrap items-center gap-1 text-sm leading-[22px] text-[#666]">
+                      {summary?.latestTriggerTime ? (
+                        <span className="shrink-0 whitespace-nowrap">
+                          [{summary.latestTriggerTime}]
+                        </span>
+                      ) : null}
+                      {summary?.description ? (
+                        <span className="min-w-0">{summary.description}</span>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
-                <div className="flex items-center gap-[12px]">
+                <div className="flex items-center gap-[12px] mr-[16px]">
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险数</div>
                     <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
                       {summary?.riskEventCount ?? "-"}
                     </div>
                   </div>
-
-                  {summary?.latestTriggerTime ? (
-                    <span className="shrink-0 whitespace-nowrap text-sm text-[#666]">
-                      {summary.latestTriggerTime}
-                    </span>
-                  ) : null}
                 </div>
               </div>
             </div>

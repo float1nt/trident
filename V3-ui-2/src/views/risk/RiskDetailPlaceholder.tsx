@@ -175,25 +175,24 @@ export default function RiskDetailPlaceholder() {
                       ))}
                     </div>
                   ) : null}
+                  {risk?.triggerTime ? (
+                    <span className="shrink-0 whitespace-nowrap text-sm text-[#666]">
+                      [{risk.triggerTime}]
+                    </span>
+                  ) : null}
                   {risk?.description ? (
                     <p className="mb-0 mt-0 text-sm leading-[22px] text-[#666]">
                       {risk.description}
                     </p>
                   ) : null}
                 </div>
-                <div className="flex items-center gap-[12px]">
+                <div className="flex items-center gap-[12px] mr-[16px]">
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险 IP 数</div>
                     <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
                       {risk?.riskIpCount ?? 0}
                     </div>
                   </div>
-
-                  {risk?.triggerTime ? (
-                    <span className="shrink-0 whitespace-nowrap text-sm text-[#666]">
-                      {risk.triggerTime}
-                    </span>
-                  ) : null}
                 </div>
               </div>
             </div>
