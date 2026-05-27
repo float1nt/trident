@@ -287,10 +287,10 @@ const RiskTaskList = () => {
               styles={{ body: { padding: 16 } }}
             >
               <Title level={5} className="!mb-1 !mt-0">
-                学习器内部网络拓扑（IP / 端口）
+                风险事件网络拓扑（IP / 端口）
               </Title>
               <Paragraph type="secondary" className="!mb-4 text-xs">
-                默认展示全部学习器；绿=良性、红=攻击，可切换单选/网格并调整斥力与最小边流量。点击卡片右上角「详情」进入风险详情页。
+                默认展示全部风险事件；绿=良性、红=攻击。点击卡片右上角「详情」进入风险详情页。
               </Paragraph>
               <LearnerInternalTopologyPanel
                 data={eventLearnerTopology}
