@@ -156,7 +156,7 @@ export function LearnerInternalTopologyPanel({
           }`;
 
           return (
-            <Col key={`learner-topology-grid-${option.name}`} xs={24} sm={12} xl={6}>
+            <Col key={`learner-topology-grid-${option.name}`} xs={24} md={12}>
               <Card
                 size="small"
                 className="risk-event-topology-card"
@@ -199,7 +199,6 @@ export function LearnerInternalTopologyPanel({
                     {option.riskDescription}
                   </span>
                 </EventCardInfoItem>
-               
                 <Text
                   type="secondary"
                   ellipsis={{ tooltip: metaText }}
@@ -207,34 +206,18 @@ export function LearnerInternalTopologyPanel({
                 >
                   {metaText}
                 </Text>
-                <Row gutter={4} className="pointer-events-none">
-                  <Col span={12}>
-                    <ChartPaneErrorBoundary title="IP">
-                      <TopologyChartPane
-                        title="IP"
-                        graph={gridView.host}
-                        viewIsBenign={gridView.is_benign}
-                        repulsion={TOPOLOGY_REPULSION}
-                        minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                        chartHeight={GRID_CHART_HEIGHT}
-                        compact
-                      />
-                    </ChartPaneErrorBoundary>
-                  </Col>
-                  <Col span={12}>
-                    <ChartPaneErrorBoundary title="端口">
-                      <TopologyChartPane
-                        title="端口"
-                        graph={gridView.endpoint}
-                        viewIsBenign={gridView.is_benign}
-                        repulsion={TOPOLOGY_REPULSION}
-                        minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                        chartHeight={GRID_CHART_HEIGHT}
-                        compact
-                      />
-                    </ChartPaneErrorBoundary>
-                  </Col>
-                </Row>
+                <ChartPaneErrorBoundary title="拓扑图">
+                  <TopologyChartPane
+                    title=" "
+                    hostGraph={gridView.host}
+                    endpointGraph={gridView.endpoint}
+                    viewIsBenign={gridView.is_benign}
+                    repulsion={TOPOLOGY_REPULSION}
+                    minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+                    chartHeight={GRID_CHART_HEIGHT}
+                    compact
+                  />
+                </ChartPaneErrorBoundary>
                 <EventCardInfoItem label="风险说明">
                   <span
                     className="line-clamp-2 text-[11px] leading-[16px]"

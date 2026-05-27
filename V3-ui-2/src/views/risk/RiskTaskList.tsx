@@ -334,7 +334,7 @@ const RiskTaskList = () => {
                 </div>
               </div>
             </Card>
-            <div className="min-h-0 flex-1 rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+            <div className="h-[calc(100vh-250px)] overflow-y-auto rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
               <div className="risk-event-summary-row">
                 <div className="risk-event-summary">
                   <span className="risk-event-summary__bar" aria-hidden />
