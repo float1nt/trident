@@ -94,12 +94,27 @@
   text-overflow: ellipsis;
 }
 
+.data-flow-metrics__card-value-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
 .data-flow-metrics__card-value {
   font-size: 22px;
   font-weight: 600;
   line-height: 28px;
   color: #1f2a44;
   font-variant-numeric: tabular-nums;
+}
+
+.data-flow-metrics__card-unit {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  color: #8c8c8c;
 }
 
 .data-flow-metrics__card-icon {

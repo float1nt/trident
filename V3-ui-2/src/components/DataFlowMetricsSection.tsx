@@ -7,6 +7,10 @@ import metricIcon2 from "@/assets/总览/生成特定背景图-4-2.png";
 import metricIcon3 from "@/assets/总览/生成特定背景图-5-2.png";
 import metricIcon4 from "@/assets/总览/生成特定背景图-6-2.png";
 import type { OverviewMetrics, TimeRange } from "@/api/services/OverviewService";
+import {
+  formatMetricCount,
+  formatTotalTrafficBytes,
+} from "@/utils/formatTotalTraffic";
 import "./DataFlowMetricsSection.css";
 
 type MetricItem = {
@@ -43,6 +47,26 @@ type Props = {
   onRefresh: () => void;
 };
 
+function formatMetricValue(
+  key: keyof OverviewMetrics,
+  raw: number,
+): { value: string; unit: string } {
+  if (key === "totalTraffic") {
+    return formatTotalTrafficBytes(raw);
+  }
+  return formatMetricCount(raw);
+}
+
+function renderMetricValue(key: keyof OverviewMetrics, raw: number) {
+  const { value, unit } = formatMetricValue(key, raw);
+  return (
+    <span className="data-flow-metrics__card-value-row">
+      <span className="data-flow-metrics__card-value">{value}</span>
+      <span className="data-flow-metrics__card-unit">{unit}</span>
+    </span>
+  );
+}
+
 export default function DataFlowMetricsSection({
   timeRange,
   metrics,
@@ -65,9 +89,7 @@ export default function DataFlowMetricsSection({
             <div key={item.label} className="data-flow-metrics__card">
               <div className="data-flow-metrics__card-main">
                 <span className="data-flow-metrics__card-label">{item.label}</span>
-                <span className="data-flow-metrics__card-value">
-                  {metrics[item.key].toLocaleString("zh-CN")}
-                </span>
+                {renderMetricValue(item.key, metrics[item.key])}
               </div>
               <img
                 src={item.icon}

@@ -11,6 +11,9 @@ import {
 export function buildTrafficTrendBarOption(
   data: TrafficTrendPoint[],
 ): EChartsOption {
+  const xLabelsRotated = data.length > 12;
+  const gridBottom = xLabelsRotated ? 62 : 56;
+
   return {
     backgroundColor: "transparent",
     color: [TRAFFIC_NORMAL_COLOR, TRAFFIC_SUSPECTED_ABNORMAL_COLOR],
@@ -30,14 +33,16 @@ export function buildTrafficTrendBarOption(
     },
     legend: {
       data: [TRAFFIC_NORMAL_LABEL, TRAFFIC_SUSPECTED_ABNORMAL_LABEL],
-      bottom: 0,
+      bottom: 4,
+      padding: [16, 0, 0, 0],
+      itemGap: 20,
       textStyle: { color: "#8c8c8c" },
     },
     grid: {
       left: 52,
       right: 16,
       top: 16,
-      bottom: 40,
+      bottom: gridBottom,
       containLabel: false,
     },
     xAxis: {
@@ -49,7 +54,7 @@ export function buildTrafficTrendBarOption(
         color: "#8c8c8c",
         fontSize: 11,
         interval: 0,
-        rotate: data.length > 12 ? 45 : 0,
+        rotate: xLabelsRotated ? 45 : 0,
       },
     },
     yAxis: {
