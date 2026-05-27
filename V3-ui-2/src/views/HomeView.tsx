@@ -105,7 +105,7 @@ export default function HomeView() {
           />
           整体概览
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[2fr_3fr_2fr]">
+        <div className="mt-4 grid grid-cols-1 gap-[12px] lg:grid-cols-[2fr_3fr_2fr]">
           <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
             <h3 className="mb-3 text-[14px] font-medium text-[#333]">流量分布</h3>
             <EChartsRingChart option={trafficChartOption} height={CHART_HEIGHT} />
@@ -131,7 +131,7 @@ export default function HomeView() {
           />
           流量分析
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[3fr_2fr] lg:grid-rows-2">
+        <div className="mt-4 grid grid-cols-1 gap-[12px] lg:grid-cols-[3fr_2fr] lg:grid-rows-2">
           <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-[8px] lg:row-span-2">
             <TopologyChartPane
               title="总拓扑"

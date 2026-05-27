@@ -328,7 +328,7 @@ function TopologyStatCard({
 }) {
   return (
     <div
-      className={`min-w-0 flex-1 rounded-[4px] border border-[#e8eef4] bg-[#f6faff] ${
+      className={`min-w-0 rounded-[4px] border border-[#e8eef4] bg-[#f6faff] ${
         compact ? "px-2 py-1.5" : "px-3 py-2"
       }`}
     >
@@ -432,7 +432,11 @@ export function TopologyChartPane({
           />
         </div>
         {graph ? (
-          <div className={`flex gap-2 ${compact ? "mt-1.5" : "mt-2"}`}>
+          <div
+            className={`grid grid-cols-[2fr_2fr_2fr_3fr] gap-2 ${
+              compact ? "mt-1.5" : "mt-2"
+            }`}
+          >
             <TopologyStatCard
               label="IP数量"
               value={graph.nodes.length}
