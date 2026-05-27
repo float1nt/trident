@@ -2,9 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Table, Input, Button, Space, Tooltip, Tag, Tabs, DatePicker, Card, Typography } from "antd";
 import type { Dayjs } from "dayjs";
-import { EyeOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import type { RiskItem } from "@/api/types";
+import type { IpRiskListItem } from "@/api/types";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
 import { fetchMockRiskList } from "@/mock/riskTasks";
@@ -57,7 +56,7 @@ const RiskTaskList = () => {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [loading, setLoading] = useState(false);
-  const [listdata, setListdata] = useState<RiskItem[]>([]);
+  const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
 
   useEffect(() => {
     if (activeView !== "ip") return;
@@ -137,7 +136,7 @@ const RiskTaskList = () => {
     setSearchInputs((prev) => ({ ...prev, [key]: value }));
   };
 
-  const columns: ColumnsType<RiskItem> = [
+  const columns: ColumnsType<IpRiskListItem> = [
     {
       title: "风险主体（IP）",
       dataIndex: "subjectIp",
@@ -149,19 +148,37 @@ const RiskTaskList = () => {
       ),
     },
     {
-      title: "风险名称",
-      dataIndex: "name",
-      key: "name",
-      width: 180,
+      title: "风险数",
+      dataIndex: "riskCount",
+      key: "riskCount",
+      width: 90,
       align: "center",
-      render: (text: string) =>
-        text ? (
-          <div className="flex justify-center max-w-full">
-            <Tooltip title={text}>
-              <Tag color="processing" className="!m-0 max-w-full truncate">
-                {text}
-              </Tag>
-            </Tooltip>
+      render: (count: number) =>
+        count > 0 ? (
+          <span className="font-medium">{count}</span>
+        ) : (
+          <span className="text-[#8c8c8c]">-</span>
+        ),
+    },
+    {
+      title: "风险名称",
+      dataIndex: "risks",
+      key: "risks",
+      width: 320,
+      align: "center",
+      render: (risks: IpRiskListItem["risks"]) =>
+        risks?.length ? (
+          <div className="flex flex-wrap justify-center gap-1 max-w-full">
+            {risks.map((risk) => {
+              const label = `${risk.name}（${risk.triggerCount}）`;
+              return (
+                <Tooltip key={risk.name} title={label}>
+                  <Tag color="processing" className="!m-0 max-w-full truncate">
+                    {label}
+                  </Tag>
+                </Tooltip>
+              );
+            })}
           </div>
         ) : (
           <span className="text-[#8c8c8c]">-</span>
@@ -173,7 +190,7 @@ const RiskTaskList = () => {
       width: 100,
       fixed: "right",
       align: "center",
-      render: (_: unknown, record: RiskItem) => (
+      render: (_: unknown, record: IpRiskListItem) => (
         <Tooltip title="查看详情">
           <Button
             variant="link"
@@ -308,7 +325,7 @@ const RiskTaskList = () => {
                   showTotal: (t) => `共 ${t} 条`,
                   onChange: setPage,
                 }}
-                scroll={{ x: 480, y: "calc(100vh - 420px)" }}
+                scroll={{ x: 710, y: "calc(100vh - 420px)" }}
                 bordered
               />
             </div>

@@ -350,7 +350,7 @@
 
 #### GET `/risks`
 
-分页风险列表（按 IP 维度展示，一行一个风险事件）。
+分页风险列表（**按 IP 维度聚合**，一行一个 IP；同一 IP 下按风险名称统计触发次数）。
 
 **Query：**
 
@@ -358,7 +358,7 @@
 |------|------|------|------|
 | `limit` | number | 是 | 每页条数，前端传 `10` |
 | `offset` | number | 是 | 偏移量 |
-| `name` | string | 否 | 风险名称，模糊匹配 |
+| `name` | string | 否 | 风险名称，模糊匹配（命中该 IP 下任一风险名称即保留该行） |
 | `subjectIp` | string | 否 | 风险主体 IP，模糊匹配 |
 
 **响应 `data`：**
@@ -366,11 +366,30 @@
 ```json
 {
   "total": 12,
-  "risks": [ /* RiskItem[] */ ]
+  "risks": [
+    {
+      "id": 1,
+      "subjectIp": "10.12.45.88",
+      "riskCount": 2,
+      "risks": [
+        { "name": "异常外联至境外 C2", "triggerCount": 3 },
+        { "name": "DNS 隧道数据传输", "triggerCount": 2 }
+      ]
+    }
+  ]
 }
 ```
 
-**表格列：** `subjectIp`、`name`；操作跳转 `/risk/ip-detail?ip={subjectIp}`。
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | number | 列表行 ID（按 IP 维度） |
+| `subjectIp` | string | 风险主体 IP |
+| `riskCount` | number | 该 IP 关联的不同风险种类数 |
+| `risks` | array | 该 IP 关联的风险名称及触发次数 |
+| `risks[].name` | string | 风险名称 |
+| `risks[].triggerCount` | number | 该风险在该 IP 上的触发次数 |
+
+**表格列：** `subjectIp`、`riskCount`、`risks`（展示为多个 Tag：`{name}（{triggerCount}）`）；操作跳转 `/risk/ip-detail?ip={subjectIp}`。
 
 ---
 

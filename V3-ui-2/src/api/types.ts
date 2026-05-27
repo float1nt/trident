@@ -53,7 +53,7 @@ export interface LlmInferenceStatus {
   description?: StepStatusItem;
 }
 
-/** 风险列表行 */
+/** 风险事件（单条触发记录） */
 export interface RiskItem {
   id: number;
   /** 风险主体 IP */
@@ -66,6 +66,21 @@ export interface RiskItem {
   description: string;
   /** 风险特征 */
   features: string;
+}
+
+/** IP 视角列表：单个风险名称及触发次数 */
+export interface IpRiskNameStat {
+  name: string;
+  triggerCount: number;
+}
+
+/** IP 视角列表行（一行一个 IP，含多个风险名称） */
+export interface IpRiskListItem {
+  id: number;
+  subjectIp: string;
+  /** 该 IP 关联的不同风险种类数 */
+  riskCount: number;
+  risks: IpRiskNameStat[];
 }
 
 /** 风险任务列表行（结构对齐 react-ui Task） */

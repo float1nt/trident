@@ -1,4 +1,4 @@
-import type { RiskItem } from "@/api/types";
+import type { IpRiskListItem, RiskItem } from "@/api/types";
 import type {
   DatasetNetworkTopologyJson,
   TopologyGraph,
@@ -101,6 +101,70 @@ const mockRisks: RiskItem[] = [
     description: "构建流水线拉取了与官方校验和不一致的第三方 npm 包版本。",
     features: "校验和不匹配、构建环境告警、非官方源",
   },
+  {
+    id: 13,
+    subjectIp: "10.12.45.88",
+    name: "异常外联至境外 C2",
+    triggerTime: "2026-05-24 18:22:11",
+    description: "内网主机持续向境外可疑 IP 发起 HTTPS 长连接，流量特征与已知 C2 通信一致。",
+    features: "高频外联、TLS 指纹异常、非业务时段活跃",
+  },
+  {
+    id: 14,
+    subjectIp: "10.12.45.88",
+    name: "异常外联至境外 C2",
+    triggerTime: "2026-05-23 03:15:40",
+    description: "内网主机持续向境外可疑 IP 发起 HTTPS 长连接，流量特征与已知 C2 通信一致。",
+    features: "高频外联、TLS 指纹异常、非业务时段活跃",
+  },
+  {
+    id: 15,
+    subjectIp: "10.12.45.88",
+    name: "DNS 隧道数据传输",
+    triggerTime: "2026-05-22 11:08:27",
+    description: "客户端对同一域名发起异常高频 TXT 查询，载荷长度显著高于正常业务。",
+    features: "TXT 记录异常、子域随机化、高熵请求",
+  },
+  {
+    id: 16,
+    subjectIp: "10.12.45.88",
+    name: "DNS 隧道数据传输",
+    triggerTime: "2026-05-21 20:44:55",
+    description: "客户端对同一域名发起异常高频 TXT 查询，载荷长度显著高于正常业务。",
+    features: "TXT 记录异常、子域随机化、高熵请求",
+  },
+  {
+    id: 17,
+    subjectIp: "172.16.8.23",
+    name: "暴力破解 SSH 服务",
+    triggerTime: "2026-05-24 08:12:19",
+    description: "同一源地址在 10 分钟内对 SSH 端口发起超 500 次认证失败尝试。",
+    features: "认证失败激增、固定目标端口、字典口令特征",
+  },
+  {
+    id: 18,
+    subjectIp: "172.16.8.23",
+    name: "横向移动扫描行为",
+    triggerTime: "2026-05-23 15:33:02",
+    description: "主机对网段内多台服务器 445/135/3389 端口进行顺序探测。",
+    features: "端口扫描、内网横向、短时间多目标",
+  },
+  {
+    id: 19,
+    subjectIp: "192.168.3.156",
+    name: "敏感文件批量下载",
+    triggerTime: "2026-05-23 09:41:18",
+    description: "办公网账号短时间内从文档库拉取大量含「客户合同」标签的文件。",
+    features: "批量下载、敏感标签命中、偏离基线行为",
+  },
+  {
+    id: 20,
+    subjectIp: "192.168.3.156",
+    name: "特权账号异常登录",
+    triggerTime: "2026-05-22 07:26:44",
+    description: "域管账号在非工作时间从陌生地理位置成功登录 VPN。",
+    features: "异地登录、非工作时段、高权限账号",
+  },
 ];
 
 export interface MockRiskListParams {
@@ -113,10 +177,38 @@ export interface MockRiskListParams {
 
 export interface MockRiskListResult {
   total: number;
-  risks: RiskItem[];
+  risks: IpRiskListItem[];
 }
 
-/** 模拟分页查询 */
+function aggregateMockRisksByIp(events: RiskItem[]): IpRiskListItem[] {
+  const byIp = new Map<string, Map<string, number>>();
+  const rowIdByIp = new Map<string, number>();
+  let nextRowId = 1;
+
+  for (const event of events) {
+    if (!byIp.has(event.subjectIp)) {
+      byIp.set(event.subjectIp, new Map());
+      rowIdByIp.set(event.subjectIp, nextRowId++);
+    }
+    const countsByName = byIp.get(event.subjectIp)!;
+    countsByName.set(event.name, (countsByName.get(event.name) ?? 0) + 1);
+  }
+
+  return [...byIp.entries()].map(([subjectIp, countsByName]) => {
+    const risks = [...countsByName.entries()].map(([name, triggerCount]) => ({
+      name,
+      triggerCount,
+    }));
+    return {
+      id: rowIdByIp.get(subjectIp)!,
+      subjectIp,
+      riskCount: risks.length,
+      risks,
+    };
+  });
+}
+
+/** 模拟 IP 视角分页列表（按 IP 聚合，统计各风险名称触发次数） */
 export function fetchMockRiskList(
   params: MockRiskListParams
 ): Promise<MockRiskListResult> {
@@ -126,24 +218,26 @@ export function fetchMockRiskList(
       const subjectIp = (params.subjectIp ?? "").trim().toLowerCase();
       const description = (params.description ?? "").trim().toLowerCase();
 
-      let filtered = mockRisks;
+      let filteredEvents = mockRisks;
       if (name) {
-        filtered = filtered.filter((r) =>
+        filteredEvents = filteredEvents.filter((r) =>
           r.name.toLowerCase().includes(name)
         );
       }
       if (subjectIp) {
-        filtered = filtered.filter((r) =>
+        filteredEvents = filteredEvents.filter((r) =>
           r.subjectIp.toLowerCase().includes(subjectIp)
         );
       }
       if (description) {
-        filtered = filtered.filter((r) =>
+        filteredEvents = filteredEvents.filter((r) =>
           r.description.toLowerCase().includes(description)
         );
       }
-      const total = filtered.length;
-      const slice = filtered.slice(
+
+      const aggregated = aggregateMockRisksByIp(filteredEvents);
+      const total = aggregated.length;
+      const slice = aggregated.slice(
         params.offset,
         params.offset + params.limit
       );
