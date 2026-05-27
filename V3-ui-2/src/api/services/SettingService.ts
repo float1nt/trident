@@ -1,53 +1,31 @@
-import request, { type ResponseData } from "@/utils/request";
-import type { IpRangeItem } from "@/components/IpRangeFormList";
+import {
+  mockGetCollectionProtocols,
+  mockGetCollectionSettings,
+  mockSaveCollectionSettings,
+} from "@/mock/collectionSettings";
+import type {
+  CollectionSettings,
+  ProtocolOption,
+} from "@/types/collectionSettings";
 
-export interface CollectionSettings {
-  maxTrafficLimitGbps: number;
-  sourceIpRanges: IpRangeItem[];
-  destIpRanges: IpRangeItem[];
-  protocols: string[];
-}
+export type { CollectionSettings, ProtocolOption };
 
-export interface ProtocolOption {
-  value: string;
-  label: string;
-}
-
-const SETTINGS_URL = "/collection/settings";
-const PROTOCOLS_URL = "/collection/protocols";
-
+/**
+ * 采集配置暂用前端 Mock。
+ * 后续由 streamtrident_services/trident-api（默认 8090）提供接口时，
+ * 改回 request 并走 Vite `/api` 代理即可。
+ */
 export class SettingService {
-  static async getSettings(): Promise<CollectionSettings> {
-    const res = (await request({
-      url: SETTINGS_URL,
-      method: "get",
-    })) as ResponseData<CollectionSettings>;
-    if (!res.data) {
-      throw new Error(res.message || "获取采集配置失败");
-    }
-    return res.data;
+  static getSettings(): Promise<CollectionSettings> {
+    return mockGetCollectionSettings();
   }
 
-  static async saveSettings(
-    data: CollectionSettings,
-  ): Promise<CollectionSettings> {
-    const res = (await request({
-      url: SETTINGS_URL,
-      method: "put",
-      data,
-    })) as ResponseData<CollectionSettings>;
-    return res.data ?? data;
+  static saveSettings(data: CollectionSettings): Promise<CollectionSettings> {
+    return mockSaveCollectionSettings(data);
   }
 
-  static async getProtocols(): Promise<ProtocolOption[]> {
-    const res = (await request({
-      url: PROTOCOLS_URL,
-      method: "get",
-    })) as ResponseData<ProtocolOption[]>;
-    if (!res.data) {
-      throw new Error(res.message || "获取协议列表失败");
-    }
-    return res.data;
+  static getProtocols(): Promise<ProtocolOption[]> {
+    return mockGetCollectionProtocols();
   }
 }
 

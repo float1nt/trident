@@ -1,7 +1,7 @@
 # V3-ui-2 后端接口规范
 
 > 本文档根据前端当前页面与 Mock 数据结构整理，供后端按此实现接口。  
-> 文档版本：2026-05-27  
+> 文档版本：2026-05-27（采集配置改前端 Mock，归属 streamtrident trident-api）  
 > 项目路径：`V3-ui-2/`
 
 ---
@@ -21,12 +21,21 @@
 
 ### 1.1 Base URL 与代理
 
-| 环境 | 前端请求前缀 | 实际后端地址（开发） |
-|------|-------------|---------------------|
-| 开发 | `/api` | `http://172.16.88.180:9080`（Vite 代理会去掉 `/api` 前缀） |
-| 生产 | 由 `VITE_API_BASE_URL` 配置 | — |
+开发环境通过 Vite 将 `/api` 前缀去掉后转发到不同后端（见 `vite.config.ts`）：
 
-示例：前端请求 `GET /api/auth/me` → 代理后为 `GET http://172.16.88.180:9080/auth/me`。
+| 前端请求前缀 | 开发代理目标 | 服务 | 说明 |
+|-------------|-------------|------|------|
+| `/api/auth/*` | `http://127.0.0.1:9080` | backend-service | 登录、当前用户、登出 |
+| `/api/*`（其余） | `http://127.0.0.1:8090`（可改为联调机地址，如 `http://172.16.2.110:18090`） | streamtrident **trident-api** | 总览、风险；**采集配置接口规范亦归属此服务** |
+| 生产 | 由 `VITE_API_BASE_URL` 配置 | — | 由部署/nginx 统一转发 |
+
+示例：
+
+- `GET /api/auth/me` → `GET http://127.0.0.1:9080/auth/me`
+- `GET /api/overview/metrics` → `GET http://127.0.0.1:8090/overview/metrics`
+- `GET /api/collection/settings`（对接后）→ `GET http://127.0.0.1:8090/collection/settings`
+
+> **采集配置**：当前前端 **不发起 HTTP**，使用内存 Mock（`src/mock/collectionSettings.ts`）。取消 Mock 后，上述 `/collection/*` 路径与总览、风险共用 `/api` → trident-api 代理即可。
 
 ### 1.2 统一响应格式
 
@@ -89,12 +98,14 @@
 | `/risk` | 风险列表（事件/IP 视角） | 见 [4.2 风险模块](#42-风险模块) | ❌ Mock |
 | `/risk/detail?id=` | 风险事件详情 | 见 [4.2.3](#423-风险事件详情页) | ❌ Mock |
 | `/risk/ip-detail?ip=` | IP 详情 | 见 [4.2.4](#424-ip-详情页) | ❌ Mock |
-| `/setting` | 采集配置 | `GET/PUT /collection/settings`、`GET /collection/protocols` | ✅ 已对接（失败回退 Mock） |
+| `/setting` | 采集配置 | `GET/PUT /collection/settings`、`GET /collection/protocols` | 🟡 前端 Mock（待 trident-api 实现） |
 | `/posture` 等 | 占位页 | 无 | — |
 
 ---
 
 ## 3. 已实现接口
+
+当前仅 **认证** 模块已对接 backend-service；采集配置、总览、风险见 [第 4 节](#4-待实现接口)。
 
 ### 3.1 认证
 
@@ -158,81 +169,10 @@
 
 ---
 
-### 3.2 采集配置
-
-#### GET `/collection/settings`
-
-**响应 `data`（`CollectionSettings`）：**
-
-```json
-{
-  "maxTrafficLimitGbps": 10,
-  "sourceIpRanges": [
-    { "startIp": "10.0.0.0", "endIp": "10.255.255.255" }
-  ],
-  "destIpRanges": [
-    { "startIp": "0.0.0.0", "endIp": "255.255.255.255" }
-  ],
-  "protocols": ["TCP", "UDP", "HTTPS", "HTTP", "DNS"]
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `maxTrafficLimitGbps` | number | 是 | 流量上限（Gbps），表单校验 > 0.01 |
-| `sourceIpRanges` | IpRangeItem[] | 是 | 源 IP 段，至少 1 条 |
-| `destIpRanges` | IpRangeItem[] | 是 | 目的 IP 段，至少 1 条 |
-| `protocols` | string[] | 是 | 采集协议，值为协议选项的 `value`，至少 1 个 |
-
-**`IpRangeItem`：**
-
-```json
-{ "startIp": "10.0.0.0", "endIp": "10.255.255.255" }
-```
-
-- `startIp`、`endIp` 均为 IPv4 字符串，必填
-
----
-
-#### PUT `/collection/settings`
-
-**请求体：** 与 GET 响应 `data` 结构相同。
-
-**响应 `data`：** 保存后的完整 `CollectionSettings`。
-
----
-
-#### GET `/collection/protocols`
-
-**响应 `data`：** 协议下拉选项数组。
-
-```json
-[
-  { "value": "TCP", "label": "TCP" },
-  { "value": "UDP", "label": "UDP" },
-  { "value": "HTTP", "label": "HTTP" },
-  { "value": "HTTPS", "label": "HTTPS" },
-  { "value": "DNS", "label": "DNS" },
-  { "value": "SSH", "label": "SSH" },
-  { "value": "SMB", "label": "SMB" },
-  { "value": "RDP", "label": "RDP" },
-  { "value": "ICMP", "label": "ICMP" },
-  { "value": "TLS", "label": "TLS" },
-  { "value": "FTP", "label": "FTP" },
-  { "value": "OTHER", "label": "其他" }
-]
-```
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `value` | string | 提交/存储用的协议标识 |
-| `label` | string | 界面展示文案 |
-
----
-
 ## 4. 待实现接口
 
-以下接口路径为**建议命名**，可与现有后端路由对齐，但 **`data` 字段结构需保持一致**。
+以下接口路径为**建议命名**，可与现有后端路由对齐，但 **`data` 字段结构需保持一致**。  
+除特别说明外，由 **streamtrident trident-api**（`streamtrident_services/trident`，compose 默认端口 `8090`）实现。
 
 ---
 
@@ -587,6 +527,90 @@
 
 ---
 
+### 4.3 采集配置模块
+
+**页面：** `/setting`（`SettingView.tsx`）  
+**实现服务：** streamtrident **trident-api**（与总览、风险共用 `/api` 代理）  
+**前端现状：** `SettingService` 仅调用 `src/mock/collectionSettings.ts`（内存读写，刷新页面重置）；**未请求后端**。
+
+#### GET `/collection/settings`
+
+**响应 `data`（`CollectionSettings`）：**
+
+```json
+{
+  "maxTrafficLimitGbps": 10,
+  "sourceIpRanges": [
+    { "startIp": "10.0.0.0", "endIp": "10.255.255.255" }
+  ],
+  "destIpRanges": [
+    { "startIp": "0.0.0.0", "endIp": "255.255.255.255" }
+  ],
+  "protocols": ["TCP", "UDP", "HTTPS", "HTTP", "DNS"]
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `maxTrafficLimitGbps` | number | 是 | 流量上限（Gbps），表单校验 > 0.01 |
+| `sourceIpRanges` | IpRangeItem[] | 是 | 源 IP 段，至少 1 条 |
+| `destIpRanges` | IpRangeItem[] | 是 | 目的 IP 段，至少 1 条 |
+| `protocols` | string[] | 是 | 采集协议，值为协议选项的 `value`，至少 1 个 |
+
+**`IpRangeItem`：**
+
+```json
+{ "startIp": "10.0.0.0", "endIp": "10.255.255.255" }
+```
+
+- `startIp`、`endIp` 均为 IPv4 字符串，必填
+
+**Mock 默认值：** 与上表一致，见 `src/mock/collectionSettings.ts` 中 `DEFAULT_SETTINGS`。
+
+---
+
+#### PUT `/collection/settings`
+
+**请求体：** 与 GET 响应 `data` 结构相同。
+
+**响应 `data`：** 保存后的完整 `CollectionSettings`。
+
+---
+
+#### GET `/collection/protocols`
+
+**响应 `data`：** 协议多选选项数组。
+
+```json
+[
+  { "value": "TCP", "label": "TCP" },
+  { "value": "UDP", "label": "UDP" },
+  { "value": "HTTP", "label": "HTTP" },
+  { "value": "HTTPS", "label": "HTTPS" },
+  { "value": "DNS", "label": "DNS" },
+  { "value": "SSH", "label": "SSH" },
+  { "value": "SMB", "label": "SMB" },
+  { "value": "RDP", "label": "RDP" },
+  { "value": "ICMP", "label": "ICMP" },
+  { "value": "TLS", "label": "TLS" },
+  { "value": "FTP", "label": "FTP" },
+  { "value": "OTHER", "label": "其他" }
+]
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `value` | string | 提交/存储用的协议标识 |
+| `label` | string | 界面展示文案 |
+
+**前端对接步骤（trident-api 就绪后）：**
+
+1. 在 trident-api 实现上述三个接口，响应格式遵循 [1.2 统一响应格式](#12-统一响应格式)。
+2. 将 `SettingService` 改回 `request` 调用 `/collection/settings`、`/collection/protocols`。
+3. 删除或停用 `src/mock/collectionSettings.ts` 中的 Mock 调用。
+
+---
+
 ## 5. 公共数据结构
 
 ### 5.1 拓扑图元数据
@@ -766,9 +790,9 @@
 | 认证 | POST | `/auth/login` | ✅ 已实现 |
 | 认证 | GET | `/auth/me` | ✅ 已实现 |
 | 认证 | POST | `/auth/logout` | ✅ 已实现 |
-| 采集 | GET | `/collection/settings` | ✅ 已实现 |
-| 采集 | PUT | `/collection/settings` | ✅ 已实现 |
-| 采集 | GET | `/collection/protocols` | ✅ 已实现 |
+| 采集 | GET | `/collection/settings` | 🟡 前端 Mock / trident-api 待实现 |
+| 采集 | PUT | `/collection/settings` | 🟡 前端 Mock / trident-api 待实现 |
+| 采集 | GET | `/collection/protocols` | 🟡 前端 Mock / trident-api 待实现 |
 | 总览 | GET | `/overview/metrics` | ❌ 待实现 |
 | 总览 | GET | `/overview/distributions` | ❌ 待实现 |
 | 总览 | GET | `/overview/network-topology` | ❌ 待实现 |
@@ -790,7 +814,9 @@
 |------|----------|
 | HTTP 封装 | `src/utils/request.ts` |
 | 认证服务 | `src/api/services/AuthService.ts` |
-| 采集服务 | `src/api/services/SettingService.ts` |
+| 采集服务（当前 Mock） | `src/api/services/SettingService.ts` |
+| 采集配置类型 | `src/types/collectionSettings.ts` |
+| 采集配置 Mock | `src/mock/collectionSettings.ts` |
 | 风险实体类型 | `src/api/types.ts` → `RiskItem` |
 | 数据集拓扑类型 | `src/components/NetworkTopologyPanel.tsx` |
 | 学习器拓扑类型 | `src/types/learnerTopology.ts` |
@@ -806,6 +832,8 @@
 3. **风险详情「风险 IP 数」**：当前写死 `99`，对接后应使用接口返回的 `riskIpCount`（或等价字段）。
 4. **IP 详情合成事件**：Mock 中 `id >= 10000` 的事件不可跳转详情；若后端无此区分，可全部返回可跳转的真实 ID。
 5. **错误码预留**：`request.ts` 已处理 `VLLM_NOT_READY`（503）、`TASK_ALREADY_RUNNING`（400），主要为其他模块预留，风险域暂不涉及。
+6. **采集配置**：已从 backend-service（9080）剥离；规范由 trident-api 实现，开发期前端 Mock，不再经 `/api/collection` 单独代理。
+7. **双后端代理**：认证走 `9080`，业务数据（含未来采集接口）走 trident-api `8090`（见 [1.1](#11-base-url-与代理)）。
 
 ---
 
@@ -819,11 +847,15 @@ flowchart TB
     Logout["POST /auth/logout"]
   end
 
-  subgraph setting [采集配置]
+  subgraph setting [采集配置 /setting]
     GetSettings["GET /collection/settings"]
     PutSettings["PUT /collection/settings"]
     Protocols["GET /collection/protocols"]
+    MockNote["前端 Mock（待 trident-api）"]
   end
+  MockNote -.-> GetSettings
+  MockNote -.-> PutSettings
+  MockNote -.-> Protocols
 
   subgraph overview [总览 /]
     Metrics["GET /overview/metrics"]
