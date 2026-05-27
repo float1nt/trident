@@ -1,58 +1,62 @@
 # StreamTrident Services
 
-三服务实时流处理工程骨架。这里不再使用单体 `backend/app/modules` 结构，而是把三个服务放在同一父目录下的三个顶层目录中：
+实时流处理工程骨架。生产部署按采集侧和分析侧隔离：
 
-- `suricata/`：采集侧，从网卡抓包，由修改版 Suricata 输出 CIC 风格 flow 到 Redis Stream
-- `redis/`：Redis 服务与 Stream 管理
-- `trident/`：Trident 在线算法、持久化、worker 和 API
+- `capture/`：采集侧，包含 Redis、修改版 Suricata、Suricata agent
+- `analysis/`：分析侧，包含 Trident、PostgreSQL、ClickHouse
 
-父目录提供一份 `compose.yaml`，用于本地部署和联调 Suricata、Redis、ClickHouse、PostgreSQL、Trident worker/API。
+父目录保留一份 `compose.yaml`，只用于本地全量联调。
 
 ## Service Layout
 
 ```text
 streamtrident_services/
-├── suricata/
-│   ├── docker/
-│   ├── runtime/
-│   ├── logs/
-│   ├── Dockerfile
-│   └── README.md
-├── redis/
-│   ├── app/
-│   ├── config/
-│   ├── Dockerfile
+├── capture/
 │   ├── compose.yaml
-│   └── requirements.txt
-├── trident/
-    ├── app/
-    ├── config/
-    ├── Dockerfile
-    ├── migrations/
-    └── requirements.txt
-├── docker/
-│   ├── redis.yaml
-│   └── trident.yaml
+│   ├── .env.example
+│   ├── start.sh
+│   ├── redis/
+│   ├── suricata/
+│   └── suricata-agent/
+├── analysis/
+│   ├── compose.yaml
+│   ├── .env.example
+│   ├── start.sh
+│   └── trident/
 └── compose.yaml
 ```
 
-## Docker Compose
+## Split Deployment
+
+On the capture host:
+
+```bash
+cd streamtrident_services/capture
+cp .env.example .env
+./start.sh
+```
+
+On the analysis host:
+
+```bash
+cd streamtrident_services/analysis
+cp .env.example .env
+./start.sh
+```
+
+For real deployment, set these in `analysis/.env`:
+
+- `CAPTURE_REDIS_HOST`: capture host IP
+- `TRIDENT_SURICATA_AGENT_URLS`: capture host agent URL, for example `http://10.0.0.11:19100`
+
+## Local Compose
 
 ```bash
 cd streamtrident_services
 docker compose up -d
 ```
 
-This starts:
-
-- Redis
-- Suricata CIC capture service
-- ClickHouse
-- PostgreSQL
-- one-shot Redis group initialization
-- one-shot database migration
-- Trident worker
-- Trident API on `http://127.0.0.1:8090`
+This starts all capture and analysis services on one machine for development.
 
 Host ports default to non-standard values to avoid conflicts with services already installed on the host:
 
@@ -70,10 +74,7 @@ REDIS_HOST_PORT=6379 POSTGRES_HOST_PORT=5432 docker compose up -d
 
 Suricata uses host networking and captures from `SURICATA_IFACE`, defaulting to `eth0`. Set it to the actual host NIC when starting:
 
-```bash
-cd streamtrident_services
-SURICATA_IFACE=ens33 docker compose up -d --build suricata-cic trident-worker trident-api
-```
+For production-style local testing, prefer `capture/start.sh` and `analysis/start.sh`.
 
 The capture service writes CIC flow records to Redis stream `suricata:cic_flow` by default. Trident worker consumes that stream and performs database persistence and algorithm processing.
 
@@ -96,10 +97,10 @@ redis-cli -p 16379 XREVRANGE suricata:cic_flow + - COUNT 1
 ## Local Commands
 
 ```bash
-cd streamtrident_services/redis
+cd streamtrident_services/capture/redis
 python -m app.main ensure-group --config config/redis.yaml
 
-cd streamtrident_services/trident
+cd streamtrident_services/analysis/trident
 python -m app.migrate --config config/trident.yaml
 python -m app.worker --config config/trident.yaml --once
 python -m app.api --config config/trident.yaml --host 127.0.0.1 --port 8090
@@ -109,8 +110,8 @@ python -m app.api --config config/trident.yaml --host 127.0.0.1 --port 8090
 
 Each service writes its own logs to a dedicated host directory:
 
-- `suricata/` -> `suricata/logs/`
-- `trident/` -> `trident/logs/`
+- `capture/suricata/` -> `capture/suricata/logs/`
+- `analysis/trident/` -> `analysis/trident/logs/`
 
 Trident app logs are JSON-line files and are rotated by the application itself.
 Suricata keeps its native log files under `suricata/logs/`.

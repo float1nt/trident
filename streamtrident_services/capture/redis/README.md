@@ -7,7 +7,7 @@
 ## Run Redis
 
 ```bash
-cd streamtrident_services/redis
+cd streamtrident_services/capture/redis
 docker compose up -d
 ```
 
@@ -18,4 +18,3 @@ pip install -r requirements.txt
 python -m app.main ensure-group --config config/redis.yaml
 python -m app.main status --config config/redis.yaml
 ```
-

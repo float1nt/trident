@@ -58,7 +58,7 @@ services:
 
   redis-admin:
     build:
-      context: ./redis
+      context: ./capture/redis
     image: streamtrident/redis-admin:local
     container_name: streamtrident-redis-admin
     depends_on:
@@ -72,7 +72,7 @@ services:
 
   trident-migrate:
     build:
-      context: ./trident
+      context: ./analysis/trident
     image: streamtrident/trident:local
     container_name: streamtrident-migrate
     depends_on:
@@ -87,13 +87,13 @@ services:
       TRIDENT_LOG_DIR: /var/log/trident
       TRIDENT_LOG_FILE: migrate.log
     volumes:
-      - ./trident/logs:/var/log/trident
+      - ./analysis/trident/logs:/var/log/trident
     command: ["python", "-m", "app.migrate", "--config", "config/trident.yaml"]
     restart: "no"
 
   trident-worker:
     build:
-      context: ./trident
+      context: ./analysis/trident
     image: streamtrident/trident:local
     container_name: streamtrident-worker
     depends_on:
@@ -113,13 +113,13 @@ services:
       TRIDENT_LOG_FILE: worker.log
     volumes:
       - trident-models:/var/lib/trident/models
-      - ./trident/logs:/var/log/trident
+      - ./analysis/trident/logs:/var/log/trident
     command: ["python", "-m", "app.worker", "--config", "config/trident.yaml"]
     restart: unless-stopped
 
   trident-api:
     build:
-      context: ./trident
+      context: ./analysis/trident
     image: streamtrident/trident:local
     container_name: streamtrident-api
     depends_on:
@@ -143,7 +143,7 @@ services:
       TRIDENT_SURICATA_AGENT_TOKEN: "${TRIDENT_SURICATA_AGENT_TOKEN:-}"
     volumes:
       - trident-models:/var/lib/trident/models
-      - ./trident/logs:/var/log/trident
+      - ./analysis/trident/logs:/var/log/trident
     command: ["python", "-m", "app.api", "--config", "config/trident.yaml", "--host", "0.0.0.0", "--port", "8090"]
     ports:
       - "${TRIDENT_API_HOST_PORT:-8090}:8090"
@@ -151,7 +151,7 @@ services:
 
   suricata-cic:
     build:
-      context: ./suricata
+      context: ./capture/suricata
     image: streamtrident/suricata-cic:local
     container_name: streamtrident-suricata-cic
     network_mode: host
@@ -175,13 +175,13 @@ services:
       SURICATA_EXTRA_ARGS: "${SURICATA_EXTRA_ARGS:-}"
       SURICATA_FILTER_CONFIG: /etc/suricata-cic/filter.json
     volumes:
-      - ./suricata/logs:/var/log/suricata
-      - ./suricata/config:/etc/suricata-cic:ro
+      - ./capture/suricata/logs:/var/log/suricata
+      - ./capture/suricata/config:/etc/suricata-cic:ro
     restart: unless-stopped
 
   suricata-agent:
     build:
-      context: ./suricata-agent
+      context: ./capture/suricata-agent
     image: streamtrident/suricata-agent:local
     container_name: streamtrident-suricata-agent
     environment:
@@ -191,7 +191,7 @@ services:
       SURICATA_AGENT_TOKEN: "${TRIDENT_SURICATA_AGENT_TOKEN:-}"
       DOCKER_SOCKET: /var/run/docker.sock
     volumes:
-      - ./suricata/config:/etc/suricata-cic
+      - ./capture/suricata/config:/etc/suricata-cic
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${SURICATA_AGENT_HOST_PORT:-19100}:19100"
@@ -199,9 +199,9 @@ services:
 
 configs:
   trident_config:
-    file: ./docker/trident.yaml
+    file: ./analysis/docker/trident.yaml
   redis_config:
-    file: ./docker/redis.yaml
+    file: ./capture/docker/redis.yaml
 
 volumes:
   redis-data:

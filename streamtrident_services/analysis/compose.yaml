@@ -1,0 +1,127 @@
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: streamtrident-clickhouse
+    ports:
+      - "${CLICKHOUSE_HTTP_HOST_PORT:-18123}:8123"
+      - "${CLICKHOUSE_NATIVE_HOST_PORT:-19000}:9000"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: trident
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: streamtrident-postgres
+    ports:
+      - "${POSTGRES_HOST_PORT:-15432}:5432"
+    environment:
+      POSTGRES_DB: trident
+      POSTGRES_USER: trident
+      POSTGRES_PASSWORD: trident
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trident -d trident"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  trident-migrate:
+    build:
+      context: ./trident
+    image: streamtrident/trident:local
+    container_name: streamtrident-migrate
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    configs:
+      - source: trident_config
+        target: /app/config/trident.yaml
+    environment:
+      TRIDENT_LOG_DIR: /var/log/trident
+      TRIDENT_LOG_FILE: migrate.log
+    volumes:
+      - ./trident/logs:/var/log/trident
+    command: ["python", "-m", "app.migrate", "--config", "config/trident.yaml"]
+    restart: "no"
+
+  trident-worker:
+    build:
+      context: ./trident
+    image: streamtrident/trident:local
+    container_name: streamtrident-worker
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      trident-migrate:
+        condition: service_completed_successfully
+    configs:
+      - source: trident_config
+        target: /app/config/trident.yaml
+    environment:
+      TRIDENT_LOG_DIR: /var/log/trident
+      TRIDENT_LOG_FILE: worker.log
+      CAPTURE_REDIS_HOST: "${CAPTURE_REDIS_HOST:-host.docker.internal}"
+      CAPTURE_REDIS_PORT: "${CAPTURE_REDIS_PORT:-16379}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - trident-models:/var/lib/trident/models
+      - ./trident/logs:/var/log/trident
+    command: ["python", "-m", "app.worker", "--config", "config/trident.yaml"]
+    restart: unless-stopped
+
+  trident-api:
+    build:
+      context: ./trident
+    image: streamtrident/trident:local
+    container_name: streamtrident-api
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      trident-migrate:
+        condition: service_completed_successfully
+    configs:
+      - source: trident_config
+        target: /app/config/trident.yaml
+    environment:
+      TRIDENT_LOG_DIR: /var/log/trident
+      TRIDENT_LOG_FILE: api.log
+      TRIDENT_SURICATA_AGENT_URLS: "${TRIDENT_SURICATA_AGENT_URLS:-http://127.0.0.1:19100}"
+      TRIDENT_SURICATA_AGENT_TOKEN: "${TRIDENT_SURICATA_AGENT_TOKEN:-}"
+      CAPTURE_REDIS_HOST: "${CAPTURE_REDIS_HOST:-host.docker.internal}"
+      CAPTURE_REDIS_PORT: "${CAPTURE_REDIS_PORT:-16379}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - trident-models:/var/lib/trident/models
+      - ./trident/logs:/var/log/trident
+    command: ["python", "-m", "app.api", "--config", "config/trident.yaml", "--host", "0.0.0.0", "--port", "8090"]
+    ports:
+      - "${TRIDENT_API_HOST_PORT:-8090}:8090"
+    restart: unless-stopped
+
+configs:
+  trident_config:
+    file: ./docker/trident.remote-redis.yaml
+
+volumes:
+  clickhouse-data:
+  postgres-data:
+  trident-models:
