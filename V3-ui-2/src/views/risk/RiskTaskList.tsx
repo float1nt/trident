@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Table, Input, Button, Space, Tooltip, Tag, Tabs, DatePicker, Card, Typography } from "antd";
+import { Table, Input, Button, Space, Tooltip, Tag, DatePicker, Card, Typography } from "antd";
+import PageTabs from "@/components/PageTabs";
 import type { Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { IpRiskListItem } from "@/api/types";
@@ -237,8 +238,8 @@ const RiskTaskList = () => {
   return (
     <div className="task-list-page bg-[#f6faff] p-[12px] h-full w-full rounded-[8px]">
       <div className="flex h-full min-h-0 flex-col gap-[12px]">
-        <div className="rounded-[8px] bg-[#fff] px-[16px] pt-[8px] pb-0 shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-          <Tabs
+        <div className="rounded-[8px] bg-[#fff] px-[16px] py-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+          <PageTabs
             activeKey={activeView}
             onChange={handleViewChange}
             items={[
