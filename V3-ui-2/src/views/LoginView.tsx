@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { Form, Input, Button, message } from "antd";
+import { Form, Input, Button } from "antd";
+import { useApi } from "@/hooks/useApi";
 import { UserOutlined, LockOutlined } from "@ant-design/icons";
 import { login } from "@/api/services/AuthService";
 import type { LoginParams } from "@/api/services/AuthService";
@@ -11,7 +12,7 @@ import logoBrand from "@/assets/组 617@2x.png";
 const LoginView = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [loading, setLoading] = useState(false);
+  const { loading, run } = useApi({ successMessage: "登录成功" });
   const [loginForm] = Form.useForm();
   const fetchUserInfo = useUserStore((state) => state.fetchUserInfo);
 
@@ -25,31 +26,25 @@ const LoginView = () => {
 
   // 处理登录
   const handleLogin = async (values: LoginParams) => {
-    setLoading(true);
-    try {
+    await run(async () => {
       const response = await login({
         username: values.username,
         password: values.password,
       });
 
-      if (response.data && response.data.token) {
-        localStorage.setItem("token", response.data.token); // 保存 token
-        if (response.data.user) {
-          localStorage.setItem("userInfo", JSON.stringify(response.data.user)); // 保存用户信息
-        }
-        // 获取用户信息并更新 store
-        await fetchUserInfo();
-        message.success("登录成功");
-        // 跳转到之前访问的页面（非根路径）或总览
-        const fromPath = (location.state as { from?: { pathname?: string } })?.from?.pathname;
-        const to = fromPath && fromPath !== "/" ? fromPath : "/";
-        navigate(to, { replace: true });
+      if (!response.data?.token) {
+        throw new Error("登录失败，未返回有效凭证");
       }
-    } catch (error) {
-      console.error("登录失败:", error);
-    } finally {
-      setLoading(false);
-    }
+
+      localStorage.setItem("token", response.data.token);
+      if (response.data.user) {
+        localStorage.setItem("userInfo", JSON.stringify(response.data.user));
+      }
+      await fetchUserInfo();
+      const fromPath = (location.state as { from?: { pathname?: string } })?.from?.pathname;
+      const to = fromPath && fromPath !== "/" ? fromPath : "/";
+      navigate(to, { replace: true });
+    });
   };
 
   return (

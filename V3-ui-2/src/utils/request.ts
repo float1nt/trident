@@ -6,6 +6,7 @@ import axios, {
   AxiosRequestConfig,
 } from "axios";
 import { message } from "./message";
+import { ApiError } from "./apiError";
 
 // 响应数据类型
 export interface ResponseData<T = any> {
@@ -70,8 +71,9 @@ service.interceptors.response.use(
     const res = response.data as ResponseData;
 
     if (res.code && res.code !== 200 && res.code !== 201) {
-      message.error(res.message || "请求失败");
-      return Promise.reject(new Error(res.message || "请求失败"));
+      const msg = res.message || "请求失败";
+      message.error(msg);
+      return Promise.reject(new ApiError(msg));
     }
 
     return res as any;

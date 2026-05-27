@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Checkbox, Form, InputNumber, Spin } from "antd";
+import { useApi } from "@/hooks/useApi";
 import IpRangeFormList, { EMPTY_IP_RANGE } from "@/components/IpRangeFormList";
 import {
   getCollectionProtocols,
@@ -8,64 +9,46 @@ import {
   type CollectionSettings,
   type ProtocolOption,
 } from "@/api/services/SettingService";
-import { message } from "@/utils/message";
 import "./SettingView.css";
 
 type SettingFormValues = CollectionSettings;
 
 export default function SettingView() {
   const [form] = Form.useForm<SettingFormValues>();
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const { loading, run: runLoad } = useApi({ initialLoading: true });
+  const { loading: submitting, run: runSave } = useApi();
   const [protocolOptions, setProtocolOptions] = useState<ProtocolOption[]>([]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
-      setLoading(true);
-      try {
-        const [settings, protocols] = await Promise.all([
-          getCollectionSettings(),
-          getCollectionProtocols(),
-        ]);
-        if (cancelled) return;
-        setProtocolOptions(protocols);
-        form.setFieldsValue({
-          ...settings,
-          sourceIpRanges:
-            settings.sourceIpRanges?.length > 0
-              ? settings.sourceIpRanges
-              : [{ ...EMPTY_IP_RANGE }],
-          destIpRanges:
-            settings.destIpRanges?.length > 0
-              ? settings.destIpRanges
-              : [{ ...EMPTY_IP_RANGE }],
-        });
-      } catch (error) {
-        console.error("加载采集设置失败:", error);
-        message.error("加载设置失败，请稍后重试");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
+    void runLoad(async () => {
+      const [settings, protocols] = await Promise.all([
+        getCollectionSettings(),
+        getCollectionProtocols(),
+      ]);
+      if (cancelled) return;
+      setProtocolOptions(protocols);
+      form.setFieldsValue({
+        ...settings,
+        sourceIpRanges:
+          settings.sourceIpRanges?.length > 0
+            ? settings.sourceIpRanges
+            : [{ ...EMPTY_IP_RANGE }],
+        destIpRanges:
+          settings.destIpRanges?.length > 0
+            ? settings.destIpRanges
+            : [{ ...EMPTY_IP_RANGE }],
+      });
+    });
 
-    load();
     return () => {
       cancelled = true;
     };
-  }, [form]);
+  }, [form, runLoad]);
 
   const handleSubmit = async (values: SettingFormValues) => {
-    setSubmitting(true);
-    try {
-      await saveCollectionSettings(values);
-      message.success("设置已保存");
-    } catch (error) {
-      console.error("保存采集设置失败:", error);
-    } finally {
-      setSubmitting(false);
-    }
+    await runSave(() => saveCollectionSettings(values));
   };
 
   return (

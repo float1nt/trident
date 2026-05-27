@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useApi } from "@/hooks/useApi";
 import { useNavigate } from "react-router-dom";
 import { Table, Input, Button, Space, Tooltip, Tag, DatePicker, Card, Typography } from "antd";
 import PageTabs from "@/components/PageTabs";
@@ -66,12 +67,12 @@ const RiskTaskList = () => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
-  const [loading, setLoading] = useState(false);
+  const { loading, run: runIpList } = useApi();
+  const { loading: eventLoading, run: runEventLoad } = useApi();
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
   const [eventTopology, setEventTopology] =
     useState<LearnerNetworkTopologyJson | null>(null);
   const [eventIpTotal, setEventIpTotal] = useState(0);
-  const [eventLoading, setEventLoading] = useState(false);
 
   const eventCardCount = useMemo(() => {
     if (!eventTopology) return 0;
@@ -81,19 +82,8 @@ const RiskTaskList = () => {
     return names.length;
   }, [eventTopology]);
 
-  useEffect(() => {
-    if (activeView !== "ip") return;
-    void getListData();
-  }, [page, filters, activeView]);
-
-  useEffect(() => {
-    if (activeView !== "event") return;
-    void loadEventTopology();
-  }, [eventFilters, activeView]);
-
-  const loadEventTopology = async () => {
-    setEventLoading(true);
-    try {
+  const loadEventTopology = useCallback(async () => {
+    const ok = await runEventLoad(async () => {
       const range = formatTriggerRange(eventFilters.triggerPeriod);
       const [data, ipListRes] = await Promise.all([
         RiskService.getEventTopology({
@@ -108,34 +98,40 @@ const RiskTaskList = () => {
       ]);
       setEventTopology(data);
       setEventIpTotal(ipListRes.total);
-    } catch (error) {
-      console.error("获取事件拓扑失败", error);
+    });
+    if (ok === undefined) {
       setEventTopology(null);
       setEventIpTotal(0);
-    } finally {
-      setEventLoading(false);
     }
-  };
+  }, [eventFilters, runEventLoad]);
 
-  const getListData = async (opts?: { page?: number; nextFilters?: RiskSearchForm }) => {
-    const curPage = opts?.page ?? page;
-    const curFilters = opts?.nextFilters ?? filters;
-    setLoading(true);
-    try {
-      const response = await RiskService.listRisks({
-        limit: pageSize,
-        offset: (curPage - 1) * pageSize,
-        name: curFilters.name || undefined,
-        subjectIp: curFilters.subjectIp || undefined,
+  const getListData = useCallback(
+    async (opts?: { page?: number; nextFilters?: RiskSearchForm }) => {
+      const curPage = opts?.page ?? page;
+      const curFilters = opts?.nextFilters ?? filters;
+      await runIpList(async () => {
+        const response = await RiskService.listRisks({
+          limit: pageSize,
+          offset: (curPage - 1) * pageSize,
+          name: curFilters.name || undefined,
+          subjectIp: curFilters.subjectIp || undefined,
+        });
+        setListdata(response.risks);
+        setTotal(response.total);
       });
-      setListdata(response.risks);
-      setTotal(response.total);
-    } catch (error) {
-      console.error("获取风险列表失败", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [page, filters, pageSize, runIpList],
+  );
+
+  useEffect(() => {
+    if (activeView !== "ip") return;
+    void getListData();
+  }, [page, filters, activeView, getListData]);
+
+  useEffect(() => {
+    if (activeView !== "event") return;
+    void loadEventTopology();
+  }, [eventFilters, activeView, loadEventTopology]);
 
   const handleDetailList = (id: number) => {
     navigate({

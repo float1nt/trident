@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useApi } from "@/hooks/useApi";
 import { useSearchParams } from "react-router-dom";
 import { Tag, Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -69,7 +70,7 @@ export default function RiskDetailPlaceholder() {
   const riskId = searchParams.get("id");
   const numericId = riskId ? Number(riskId) : NaN;
 
-  const [loading, setLoading] = useState(false);
+  const { loading, run } = useApi();
   const [risk, setRisk] = useState<RiskDetail | null>(null);
   const [networkTopology, setNetworkTopology] =
     useState<DatasetNetworkTopologyJson | null>(null);
@@ -85,8 +86,7 @@ export default function RiskDetailPlaceholder() {
     }
 
     const load = async () => {
-      setLoading(true);
-      try {
+      const ok = await run(async () => {
         const [detail, topology, ips, logs] = await Promise.all([
           RiskService.getRiskById(numericId),
           RiskService.getRiskNetworkTopology(numericId),
@@ -97,16 +97,14 @@ export default function RiskDetailPlaceholder() {
         setNetworkTopology(topology);
         setRiskIpList(ips);
         setTrafficLogs(logs);
-      } catch (error) {
-        console.error("加载风险详情失败", error);
+      });
+      if (ok === undefined) {
         setRisk(null);
-      } finally {
-        setLoading(false);
       }
     };
 
     void load();
-  }, [riskId, numericId]);
+  }, [riskId, numericId, run]);
 
   useEffect(() => {
     setRiskIpPage(1);

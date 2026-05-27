@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Spin } from "antd";
+import { useApi } from "@/hooks/useApi";
 import DataFlowMetricsSection from "@/components/DataFlowMetricsSection";
 import EChartsRingChart from "@/components/EChartsRingChart";
 import { TopologyChartPane } from "@/components/NetworkTopologyPanel";
@@ -34,11 +36,10 @@ export default function HomeView() {
   const [protocolDist, setProtocolDist] = useState<DistributionItem[]>([]);
   const [networkTopology, setNetworkTopology] =
     useState<DatasetNetworkTopologyJson | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { loading, run } = useApi();
 
   const loadOverview = useCallback(async () => {
-    setLoading(true);
-    try {
+    await run(async () => {
       const [metricsData, distributions, topology] = await Promise.all([
         OverviewService.getMetrics(timeRange),
         OverviewService.getDistributions(timeRange),
@@ -48,12 +49,8 @@ export default function HomeView() {
       setTrafficDist(distributions.traffic);
       setProtocolDist(distributions.protocol);
       setNetworkTopology(topology);
-    } catch (error) {
-      console.error("加载总览数据失败", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [timeRange]);
+    });
+  }, [timeRange, run]);
 
   useEffect(() => {
     void loadOverview();
@@ -73,14 +70,14 @@ export default function HomeView() {
   const attackView = networkTopology?.views.__attack__;
 
   return (
-    <div className="h-[calc(100vh-85px)] w-full rounded-[8px] overflow-y-auto">
-      <DataFlowMetricsSection
-        timeRange={timeRange}
-        metrics={metrics}
-        loading={loading}
-        onTimeRangeChange={setTimeRange}
-        onRefresh={() => void loadOverview()}
-      />
+    <Spin spinning={loading} className="block w-full">
+      <div className="h-[calc(100vh-85px)] w-full rounded-[8px] overflow-y-auto">
+        <DataFlowMetricsSection
+          timeRange={timeRange}
+          metrics={metrics}
+          onTimeRangeChange={setTimeRange}
+          onRefresh={() => void loadOverview()}
+        />
       <div className="relative p-[12px] z-10  -mt-[36px] w-full rounded-[16px] bg-[#f6faff]">
         <div className="flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
           <span
@@ -180,6 +177,7 @@ export default function HomeView() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </Spin>
   );
 }
