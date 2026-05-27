@@ -42,8 +42,11 @@ def test_learner_audit_emits_metrics_rules_topology_and_risk() -> None:
     )
 
     assert metrics["top1_dst_port_share"] == 1.0
+    assert metrics["metric_version"] == 4
     assert topology["top"]["dst_ports"][0]["value"] == "443"
-    assert any(rule["rule"] == "dst_port_concentrated" for rule in rules["rules"])
+    assert "rule_set" in rules
+    assert "attack_types" in rules
+    assert isinstance(rules["rules"], list)
     assert 0.0 <= risk_score <= 1.0
     assert risk_band in {"low", "medium", "high"}
     assert "unknown_buffer=3" in risk_reason

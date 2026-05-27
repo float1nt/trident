@@ -51,6 +51,11 @@ class FakeLearners:
                 "risk_reason": "concentration=0.82",
                 "last_seen_at": "2026-05-27T10:00:00Z",
                 "flow_count": 20,
+                "rule_json": {
+                    "attack_types": [
+                        {"attack_type": "DDOS_VICTIM", "confidence": 0.82},
+                    ]
+                },
             },
             {
                 "id": 12,
@@ -82,7 +87,23 @@ def test_risk_events_default_to_medium_and_high_learners() -> None:
 
     assert data["total"] == 1
     assert data["items"][0]["learner_name"] == "NEW_1"
+    assert data["items"][0]["risk_name"] == "DDOS_VICTIM"
     assert data["items"][0]["subject_ips"] == ["10.0.0.8"]
+
+
+def test_risk_events_topology_includes_all_risk_bands() -> None:
+    class TopologyFlows(FakeFlows):
+        def topology_graph(self, **_: Any) -> dict[str, Any]:
+            return {"flow_count": 1, "node_mode": "host", "nodes": [], "links": [], "stats": {}}
+
+    class TopologyLearners(FakeLearners):
+        def get_learner(self, **_: Any) -> dict[str, Any]:
+            return FakeLearners().list_learners()[0]
+
+    service = PageQueryService(session_id="s1", flows=TopologyFlows(), learners=TopologyLearners())
+    data = service.risk_events_topology()
+
+    assert sorted(data["learners"]) == ["BASELINE_0", "NEW_1"]
 
 
 def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
@@ -92,6 +113,6 @@ def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
 
     assert data["total"] == 1
     assert data["items"][0]["subjectIp"] == "10.0.0.8"
-    assert data["items"][0]["name"] == "NEW_1"
+    assert data["items"][0]["name"] == "DDOS_VICTIM"
     assert data["items"][0]["id"] == 11
     assert "top_protocol=TLS" in data["items"][0]["description"]

@@ -70,6 +70,7 @@ const RiskTaskList = () => {
   const [eventTopology, setEventTopology] =
     useState<LearnerNetworkTopologyJson | null>(null);
   const [eventLoading, setEventLoading] = useState(false);
+  const [eventLoadError, setEventLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (activeView !== "ip") return;
@@ -81,18 +82,30 @@ const RiskTaskList = () => {
     void loadEventTopology();
   }, [eventFilters, activeView]);
 
-  const loadEventTopology = async () => {
+  const loadEventTopology = async (filters: EventSearchForm = eventFilters) => {
     setEventLoading(true);
+    setEventLoadError(null);
     try {
-      const range = formatTriggerRange(eventFilters.triggerPeriod);
+      const range = formatTriggerRange(filters.triggerPeriod);
       const data = await RiskService.getEventTopology({
-        name: eventFilters.name || undefined,
+        name: filters.name || undefined,
         ...range,
       });
+      const count = data.learners?.length ?? 0;
       setEventTopology(data);
+      if (count === 0 && filters.triggerPeriod) {
+        setEventLoadError(
+          "当前触发时段内没有学习器，请点「重置」清空时段或扩大时间范围。",
+        );
+      }
     } catch (error) {
       console.error("获取事件拓扑失败", error);
       setEventTopology(null);
+      setEventLoadError(
+        error instanceof Error
+          ? `加载失败：${error.message}`
+          : "加载失败，请检查网络或后端 trident-api 是否可用。",
+      );
     } finally {
       setEventLoading(false);
     }
@@ -154,6 +167,7 @@ const RiskTaskList = () => {
   const handleEventReset = () => {
     setEventSearchInputs(EMPTY_EVENT_SEARCH);
     setEventFilters(EMPTY_EVENT_SEARCH);
+    setEventLoadError(null);
   };
 
   const handleViewChange = (key: string) => {
@@ -297,19 +311,41 @@ const RiskTaskList = () => {
             </Card>
             <Card
               bordered={false}
-              className="min-h-0 flex-1 overflow-auto shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
-              styles={{ body: { padding: 16 } }}
-              loading={eventLoading}
+              className="min-h-[420px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
+              styles={{ body: { padding: 16, minHeight: 420 } }}
+              loading={eventLoading && !eventTopology}
             >
               <Title level={5} className="!mb-1 !mt-0">
                 风险事件网络拓扑（IP / 端口）
               </Title>
               <Paragraph type="secondary" className="!mb-4 text-xs">
-                默认展示全部风险事件；绿=良性、红=攻击。点击卡片右上角「详情」进入风险详情页。
+                展示所有有流量的学习器（含 low / medium / high）。若为空，请点「重置」清空触发时段。
+                绿=良性、红=攻击；点击「详情」进入风险详情页。
+                {eventTopology?.learners?.length ? (
+                  <span className="ml-2 text-[#1777ff]">
+                    已加载 {eventTopology.learners.length} 个学习器
+                  </span>
+                ) : null}
+                {eventTopology ? (
+                  <span className="ml-2 text-[#8c8c8c]">
+                    （views={Object.keys(eventTopology.views ?? {}).length}）
+                  </span>
+                ) : null}
               </Paragraph>
+              <Paragraph type="secondary" className="!mb-2 text-[11px]">
+                调试: loading={String(eventLoading)}; hasData={String(Boolean(eventTopology))}
+                ; learners={eventTopology?.learners?.length ?? 0}; views=
+                {eventTopology ? Object.keys(eventTopology.views ?? {}).length : 0}
+              </Paragraph>
+              {eventLoadError ? (
+                <Paragraph type="danger" className="!mb-3 text-xs">
+                  {eventLoadError}
+                </Paragraph>
+              ) : null}
               <LearnerInternalTopologyPanel
                 data={eventTopology}
                 onRiskClick={handleEventRiskClick}
+                emptyHint={eventLoadError ?? undefined}
               />
             </Card>
           </>

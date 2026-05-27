@@ -294,10 +294,13 @@ class PageQueryService:
         for row in raw["items"]:
             ip = str(row.get("subject_ip") or "")
             learner = str(row.get("assigned_learner") or "") or "UNKNOWN"
+            learner_row = learner_by_name.get(learner) or {}
+            attack_type = _primary_attack_type(learner_row)
+            display_name = attack_type or learner
             if not ip:
                 continue
             grouped.setdefault(ip, {})
-            grouped[ip][learner] = grouped[ip].get(learner, 0) + int(row.get("flow_count") or 0)
+            grouped[ip][display_name] = grouped[ip].get(display_name, 0) + int(row.get("flow_count") or 0)
 
         ip_rows: list[dict[str, Any]] = []
         for seq, (ip, name_counts) in enumerate(
@@ -328,13 +331,17 @@ class PageQueryService:
         top_n: int = 50,
     ) -> dict[str, Any]:
         sid = self.session_id
+        time_from = _clean_trigger_bound(trigger_start)
+        time_to = _clean_trigger_bound(trigger_end)
         rows = _filter_learner_rows(
             self.learners.list_learners(session_id=sid),
             name=name,
             risk_band=None,
-            time_from=trigger_start,
-            time_to=trigger_end,
+            time_from=time_from,
+            time_to=time_to,
+            include_all_bands=True,
         )
+        rows = [row for row in rows if int(row.get("flow_count") or 0) > 0]
         views: dict[str, Any] = {}
         learners: list[str] = []
         for row in rows:
@@ -499,6 +506,13 @@ def _risk_learner_names(rows: list[dict[str, Any]]) -> list[str]:
     return names
 
 
+def _clean_trigger_bound(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    if not text or text.lower() in {"undefined", "null", "invalid date"}:
+        return None
+    return text
+
+
 def _filter_learner_rows(
     rows: list[dict[str, Any]],
     *,
@@ -506,7 +520,10 @@ def _filter_learner_rows(
     risk_band: str | None,
     time_from: str | None,
     time_to: str | None,
+    include_all_bands: bool = False,
 ) -> list[dict[str, Any]]:
+    time_from = _clean_trigger_bound(time_from)
+    time_to = _clean_trigger_bound(time_to)
     filtered = []
     name_text = (name or "").strip().lower()
     band_text = (risk_band or "").strip().lower()
@@ -515,7 +532,7 @@ def _filter_learner_rows(
         if band_text:
             if row_band != band_text:
                 continue
-        elif row_band not in RISK_BANDS:
+        elif not include_all_bands and row_band not in RISK_BANDS:
             continue
         learner_name = str(row.get("learner_name") or "").lower()
         if name_text and name_text not in learner_name:
@@ -541,14 +558,18 @@ def _learner_event_item(index: int, row: dict[str, Any]) -> dict[str, Any]:
     learner_name = str(row.get("learner_name") or "")
     risk_score = _float(row.get("risk_score"))
     risk_band = str(row.get("risk_band") or "low").lower()
+    primary_attack = _primary_attack_type(row)
+    risk_name = primary_attack or learner_name
+    confidence = _primary_attack_confidence(row)
+    attack_desc = f"attack_type={primary_attack}; confidence={confidence:.3f}" if primary_attack else ""
     return {
         "learner_name": learner_name,
         "risk_id": int(row.get("id") or index),
-        "risk_name": learner_name,
-        "risk_description": str(row.get("risk_reason") or "暂无风险说明"),
+        "risk_name": risk_name,
+        "risk_description": "; ".join(part for part in [str(row.get("risk_reason") or "暂无风险说明"), attack_desc] if part),
         "trigger_time": _format_time(row.get("last_seen_at")) or "-",
         "attack_ratio": risk_score,
-        "dominant_label": risk_band,
+        "dominant_label": primary_attack or risk_band,
         "flow_count": int(row.get("flow_count") or 0),
         "risk_score": risk_score,
         "risk_band": risk_band,
@@ -590,6 +611,7 @@ def _topology_view(
 
 def _risk_ip_item(row: dict[str, Any], learner: dict[str, Any] | None) -> dict[str, Any]:
     learner_name = str(row.get("assigned_learner") or "")
+    attack_type = _primary_attack_type(learner or {})
     risk_score = _float(learner.get("risk_score") if learner else None)
     risk_band = str((learner or {}).get("risk_band") or "low").lower()
     protocol = _protocol_name(row.get("top_protocol"))
@@ -600,9 +622,9 @@ def _risk_ip_item(row: dict[str, Any], learner: dict[str, Any] | None) -> dict[s
     return {
         "id": int((learner or {}).get("id") or 0),
         "subjectIp": str(row.get("subject_ip") or ""),
-        "name": learner_name or "UNKNOWN",
+        "name": attack_type or learner_name or "UNKNOWN",
         "triggerTime": _format_time(row.get("trigger_time")) or "-",
-        "description": f"risk_band={risk_band}; learner={learner_name or 'UNKNOWN'}; top_protocol={protocol}; top_dst_port={top_dst_port}",
+        "description": f"risk_band={risk_band}; learner={learner_name or 'UNKNOWN'}; attack_type={attack_type or 'UNKNOWN'}; top_protocol={protocol}; top_dst_port={top_dst_port}",
         "features": f"flows={flow_count}; unknown={unknown_count}; top_dst_ip={top_dst_ip}",
         "riskScore": risk_score,
         "riskBand": risk_band,
@@ -692,6 +714,34 @@ def _risk_item_from_learner(
     if include_count:
         item["riskIpCount"] = int(learner.get("flow_count") or 0)
     return item
+
+
+def _primary_attack_type(learner: dict[str, Any]) -> str:
+    rule_json = learner.get("rule_json")
+    if not isinstance(rule_json, dict):
+        return ""
+    attack_types = rule_json.get("attack_types")
+    if not isinstance(attack_types, list):
+        return ""
+    for item in attack_types:
+        if isinstance(item, dict):
+            attack_type = str(item.get("attack_type") or "").strip()
+            if attack_type:
+                return attack_type
+    return ""
+
+
+def _primary_attack_confidence(learner: dict[str, Any]) -> float:
+    rule_json = learner.get("rule_json")
+    if not isinstance(rule_json, dict):
+        return 0.0
+    attack_types = rule_json.get("attack_types")
+    if not isinstance(attack_types, list):
+        return 0.0
+    for item in attack_types:
+        if isinstance(item, dict):
+            return _float(item.get("confidence"))
+    return 0.0
 
 
 def _first_subject_ip(service: PageQueryService, learner: dict[str, Any]) -> str:
