@@ -248,6 +248,35 @@ function buildChartOption(
   };
 }
 
+function TopologyStatCard({
+  label,
+  value,
+  compact = false,
+}: {
+  label: string;
+  value: string | number;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={`min-w-0 flex-1 rounded-[4px] border border-[#e8eef4] bg-[#f6faff] ${
+        compact ? "px-2 py-1.5" : "px-3 py-2"
+      }`}
+    >
+      <div className={`text-[#8c8c8c] ${compact ? "text-[11px]" : "text-[12px]"}`}>
+        {label}
+      </div>
+      <div
+        className={`truncate font-medium text-[#262626] ${
+          compact ? "text-[16px]" : "text-[20px]"
+        }`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
 /** 单张拓扑子图（IP 或 IP:端口），样式对齐 V3-ui 风险详情页 */
 export function TopologyChartPane({
   title,
@@ -282,16 +311,32 @@ export function TopologyChartPane({
       <div className="border-b border-[#e8eaed] px-3 py-2">
         <h4 className="text-sm font-medium text-[#333]">{title}</h4>
         {graph ? (
-          <p className="mt-0.5 text-xs text-[#8c8c8c]">
-            {graph.nodes.length} 节点 · {graph.links.length} 边
-            {stats.top_dst_port != null ? (
-              <>
-                {" "}
-                · 主目的端口 {stats.top_dst_port}（
-                {(Number(stats.top_dst_port_ratio) * 100).toFixed(1)}%）
-              </>
-            ) : null}
-          </p>
+          <div className={`flex gap-2 ${compact ? "mt-1.5" : "mt-2"}`}>
+            <TopologyStatCard
+              label="IP数量"
+              value={graph.nodes.length}
+              compact={compact}
+            />
+            <TopologyStatCard
+              label="访问次数"
+              value={graph.links.length}
+              compact={compact}
+            />
+            <TopologyStatCard
+              label="主目的端口"
+              value={stats.top_dst_port != null ? stats.top_dst_port : "—"}
+              compact={compact}
+            />
+            <TopologyStatCard
+              label="主目的端口访问比"
+              value={
+                stats.top_dst_port_ratio != null
+                  ? `${(Number(stats.top_dst_port_ratio) * 100).toFixed(1)}%`
+                  : "—"
+              }
+              compact={compact}
+            />
+          </div>
         ) : null}
       </div>
       <EChartsRingChart option={option} height={chartHeight} />

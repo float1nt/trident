@@ -10,7 +10,7 @@ import {
   type TimeRange,
 } from "@/api/services/OverviewService";
 import {
-  buildDistributionRingOption,
+  buildProtocolDistributionRingOption,
   buildTrafficDistributionRingOption,
   type DistributionItem,
 } from "@/utils/chartDistribution";
@@ -67,7 +67,7 @@ export default function HomeView() {
     [trafficDist],
   );
   const protocolChartOption = useMemo(
-    () => buildDistributionRingOption(protocolDist),
+    () => buildProtocolDistributionRingOption(protocolDist),
     [protocolDist],
   );
 

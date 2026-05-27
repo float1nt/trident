@@ -1,11 +1,17 @@
 import type { EChartsOption } from "echarts";
 import type { TrafficTrendPoint } from "@/mock/overviewTrafficTrend";
 import {
-  TRAFFIC_NORMAL_COLOR,
+  TRAFFIC_ABNORMAL_GRADIENT,
+  TRAFFIC_NORMAL_GRADIENT,
+} from "@/constants/overviewChartGradients";
+import {
   TRAFFIC_NORMAL_LABEL,
-  TRAFFIC_SUSPECTED_ABNORMAL_COLOR,
   TRAFFIC_SUSPECTED_ABNORMAL_LABEL,
 } from "@/constants/overviewTrafficColors";
+import { toEChartsLinearGradient } from "@/utils/chartGradient";
+
+const TRAFFIC_NORMAL_FILL = toEChartsLinearGradient(TRAFFIC_NORMAL_GRADIENT);
+const TRAFFIC_ABNORMAL_FILL = toEChartsLinearGradient(TRAFFIC_ABNORMAL_GRADIENT);
 
 /** 构建正常 / 疑似异常流量堆叠柱状图 */
 export function buildTrafficTrendBarOption(
@@ -16,7 +22,7 @@ export function buildTrafficTrendBarOption(
 
   return {
     backgroundColor: "transparent",
-    color: [TRAFFIC_NORMAL_COLOR, TRAFFIC_SUSPECTED_ABNORMAL_COLOR],
+    color: [TRAFFIC_NORMAL_FILL, TRAFFIC_ABNORMAL_FILL],
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "shadow" },
@@ -73,7 +79,7 @@ export function buildTrafficTrendBarOption(
         stack: "traffic",
         barMaxWidth: 28,
         emphasis: { focus: "series" },
-        itemStyle: { color: TRAFFIC_NORMAL_COLOR },
+        itemStyle: { color: TRAFFIC_NORMAL_FILL },
         data: data.map((item) => item.normal),
       },
       {
@@ -82,7 +88,7 @@ export function buildTrafficTrendBarOption(
         stack: "traffic",
         barMaxWidth: 28,
         emphasis: { focus: "series" },
-        itemStyle: { color: TRAFFIC_SUSPECTED_ABNORMAL_COLOR },
+        itemStyle: { color: TRAFFIC_ABNORMAL_FILL },
         data: data.map((item) => item.abnormal),
       },
     ],

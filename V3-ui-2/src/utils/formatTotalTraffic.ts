@@ -56,6 +56,6 @@ export function formatMetricCount(count: number): FormattedTrafficVolume {
 
   return {
     value: n.toLocaleString("zh-CN"),
-    unit: "个",
+    unit: " ",
   };
 }
