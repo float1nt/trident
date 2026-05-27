@@ -11,8 +11,14 @@ import {
 } from "@/api/services/OverviewService";
 import {
   buildDistributionRingOption,
+  buildTrafficDistributionRingOption,
   type DistributionItem,
 } from "@/utils/chartDistribution";
+import { buildTrafficTrendBarOption } from "@/utils/chartTrafficTrend";
+import {
+  getMockTrafficTrend,
+  getTrafficTrendChartTitle,
+} from "@/mock/overviewTrafficTrend";
 import type { DatasetNetworkTopologyJson } from "@/components/NetworkTopologyPanel";
 
 const CHART_HEIGHT = 280;
@@ -57,12 +63,25 @@ export default function HomeView() {
   }, [loadOverview]);
 
   const trafficChartOption = useMemo(
-    () => buildDistributionRingOption(trafficDist),
+    () => buildTrafficDistributionRingOption(trafficDist),
     [trafficDist],
   );
   const protocolChartOption = useMemo(
     () => buildDistributionRingOption(protocolDist),
     [protocolDist],
+  );
+
+  const trafficTrendData = useMemo(
+    () => getMockTrafficTrend(timeRange),
+    [timeRange],
+  );
+  const trafficTrendChartOption = useMemo(
+    () => buildTrafficTrendBarOption(trafficTrendData),
+    [trafficTrendData],
+  );
+  const trafficTrendChartTitle = useMemo(
+    () => getTrafficTrendChartTitle(timeRange),
+    [timeRange],
   );
 
   const combinedView = networkTopology?.views.__combined__;
@@ -84,12 +103,21 @@ export default function HomeView() {
             className="h-[16px] w-[3px] shrink-0 rounded-[2px] bg-[#4368f0]"
             aria-hidden
           />
-          整体分布
+          整体概览
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[2fr_3fr_2fr]">
           <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
             <h3 className="mb-3 text-[14px] font-medium text-[#333]">流量分布</h3>
             <EChartsRingChart option={trafficChartOption} height={CHART_HEIGHT} />
+          </div>
+          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
+            <h3 className="mb-3 text-[14px] font-medium text-[#333]">
+         {trafficTrendChartTitle}
+            </h3>
+            <EChartsRingChart
+              option={trafficTrendChartOption}
+              height={CHART_HEIGHT}
+            />
           </div>
           <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
             <h3 className="mb-3 text-[14px] font-medium text-[#333]">协议分布</h3>

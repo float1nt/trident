@@ -1,4 +1,5 @@
 import type { EChartsOption } from "echarts";
+import { resolveTrafficDistributionColor } from "@/constants/overviewTrafficColors";
 
 export type DistributionItem = {
   name: string;
@@ -16,6 +17,20 @@ const DEFAULT_COLORS = [
   "#ff4d4f",
   "#8c8c8c",
 ];
+
+/** 构建流量分布环形图（正常 / 疑似异常流量配色与趋势柱状图一致） */
+export function buildTrafficDistributionRingOption(
+  data: DistributionItem[],
+): EChartsOption {
+  const colored = data.map((item, index) => ({
+    ...item,
+    color:
+      resolveTrafficDistributionColor(item.name, item.color) ??
+      item.color ??
+      DEFAULT_COLORS[index % DEFAULT_COLORS.length],
+  }));
+  return buildDistributionRingOption(colored);
+}
 
 /** 构建环形图 ECharts 配置 */
 export function buildDistributionRingOption(
