@@ -1,5 +1,5 @@
 import { ReloadOutlined } from "@ant-design/icons";
-import { Select, Button, Spin } from "antd";
+import { Select, Button } from "antd";
 import metricsSectionBg from "@/assets/编组 58@2x.png";
 import titleIcon from "@/assets/路径.png";
 import metricIcon1 from "@/assets/总览/生成特定背景图-3-2.png";
@@ -7,6 +7,10 @@ import metricIcon2 from "@/assets/总览/生成特定背景图-4-2.png";
 import metricIcon3 from "@/assets/总览/生成特定背景图-5-2.png";
 import metricIcon4 from "@/assets/总览/生成特定背景图-6-2.png";
 import type { OverviewMetrics, TimeRange } from "@/api/services/OverviewService";
+import {
+  formatMetricCount,
+  formatTotalTrafficBytes,
+} from "@/utils/formatTotalTraffic";
 import "./DataFlowMetricsSection.css";
 
 type MetricItem = {
@@ -39,15 +43,33 @@ function DataFlowTitleIcon() {
 type Props = {
   timeRange: TimeRange;
   metrics: OverviewMetrics;
-  loading?: boolean;
   onTimeRangeChange: (value: TimeRange) => void;
   onRefresh: () => void;
 };
 
+function formatMetricValue(
+  key: keyof OverviewMetrics,
+  raw: number,
+): { value: string; unit: string } {
+  if (key === "totalTraffic") {
+    return formatTotalTrafficBytes(raw);
+  }
+  return formatMetricCount(raw);
+}
+
+function renderMetricValue(key: keyof OverviewMetrics, raw: number) {
+  const { value, unit } = formatMetricValue(key, raw);
+  return (
+    <span className="data-flow-metrics__card-value-row">
+      <span className="data-flow-metrics__card-value">{value}</span>
+      <span className="data-flow-metrics__card-unit">{unit}</span>
+    </span>
+  );
+}
+
 export default function DataFlowMetricsSection({
   timeRange,
   metrics,
-  loading = false,
   onTimeRangeChange,
   onRefresh,
 }: Props) {
@@ -62,26 +84,22 @@ export default function DataFlowMetricsSection({
       </div>
 
       <div className="data-flow-metrics__content-row">
-        <Spin spinning={loading}>
-          <div className="data-flow-metrics__cards">
-            {METRIC_DEFS.map((item) => (
-              <div key={item.label} className="data-flow-metrics__card">
-                <div className="data-flow-metrics__card-main">
-                  <span className="data-flow-metrics__card-label">{item.label}</span>
-                  <span className="data-flow-metrics__card-value">
-                    {metrics[item.key].toLocaleString("zh-CN")}
-                  </span>
-                </div>
-                <img
-                  src={item.icon}
-                  alt=""
-                  className="data-flow-metrics__card-icon"
-                  aria-hidden
-                />
+        <div className="data-flow-metrics__cards">
+          {METRIC_DEFS.map((item) => (
+            <div key={item.label} className="data-flow-metrics__card">
+              <div className="data-flow-metrics__card-main">
+                <span className="data-flow-metrics__card-label">{item.label}</span>
+                {renderMetricValue(item.key, metrics[item.key])}
               </div>
-            ))}
-          </div>
-        </Spin>
+              <img
+                src={item.icon}
+                alt=""
+                className="data-flow-metrics__card-icon"
+                aria-hidden
+              />
+            </div>
+          ))}
+        </div>
 
         <div className="data-flow-metrics__filters">
           <Select

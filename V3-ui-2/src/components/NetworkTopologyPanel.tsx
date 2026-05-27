@@ -1,6 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Button } from "antd";
 import type { EChartsOption } from "echarts";
 import EChartsRingChart from "@/components/EChartsRingChart";
+import "./NetworkTopologyPanel.css";
 import {
   CHART_AXIS_LINE,
   CHART_GREEN,
@@ -15,6 +17,10 @@ export type TopologyNode = {
   port: number | null;
   flow_count: number;
   is_internal: boolean;
+  /** 节点关联协议列表（可选，后端扩展字段） */
+  protocols?: string[];
+  /** 节点主协议（可选，后端扩展字段） */
+  protocol?: string;
 };
 
 export type TopologyLink = {
@@ -22,6 +28,10 @@ export type TopologyLink = {
   target: string;
   value: number;
   is_benign?: boolean;
+  /** 边关联协议列表（可选，后端扩展字段） */
+  protocols?: string[];
+  /** 边主协议（可选，后端扩展字段） */
+  protocol?: string;
 };
 
 export type TopologyGraph = {
@@ -50,31 +60,18 @@ export type DatasetNetworkTopologyJson = {
   views: Record<string, TopologyLabelView>;
 };
 
-export const GRID_CHART_HEIGHT = 160;
-
-const COMPACT_MAX_NODES = 28;
-
-function trimGraphForCompactDisplay(
-  graph: TopologyGraph | undefined,
-  maxNodes = COMPACT_MAX_NODES,
-): TopologyGraph | undefined {
-  if (!graph || graph.nodes.length <= maxNodes) return graph;
-  const nodes = [...graph.nodes]
-    .sort((a, b) => b.flow_count - a.flow_count)
-    .slice(0, maxNodes);
-  const ids = new Set(nodes.map((n) => n.id));
-  const links = graph.links.filter(
-    (l) => ids.has(l.source) && ids.has(l.target),
-  );
-  return { ...graph, nodes, links };
-}
+export const GRID_CHART_HEIGHT = 120;
 
 type GraphNode = {
   id: string;
   name: string;
   value: number;
   flow_count: number;
+  ip: string;
+  port: number | null;
   is_internal: boolean;
+  protocols?: string[];
+  protocol?: string;
   symbolSize: number;
   itemStyle: { color: string; borderColor: string; borderWidth: number };
 };
@@ -97,12 +94,11 @@ function initialGraphZoom(nodeCount: number, compact = false): number {
   else if (nodeCount <= 75) z = 0.36;
   const base = Math.min(1, z * 2);
   if (!compact) return base;
-  // 紧凑模式 + 节点很多时提高 zoom，否则 50 个节点在 120px 里几乎看不见
   if (nodeCount <= 8) return base * 0.55;
   if (nodeCount <= 15) return base * 0.45;
-  if (nodeCount <= 30) return base * 0.38;
-  if (nodeCount <= 50) return Math.max(0.32, base * 0.22);
-  return Math.max(0.2, base * 0.15);
+  if (nodeCount <= 30) return base * 0.36;
+  if (nodeCount <= 50) return base * 0.3;
+  return Math.max(0.08, base * 0.24);
 }
 
 function compactForceParams(
@@ -113,9 +109,9 @@ function compactForceParams(
   const n = Math.max(nodeCount, 1);
   if (compact) {
     return {
-      repulsion: Math.min(repulsion * 0.45, 24 + n * 0.8),
-      edgeLength: [20, Math.min(48, 16 + n * 0.5)] as [number, number],
-      gravity: 0.35,
+      repulsion: Math.min(repulsion * 0.55, 28 + n * 1.2),
+      edgeLength: [14, Math.min(56, 20 + n * 0.7)] as [number, number],
+      gravity: 0.24,
     };
   }
   return {
@@ -136,18 +132,21 @@ function buildGraphData(
 
   const nodes: GraphNode[] = graph.nodes.map((n) => {
     const t = n.flow_count / maxFlow;
-    const nodeCount = graph.nodes.length;
     const size = compact
-      ? 8 + Math.sqrt(t) * 6
+      ? 4 + Math.sqrt(t) * 5
       : 6 + Math.sqrt(t) * 14;
-    const minSize = compact ? (nodeCount > 25 ? 6 : nodeCount > 12 ? 5 : 3) : 5;
-    const maxSize = compact ? 18 : 22;
+    const minSize = compact ? 3 : 5;
+    const maxSize = compact ? 10 : 22;
     return {
       id: n.id,
       name: n.id,
       value: n.flow_count,
       flow_count: n.flow_count,
+      ip: n.ip,
+      port: n.port,
       is_internal: n.is_internal,
+      protocols: n.protocols,
+      protocol: n.protocol,
       symbolSize: Math.max(minSize, Math.min(size, maxSize)),
       itemStyle: {
         color: n.is_internal
@@ -191,6 +190,68 @@ function buildGraphData(
   return { nodes, links };
 }
 
+function getTrafficAnalysisText(
+  viewIsBenign: boolean | null | undefined,
+): string {
+  if (viewIsBenign === true) return "良性";
+  if (viewIsBenign === false) return "攻击";
+  return "混合";
+}
+
+function formatTrafficAnalysisHtml(label: string): string {
+  if (label === "良性") {
+    return `流量分析:<span style="color:${CHART_GREEN}">良性</span>`;
+  }
+  if (label === "攻击") {
+    return `流量分析:<span style="color:${CHART_RED}">攻击</span>`;
+  }
+  return `流量分析:${label}`;
+}
+
+function formatNodeProtocols(node: Pick<TopologyNode, "protocols" | "protocol">): string {
+  if (Array.isArray(node.protocols) && node.protocols.length > 0) {
+    return node.protocols.join("、");
+  }
+  if (node.protocol) {
+    return node.protocol;
+  }
+  return "—";
+}
+
+function formatNodeTooltip(
+  node: TopologyNode,
+  viewIsBenign: boolean | null | undefined,
+): string {
+  const ipLabel = node.port != null ? node.id : node.ip;
+  return [
+    ipLabel,
+    `访问次数:${node.flow_count.toLocaleString("zh-CN")}`,
+    formatTrafficAnalysisHtml(getTrafficAnalysisText(viewIsBenign)),
+    `协议:${formatNodeProtocols(node)}`,
+  ].join("<br/>");
+}
+
+function getEdgeTrafficAnalysisText(
+  edge: TopologyLink,
+  viewIsBenign: boolean | null | undefined,
+): string {
+  if (edge.is_benign === true) return "良性";
+  if (edge.is_benign === false) return "攻击";
+  return getTrafficAnalysisText(viewIsBenign);
+}
+
+function formatEdgeTooltip(
+  edge: TopologyLink,
+  viewIsBenign: boolean | null | undefined,
+): string {
+  return [
+    `${edge.source} → ${edge.target}`,
+    `访问次数:${edge.value.toLocaleString("zh-CN")}`,
+    formatTrafficAnalysisHtml(getEdgeTrafficAnalysisText(edge, viewIsBenign)),
+    `协议:${formatNodeProtocols(edge)}`,
+  ].join("<br/>");
+}
+
 function buildChartOption(
   graphData: { nodes: GraphNode[]; links: GraphLink[] },
   repulsion: number,
@@ -215,22 +276,11 @@ function buildChartOption(
           data?: GraphNode | GraphLink;
         };
         if (p.dataType === "edge" && p.data) {
-          const e = p.data as GraphLink;
-          const benign =
-            e.is_benign !== undefined ? e.is_benign : Boolean(viewIsBenign);
-          return [
-            `<b>${e.source} → ${e.target}</b>`,
-            `flows=${e.value.toLocaleString()}`,
-            `type=${benign ? "良性" : "攻击"}`,
-          ].join("<br/>");
+          return formatEdgeTooltip(p.data as GraphLink, viewIsBenign);
         }
         if (p.data) {
           const node = p.data as GraphNode;
-          return [
-            `<b>${node.id}</b>`,
-            `flows=${node.flow_count.toLocaleString()}`,
-            `scope=${node.is_internal ? "内网" : "外网"}`,
-          ].join("<br/>");
+          return formatNodeTooltip(node, viewIsBenign);
         }
         return "";
       },
@@ -267,18 +317,90 @@ function buildChartOption(
   };
 }
 
-/** 单张拓扑子图（IP 或 IP:端口），样式对齐 V3-ui 风险详情页 */
+function TopologyStatCard({
+  label,
+  value,
+  compact = false,
+}: {
+  label: string;
+  value: string | number;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={`min-w-0 rounded-[4px] border border-[#e8eef4] bg-[#f6faff] ${
+        compact ? "px-2 py-1.5" : "px-3 py-2"
+      }`}
+    >
+      <div className={`text-[#8c8c8c] ${compact ? "text-[11px]" : "text-[12px]"}`}>
+        {label}
+      </div>
+      <div
+        className={`truncate font-medium text-[#262626] ${
+          compact ? "text-[16px]" : "text-[20px]"
+        }`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+export type TopologyGraphMode = "host" | "endpoint";
+
+function TopologyGraphModeToggle({
+  value,
+  onChange,
+  compact = false,
+}: {
+  value: TopologyGraphMode;
+  onChange: (mode: TopologyGraphMode) => void;
+  compact?: boolean;
+}) {
+  const options: { mode: TopologyGraphMode; label: string }[] = [
+    { mode: "host", label: "IP" },
+    { mode: "endpoint", label: "端口" },
+  ];
+
+  return (
+    <div
+      className={`topology-graph-mode-toggle${
+        compact ? " topology-graph-mode-toggle--compact" : ""
+      }`}
+    >
+      {options.map(({ mode, label }) => {
+        const selected = value === mode;
+        return (
+          <Button
+            key={mode}
+            type="default"
+            size="small"
+            className={selected ? "ant-btn-topology-selected" : undefined}
+            onClick={() => onChange(mode)}
+          >
+            {label}
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 单张拓扑子图，支持 IP / 端口切换 */
 export function TopologyChartPane({
-  title,
-  graph,
+  title = "拓扑图",
+  hostGraph,
+  endpointGraph,
   viewIsBenign,
   repulsion,
   minEdgeFlows,
   chartHeight = 320,
   compact = false,
 }: {
-  title: string;
-  graph: TopologyGraph | undefined;
+  /** 标题文本，默认「拓扑图」 */
+  title?: string;
+  hostGraph: TopologyGraph | undefined;
+  endpointGraph: TopologyGraph | undefined;
   viewIsBenign: boolean | null | undefined;
   repulsion: number;
   minEdgeFlows: number;
@@ -286,13 +408,11 @@ export function TopologyChartPane({
   /** 缩小节点与边，便于一屏展示更多结点 */
   compact?: boolean;
 }) {
-  const displayGraph = useMemo(
-    () => (compact ? trimGraphForCompactDisplay(graph) : graph),
-    [graph, compact],
-  );
+  const [graphMode, setGraphMode] = useState<TopologyGraphMode>("host");
+  const graph = graphMode === "host" ? hostGraph : endpointGraph;
   const graphData = useMemo(
-    () => buildGraphData(displayGraph, viewIsBenign, minEdgeFlows, compact),
-    [displayGraph, viewIsBenign, minEdgeFlows, compact],
+    () => buildGraphData(graph, viewIsBenign, minEdgeFlows, compact),
+    [graph, viewIsBenign, minEdgeFlows, compact],
   );
   const option = useMemo(
     () => buildChartOption(graphData, repulsion, viewIsBenign, compact),
@@ -301,35 +421,55 @@ export function TopologyChartPane({
   const stats = graph?.stats ?? {};
 
   return (
-    <div className="min-w-0 flex-1 rounded-lg border border-[#e8eaed] bg-white">
-      <div className="border-b border-[#e8eaed] px-3 py-2">
-        <h4 className="text-sm font-medium text-[#333]">{title}</h4>
-        {displayGraph ? (
-          <p className="mt-0.5 text-xs text-[#8c8c8c]">
-            {displayGraph.nodes.length} 节点 · {displayGraph.links.length} 边
-            {compact && graph && graph.nodes.length > displayGraph.nodes.length ? (
-              <>（展示 Top {displayGraph.nodes.length}）</>
-            ) : null}
-            {stats.top_dst_port != null ? (
-              <>
-                {" "}
-                · 主目的端口 {stats.top_dst_port}（
-                {(Number(stats.top_dst_port_ratio) * 100).toFixed(1)}%）
-              </>
-            ) : null}
-          </p>
+    <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-[#e8eaed] bg-white">
+      <div className="shrink-0 border-b border-[#e8eaed] px-3 py-2">
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-sm font-medium text-[#333]">{title}</h4>
+          <TopologyGraphModeToggle
+            value={graphMode}
+            onChange={setGraphMode}
+            compact={compact}
+          />
+        </div>
+        {graph ? (
+          <div
+            className={`grid grid-cols-[2fr_2fr_2fr_3fr] gap-2 ${
+              compact ? "mt-1.5" : "mt-2"
+            }`}
+          >
+            <TopologyStatCard
+              label="IP数量"
+              value={graph.nodes.length}
+              compact={compact}
+            />
+            <TopologyStatCard
+              label="访问次数"
+              value={graph.links.length}
+              compact={compact}
+            />
+            <TopologyStatCard
+              label="主目的端口"
+              value={stats.top_dst_port != null ? stats.top_dst_port : "—"}
+              compact={compact}
+            />
+            <TopologyStatCard
+              label="主目的端口访问占比"
+              value={
+                stats.top_dst_port_ratio != null
+                  ? `${(Number(stats.top_dst_port_ratio) * 100).toFixed(1)}%`
+                  : "—"
+              }
+              compact={compact}
+            />
+          </div>
         ) : null}
       </div>
-      {graphData.nodes.length === 0 ? (
-        <div
-          className="flex items-center justify-center text-xs text-[#8c8c8c]"
-          style={{ height: chartHeight }}
-        >
-          暂无节点
-        </div>
-      ) : (
-        <EChartsRingChart option={option} height={chartHeight} />
-      )}
+      <div
+        className="min-h-0 flex-1"
+        style={{ minHeight: chartHeight }}
+      >
+        <EChartsRingChart option={option} className="h-full w-full" />
+      </div>
     </div>
   );
 }

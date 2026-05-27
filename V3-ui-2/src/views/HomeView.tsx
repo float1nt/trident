@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Spin } from "antd";
+import { useApi } from "@/hooks/useApi";
 import DataFlowMetricsSection from "@/components/DataFlowMetricsSection";
 import EChartsRingChart from "@/components/EChartsRingChart";
 import { TopologyChartPane } from "@/components/NetworkTopologyPanel";
@@ -8,9 +10,15 @@ import {
   type TimeRange,
 } from "@/api/services/OverviewService";
 import {
-  buildDistributionRingOption,
+  buildProtocolDistributionRingOption,
+  buildTrafficDistributionRingOption,
   type DistributionItem,
 } from "@/utils/chartDistribution";
+import { buildTrafficTrendBarOption } from "@/utils/chartTrafficTrend";
+import {
+  getMockTrafficTrend,
+  getTrafficTrendChartTitle,
+} from "@/mock/overviewTrafficTrend";
 import type { DatasetNetworkTopologyJson } from "@/components/NetworkTopologyPanel";
 
 const CHART_HEIGHT = 280;
@@ -34,11 +42,10 @@ export default function HomeView() {
   const [protocolDist, setProtocolDist] = useState<DistributionItem[]>([]);
   const [networkTopology, setNetworkTopology] =
     useState<DatasetNetworkTopologyJson | null>(null);
-  const [loading, setLoading] = useState(false);
+  const { loading, run } = useApi();
 
   const loadOverview = useCallback(async () => {
-    setLoading(true);
-    try {
+    await run(async () => {
       const [metricsData, distributions, topology] = await Promise.all([
         OverviewService.getMetrics(timeRange),
         OverviewService.getDistributions(timeRange),
@@ -48,24 +55,33 @@ export default function HomeView() {
       setTrafficDist(distributions.traffic);
       setProtocolDist(distributions.protocol);
       setNetworkTopology(topology);
-    } catch (error) {
-      console.error("加载总览数据失败", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [timeRange]);
+    });
+  }, [timeRange, run]);
 
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
 
   const trafficChartOption = useMemo(
-    () => buildDistributionRingOption(trafficDist),
+    () => buildTrafficDistributionRingOption(trafficDist),
     [trafficDist],
   );
   const protocolChartOption = useMemo(
-    () => buildDistributionRingOption(protocolDist),
+    () => buildProtocolDistributionRingOption(protocolDist),
     [protocolDist],
+  );
+
+  const trafficTrendData = useMemo(
+    () => getMockTrafficTrend(timeRange),
+    [timeRange],
+  );
+  const trafficTrendChartOption = useMemo(
+    () => buildTrafficTrendBarOption(trafficTrendData),
+    [trafficTrendData],
+  );
+  const trafficTrendChartTitle = useMemo(
+    () => getTrafficTrendChartTitle(timeRange),
+    [timeRange],
   );
 
   const combinedView = networkTopology?.views.__combined__;
@@ -73,26 +89,35 @@ export default function HomeView() {
   const attackView = networkTopology?.views.__attack__;
 
   return (
-    <div className="h-[calc(100vh-85px)] w-full rounded-[8px] overflow-y-auto">
-      <DataFlowMetricsSection
-        timeRange={timeRange}
-        metrics={metrics}
-        loading={loading}
-        onTimeRangeChange={setTimeRange}
-        onRefresh={() => void loadOverview()}
-      />
+    <Spin spinning={loading} className="block w-full">
+      <div className="h-[calc(100vh-85px)] w-full rounded-[8px] overflow-y-auto">
+        <DataFlowMetricsSection
+          timeRange={timeRange}
+          metrics={metrics}
+          onTimeRangeChange={setTimeRange}
+          onRefresh={() => void loadOverview()}
+        />
       <div className="relative p-[12px] z-10  -mt-[36px] w-full rounded-[16px] bg-[#f6faff]">
         <div className="flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
           <span
             className="h-[16px] w-[3px] shrink-0 rounded-[2px] bg-[#4368f0]"
             aria-hidden
           />
-          整体分布
+          整体概览
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="mt-4 grid grid-cols-1 gap-[12px] lg:grid-cols-[2fr_3fr_2fr]">
           <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
             <h3 className="mb-3 text-[14px] font-medium text-[#333]">流量分布</h3>
             <EChartsRingChart option={trafficChartOption} height={CHART_HEIGHT} />
+          </div>
+          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
+            <h3 className="mb-3 text-[14px] font-medium text-[#333]">
+         {trafficTrendChartTitle}
+            </h3>
+            <EChartsRingChart
+              option={trafficTrendChartOption}
+              height={CHART_HEIGHT}
+            />
           </div>
           <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
             <h3 className="mb-3 text-[14px] font-medium text-[#333]">协议分布</h3>
@@ -106,80 +131,47 @@ export default function HomeView() {
           />
           流量分析
         </div>
-        <div className="mt-4 flex flex-col gap-4">
-          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
-            <h3 className="text-[14px] font-medium text-[#333]">总拓扑</h3>
-            <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-              <TopologyChartPane
-                title="IP（主机）"
-                graph={combinedView?.host}
-                viewIsBenign={combinedView?.is_benign}
-                repulsion={TOPOLOGY_REPULSION}
-                minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                chartHeight={TOPOLOGY_CHART_HEIGHT}
-              />
-              <TopologyChartPane
-                title="IP:端口（服务）"
-                graph={combinedView?.endpoint}
-                viewIsBenign={combinedView?.is_benign}
-                repulsion={TOPOLOGY_REPULSION}
-                minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                chartHeight={TOPOLOGY_CHART_HEIGHT}
-              />
-            </div>
+        <div className="mt-4 grid grid-cols-1 gap-[12px] lg:min-h-[520px] lg:grid-cols-[3fr_2fr] lg:grid-rows-[1fr_1fr] lg:items-stretch">
+          <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px] lg:row-span-2">
+            <TopologyChartPane
+              title="总拓扑"
+              hostGraph={combinedView?.host}
+              endpointGraph={combinedView?.endpoint}
+              viewIsBenign={combinedView?.is_benign}
+              repulsion={TOPOLOGY_REPULSION}
+              minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+              chartHeight={TOPOLOGY_CHART_HEIGHT}
+            />
           </div>
 
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
-              <h3 className="text-[14px] font-medium text-[#333]">良性流量总拓扑</h3>
-              <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                <TopologyChartPane
-                  title="IP（主机）"
-                  graph={benignView?.host}
-                  viewIsBenign={benignView?.is_benign}
-                  repulsion={TOPOLOGY_REPULSION}
-                  minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                  chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
-                  compact
-                />
-                <TopologyChartPane
-                  title="IP:端口（服务）"
-                  graph={benignView?.endpoint}
-                  viewIsBenign={benignView?.is_benign}
-                  repulsion={TOPOLOGY_REPULSION}
-                  minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                  chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
-                  compact
-                />
-              </div>
-            </div>
+          <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
+            <TopologyChartPane
+              title="攻击流量总拓扑"
+              hostGraph={attackView?.host}
+              endpointGraph={attackView?.endpoint}
+              viewIsBenign={attackView?.is_benign}
+              repulsion={TOPOLOGY_REPULSION}
+              minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+              chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
+              compact
+            />
+          </div>
 
-            <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
-              <h3 className="text-[14px] font-medium text-[#333]">攻击流量总拓扑</h3>
-              <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                <TopologyChartPane
-                  title="IP（主机）"
-                  graph={attackView?.host}
-                  viewIsBenign={attackView?.is_benign}
-                  repulsion={TOPOLOGY_REPULSION}
-                  minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                  chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
-                  compact
-                />
-                <TopologyChartPane
-                  title="IP:端口（服务）"
-                  graph={attackView?.endpoint}
-                  viewIsBenign={attackView?.is_benign}
-                  repulsion={TOPOLOGY_REPULSION}
-                  minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                  chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
-                  compact
-                />
-              </div>
-            </div>
+          <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
+            <TopologyChartPane
+              title="良性流量总拓扑"
+              hostGraph={benignView?.host}
+              endpointGraph={benignView?.endpoint}
+              viewIsBenign={benignView?.is_benign}
+              repulsion={TOPOLOGY_REPULSION}
+              minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+              chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
+              compact
+            />
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </Spin>
   );
 }

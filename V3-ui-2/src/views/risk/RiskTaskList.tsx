@@ -1,6 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useApi } from "@/hooks/useApi";
 import { useNavigate } from "react-router-dom";
-import { Table, Input, Button, Space, Tooltip, Tag, Tabs, DatePicker, Card, Typography } from "antd";
+import {
+  Table,
+  Input,
+  Button,
+  Space,
+  Tooltip,
+  Tag,
+  DatePicker,
+  Card,
+  Spin,
+  Typography,
+} from "antd";
+import PageTabs from "@/components/PageTabs";
 import type { Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { IpRiskListItem } from "@/api/types";
@@ -41,7 +54,7 @@ function getInitialViewTab(): RiskViewTab {
 }
 
 const { RangePicker } = DatePicker;
-const { Title, Paragraph } = Typography;
+const { Paragraph } = Typography;
 
 function formatTriggerRange(period: [Dayjs, Dayjs] | null) {
   if (!period?.[0] || !period[1]) {
@@ -65,71 +78,71 @@ const RiskTaskList = () => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
-  const [loading, setLoading] = useState(false);
+  const { loading, run: runIpList } = useApi();
+  const { loading: eventLoading, run: runEventLoad } = useApi();
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
   const [eventTopology, setEventTopology] =
     useState<LearnerNetworkTopologyJson | null>(null);
-  const [eventLoading, setEventLoading] = useState(false);
-  const [eventLoadError, setEventLoadError] = useState<string | null>(null);
+  const [eventIpTotal, setEventIpTotal] = useState(0);
+
+  const eventCardCount = useMemo(() => {
+    if (!eventTopology) return 0;
+    const names = eventTopology.learners?.length
+      ? eventTopology.learners.filter((k) => eventTopology.views[k])
+      : Object.keys(eventTopology.views);
+    return names.length;
+  }, [eventTopology]);
+
+  const loadEventTopology = useCallback(async () => {
+    const ok = await runEventLoad(async () => {
+      const range = formatTriggerRange(eventFilters.triggerPeriod);
+      const [data, ipListRes] = await Promise.all([
+        RiskService.getEventTopology({
+          name: eventFilters.name || undefined,
+          ...range,
+        }),
+        RiskService.listRisks({
+          limit: 1,
+          offset: 0,
+          name: eventFilters.name || undefined,
+        }),
+      ]);
+      setEventTopology(data);
+      setEventIpTotal(ipListRes.total);
+    });
+    if (ok === undefined) {
+      setEventTopology(null);
+      setEventIpTotal(0);
+    }
+  }, [eventFilters, runEventLoad]);
+
+  const getListData = useCallback(
+    async (opts?: { page?: number; nextFilters?: RiskSearchForm }) => {
+      const curPage = opts?.page ?? page;
+      const curFilters = opts?.nextFilters ?? filters;
+      await runIpList(async () => {
+        const response = await RiskService.listRisks({
+          limit: pageSize,
+          offset: (curPage - 1) * pageSize,
+          name: curFilters.name || undefined,
+          subjectIp: curFilters.subjectIp || undefined,
+        });
+        setListdata(response.risks);
+        setTotal(response.total);
+      });
+    },
+    [page, filters, pageSize, runIpList],
+  );
 
   useEffect(() => {
     if (activeView !== "ip") return;
     void getListData();
-  }, [page, filters, activeView]);
+  }, [page, filters, activeView, getListData]);
 
   useEffect(() => {
     if (activeView !== "event") return;
     void loadEventTopology();
-  }, [eventFilters, activeView]);
-
-  const loadEventTopology = async (filters: EventSearchForm = eventFilters) => {
-    setEventLoading(true);
-    setEventLoadError(null);
-    try {
-      const range = formatTriggerRange(filters.triggerPeriod);
-      const data = await RiskService.getEventTopology({
-        name: filters.name || undefined,
-        ...range,
-      });
-      const count = data.learners?.length ?? 0;
-      setEventTopology(data);
-      if (count === 0 && filters.triggerPeriod) {
-        setEventLoadError(
-          "当前触发时段内没有学习器，请点「重置」清空时段或扩大时间范围。",
-        );
-      }
-    } catch (error) {
-      console.error("获取事件拓扑失败", error);
-      setEventTopology(null);
-      setEventLoadError(
-        error instanceof Error
-          ? `加载失败：${error.message}`
-          : "加载失败，请检查网络或后端 trident-api 是否可用。",
-      );
-    } finally {
-      setEventLoading(false);
-    }
-  };
-
-  const getListData = async (opts?: { page?: number; nextFilters?: RiskSearchForm }) => {
-    const curPage = opts?.page ?? page;
-    const curFilters = opts?.nextFilters ?? filters;
-    setLoading(true);
-    try {
-      const response = await RiskService.listRisks({
-        limit: pageSize,
-        offset: (curPage - 1) * pageSize,
-        name: curFilters.name || undefined,
-        subjectIp: curFilters.subjectIp || undefined,
-      });
-      setListdata(response.risks);
-      setTotal(response.total);
-    } catch (error) {
-      console.error("获取风险列表失败", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [eventFilters, activeView, loadEventTopology]);
 
   const handleDetailList = (id: number) => {
     navigate({
@@ -167,7 +180,6 @@ const RiskTaskList = () => {
   const handleEventReset = () => {
     setEventSearchInputs(EMPTY_EVENT_SEARCH);
     setEventFilters(EMPTY_EVENT_SEARCH);
-    setEventLoadError(null);
   };
 
   const handleViewChange = (key: string) => {
@@ -248,11 +260,14 @@ const RiskTaskList = () => {
     },
   ];
 
+  const pageLoading = activeView === "event" ? eventLoading : loading;
+
   return (
     <div className="task-list-page bg-[#f6faff] p-[12px] h-full w-full rounded-[8px]">
-      <div className="flex h-full min-h-0 flex-col gap-[12px]">
-        <div className="rounded-[8px] bg-[#fff] px-[16px] pt-[8px] pb-0 shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-          <Tabs
+      <Spin spinning={pageLoading} wrapperClassName="risk-page-spin">
+        <div className="flex h-full min-h-0 flex-col gap-[12px]">
+        <div className="rounded-[8px] bg-[#fff] px-[16px] py-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+          <PageTabs
             activeKey={activeView}
             onChange={handleViewChange}
             items={[
@@ -299,55 +314,37 @@ const RiskTaskList = () => {
                     }
                   />
                 </div>
-              </div>
-              <div className="mt-3 flex justify-end">
-                <Space>
-                  <Button onClick={handleEventReset}>重置</Button>
-                  <Button type="primary" onClick={handleEventSearch}>
-                    查询
-                  </Button>
-                </Space>
+                <div className="risk-filter-actions">
+                  <Space>
+                    <Button onClick={handleEventReset}>重置</Button>
+                    <Button type="primary" onClick={handleEventSearch}>
+                      查询
+                    </Button>
+                  </Space>
+                </div>
               </div>
             </Card>
-            <Card
-              bordered={false}
-              className="min-h-[420px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
-              styles={{ body: { padding: 16, minHeight: 420 } }}
-              loading={eventLoading && !eventTopology}
-            >
-              <Title level={5} className="!mb-1 !mt-0">
-                风险事件网络拓扑（IP / 端口）
-              </Title>
-              <Paragraph type="secondary" className="!mb-4 text-xs">
-                展示所有有流量的学习器（含 low / medium / high）。若为空，请点「重置」清空触发时段。
-                绿=良性、红=攻击；点击「详情」进入风险详情页。
-                {eventTopology?.learners?.length ? (
-                  <span className="ml-2 text-[#1777ff]">
-                    已加载 {eventTopology.learners.length} 个学习器
-                  </span>
-                ) : null}
-                {eventTopology ? (
-                  <span className="ml-2 text-[#8c8c8c]">
-                    （views={Object.keys(eventTopology.views ?? {}).length}）
-                  </span>
-                ) : null}
-              </Paragraph>
-              <Paragraph type="secondary" className="!mb-2 text-[11px]">
-                调试: loading={String(eventLoading)}; hasData={String(Boolean(eventTopology))}
-                ; learners={eventTopology?.learners?.length ?? 0}; views=
-                {eventTopology ? Object.keys(eventTopology.views ?? {}).length : 0}
-              </Paragraph>
-              {eventLoadError ? (
-                <Paragraph type="danger" className="!mb-3 text-xs">
-                  {eventLoadError}
+            <div className="min-h-0 flex-1 rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+              <div className="risk-event-summary-row">
+                <div className="risk-event-summary">
+                  <span className="risk-event-summary__bar" aria-hidden />
+                  <p className="risk-event-summary__text">
+                    总共
+                    <span className="risk-event-summary__num">{eventCardCount}</span>
+                    类风险，涉及
+                    <span className="risk-event-summary__num">{eventIpTotal}</span>
+                    个风险 IP
+                  </p>
+                </div>
+                <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
+                  绿色代表正常，红色代表攻击。
                 </Paragraph>
-              ) : null}
+              </div>
               <LearnerInternalTopologyPanel
                 data={eventTopology}
                 onRiskClick={handleEventRiskClick}
-                emptyHint={eventLoadError ?? undefined}
               />
-            </Card>
+            </div>
           </>
         ) : (
           <>
@@ -367,14 +364,14 @@ const RiskTaskList = () => {
                   value={searchInputs.subjectIp}
                   onChange={(e) => updateSearchInput("subjectIp", e.target.value)}
                 />
-              </div>
-              <div className="mt-3 flex justify-end">
-                <Space>
-                  <Button onClick={handleReset}>重置</Button>
-                  <Button type="primary" onClick={handleSearch}>
-                    查询
-                  </Button>
-                </Space>
+                <div className="risk-filter-actions">
+                  <Space>
+                    <Button onClick={handleReset}>重置</Button>
+                    <Button type="primary" onClick={handleSearch}>
+                      查询
+                    </Button>
+                  </Space>
+                </div>
               </div>
             </div>
             <div className="min-h-0 flex-1 rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
@@ -384,7 +381,6 @@ const RiskTaskList = () => {
                 dataSource={listdata}
                 rowKey="id"
                 size="middle"
-                loading={loading}
                 pagination={{
                   current: page,
                   pageSize: pageSize,
@@ -398,7 +394,8 @@ const RiskTaskList = () => {
             </div>
           </>
         )}
-      </div>
+        </div>
+      </Spin>
     </div>
   );
 };

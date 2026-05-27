@@ -1,0 +1,35 @@
+.page-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-tabs__item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  height: 32px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 18px;
+  background: transparent;
+  color: #666666;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  cursor: pointer;
+  transition: color 0.2s, background-color 0.2s;
+  white-space: nowrap;
+}
+
+.page-tabs__item:hover:not(.page-tabs__item--active) {
+  color: #333333;
+  background-color: #f5f7fa;
+}
+
+.page-tabs__item--active {
+  background-color: #e8f1ff;
+  color: #1777ff;
+  font-weight: 500;
+}

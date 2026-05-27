@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, useMemo, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Button, Card, Col, Empty, Row, Typography } from "antd";
 import {
   GRID_CHART_HEIGHT,
@@ -13,95 +13,31 @@ const { Text } = Typography;
 
 const TOPOLOGY_REPULSION = 70;
 const TOPOLOGY_MIN_EDGE_FLOWS = 1;
-const NEW_LEARNER_PATTERN = /^NEW[_-]?(\d+)$/i;
 
 export type { LearnerNetworkTopologyJson, LearnerTopologyOption };
 
 type Props = {
   data: LearnerNetworkTopologyJson | null;
   onRiskClick?: (riskId: number) => void;
-  emptyHint?: string;
 };
-
-function formatUnmatchedLearnerName(
-  learnerName: string,
-  isBenign: boolean | null | undefined,
-  attackRatio: number | undefined,
-): string {
-  const m = learnerName.match(NEW_LEARNER_PATTERN);
-  if (!m) return learnerName;
-  const learnerIndex = m[1] ? `（学习器${m[1]}）` : "";
-  const likelyBenign = Boolean(isBenign) || (attackRatio ?? 0) <= 0.35;
-  return likelyBenign
-    ? `良性流量${learnerIndex}`
-    : `待观察流量${learnerIndex}`;
-}
-
-class ChartPaneErrorBoundary extends Component<
-  { children: ReactNode; title: string },
-  { hasError: boolean; message?: string }
-> {
-  state: { hasError: boolean; message?: string } = { hasError: false };
-
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, message: error.message };
-  }
-
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error(`[TopologyChartPane:${this.props.title}]`, error, info);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="rounded border border-dashed border-[#ffd8bf] bg-[#fff7e6] p-2 text-[11px] text-[#ad6800]">
-          {this.props.title} 图渲染失败
-          {this.state.message ? `：${this.state.message}` : ""}
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 function buildSortedLearnerOptions(
   data: LearnerNetworkTopologyJson,
 ): LearnerTopologyOption[] {
-  // 以 views 为主，learners 作为补充，避免 learners 与 views 键名轻微不一致时被筛空
-  const viewKeys = Object.keys(data.views ?? {});
-  const learnerKeys = data.learners ?? [];
-  const names = Array.from(new Set([...viewKeys, ...learnerKeys])).filter(
-    (k) => Boolean(data.views[k]),
-  );
+  const names = data.learners?.length
+    ? data.learners.filter((k) => data.views[k])
+    : Object.keys(data.views);
 
   const items: LearnerTopologyOption[] = names.map((name) => {
     const fromView = data.views[name];
-    const fallbackName = formatUnmatchedLearnerName(
-      name,
-      fromView?.is_benign,
-      fromView?.attack_ratio,
-    );
-    const displayRiskName =
-      fromView?.risk_name && !NEW_LEARNER_PATTERN.test(fromView.risk_name)
-        ? fromView.risk_name
-        : fallbackName;
-    const displayRiskDesc =
-      fromView?.risk_description && !NEW_LEARNER_PATTERN.test(fromView.risk_description)
-        ? fromView.risk_description
-        : fromView?.is_benign
-          ? "当前窗口未命中攻击规则，行为接近正常业务。"
-          : "当前窗口暂未命中明确攻击规则，建议继续观察后续流量。";
     return {
       name,
       riskId: fromView?.risk_id ?? 0,
-      riskName: displayRiskName,
-      riskDescription: displayRiskDesc,
+      riskName: fromView?.risk_name ?? name,
+      riskDescription: fromView?.risk_description ?? "—",
       triggerTime: fromView?.trigger_time ?? "—",
       attackRatio: fromView?.attack_ratio ?? 0,
-      dominantLabel:
-        fromView?.dominant_label && !NEW_LEARNER_PATTERN.test(fromView.dominant_label)
-          ? fromView.dominant_label
-          : displayRiskName,
+      dominantLabel: fromView?.dominant_label ?? "—",
       flowCount: fromView?.host?.flow_count ?? fromView?.endpoint?.flow_count,
     };
   });
@@ -127,54 +63,23 @@ function EventCardInfoItem({
 }
 
 /** 事件视角 — 学习器网络拓扑网格 */
-export function LearnerInternalTopologyPanel({
-  data,
-  onRiskClick,
-  emptyHint,
-}: Props) {
+export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
   const sortedOptions = useMemo(() => {
     if (!data) return [] as LearnerTopologyOption[];
     return buildSortedLearnerOptions(data);
   }, [data]);
 
-  if (!data) {
+  if (!data || sortedOptions.length === 0) {
     return (
       <Empty
-        description={
-          emptyHint ??
-          "暂无学习器拓扑数据（build-debug-1908）。请点「重置」清空触发时段，或确认 /api/risk/events/topology 返回 learners/views 非空。"
-        }
-        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10"
-      />
-    );
-  }
-
-  const learnerNames = data.learners ?? [];
-  const viewCount = Object.keys(data.views ?? {}).length;
-  const missingViews = learnerNames.filter((name) => !data.views[name]);
-  if (sortedOptions.length === 0 && (learnerNames.length > 0 || viewCount > 0)) {
-    return (
-      <Empty
-        description={`渲染后为 0 项（learners=${learnerNames.length}, views=${viewCount}, 缺失views=${missingViews.length}），请检查前端过滤逻辑与后端键名一致性。`}
-        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10"
-      />
-    );
-  }
-
-  if (sortedOptions.length === 0) {
-    return (
-      <Empty
-        description={
-          emptyHint ??
-          `暂无学习器拓扑数据（build-debug-1908，learners=${learnerNames.length}，views=${viewCount}）。请点「重置」清空触发时段，或确认 /api/risk/events/topology 返回 learners/views 非空。`
-        }
-        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10"
+        description="暂无学习器拓扑数据，请调整筛选条件后重试。"
+        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] h-[calc(100vh-325px)] pt-[20px] !m-0"
       />
     );
   }
 
   return (
-    <div className="space-y-3 pb-2">
+    <div className="space-y-3">
 
       <Row gutter={[8, 8]}>
         {sortedOptions.map((option) => {
@@ -221,42 +126,10 @@ export function LearnerInternalTopologyPanel({
                   body: { padding: "8px 8px 4px" },
                 }}
               >
-                <Text
-                  type="secondary"
-                  ellipsis={{ tooltip: metaText }}
-                  className="mb-1 mt-0.5 block text-[10px] leading-tight"
-                >
-                  {metaText}
-                </Text>
-                <Row gutter={4} className="pointer-events-none">
-                  <Col span={12}>
-                    <ChartPaneErrorBoundary title="IP">
-                      <TopologyChartPane
-                        title="IP"
-                        graph={gridView.host}
-                        viewIsBenign={gridView.is_benign}
-                        repulsion={TOPOLOGY_REPULSION}
-                        minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                        chartHeight={GRID_CHART_HEIGHT}
-                        compact
-                      />
-                    </ChartPaneErrorBoundary>
-                  </Col>
-                  <Col span={12}>
-                    <ChartPaneErrorBoundary title="端口">
-                      <TopologyChartPane
-                        title="端口"
-                        graph={gridView.endpoint}
-                        viewIsBenign={gridView.is_benign}
-                        repulsion={TOPOLOGY_REPULSION}
-                        minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                        chartHeight={GRID_CHART_HEIGHT}
-                        compact
-                      />
-                    </ChartPaneErrorBoundary>
-                  </Col>
-                </Row>
-                <EventCardInfoItem label="风险说明">
+                 <EventCardInfoItem label="">
+                  {option.triggerTime}
+                </EventCardInfoItem>
+                   <EventCardInfoItem label="">
                   <span
                     className="line-clamp-2 text-[11px] leading-[16px]"
                     title={option.riskDescription}
@@ -264,9 +137,23 @@ export function LearnerInternalTopologyPanel({
                     {option.riskDescription}
                   </span>
                 </EventCardInfoItem>
-                <EventCardInfoItem label="风险触发时间">
-                  {option.triggerTime}
-                </EventCardInfoItem>
+               
+                <Text
+                  type="secondary"
+                  ellipsis={{ tooltip: metaText }}
+                  className="mb-1 mt-0.5 block text-[10px] leading-tight"
+                >
+                  {metaText}
+                </Text>
+                <TopologyChartPane
+                  hostGraph={gridView.host}
+                  endpointGraph={gridView.endpoint}
+                  viewIsBenign={null}
+                  repulsion={TOPOLOGY_REPULSION}
+                  minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+                  chartHeight={GRID_CHART_HEIGHT}
+                  compact
+                />
               </Card>
             </Col>
           );

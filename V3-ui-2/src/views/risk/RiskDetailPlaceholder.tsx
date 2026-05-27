@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useApi } from "@/hooks/useApi";
 import { useSearchParams } from "react-router-dom";
 import { Tag, Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -103,7 +104,7 @@ export default function RiskDetailPlaceholder() {
   const riskId = searchParams.get("id");
   const numericId = riskId ? Number(riskId) : NaN;
 
-  const [loading, setLoading] = useState(false);
+  const { loading, run } = useApi();
   const [risk, setRisk] = useState<RiskDetail | null>(null);
   const [networkTopology, setNetworkTopology] =
     useState<DatasetNetworkTopologyJson | null>(null);
@@ -119,8 +120,7 @@ export default function RiskDetailPlaceholder() {
     }
 
     const load = async () => {
-      setLoading(true);
-      try {
+      const ok = await run(async () => {
         const [detail, topology, ips, logs] = await Promise.all([
           RiskService.getRiskById(numericId),
           RiskService.getRiskNetworkTopology(numericId),
@@ -131,16 +131,14 @@ export default function RiskDetailPlaceholder() {
         setNetworkTopology(topology);
         setRiskIpList(ips);
         setTrafficLogs(logs);
-      } catch (error) {
-        console.error("加载风险详情失败", error);
+      });
+      if (ok === undefined) {
         setRisk(null);
-      } finally {
-        setLoading(false);
       }
     };
 
     void load();
-  }, [riskId, numericId]);
+  }, [riskId, numericId, run]);
 
   useEffect(() => {
     setRiskIpPage(1);
@@ -220,24 +218,14 @@ export default function RiskDetailPlaceholder() {
                   网络拓扑（IP / 端口）
                 </h3>
                 {topologyView ? (
-                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-                    <TopologyChartPane
-                      title="IP（主机）"
-                      graph={topologyView.host}
-                      viewIsBenign={topologyView.is_benign}
-                      repulsion={TOPOLOGY_REPULSION}
-                      minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                      chartHeight={CHART_HEIGHT}
-                    />
-                    <TopologyChartPane
-                      title="IP:端口（服务）"
-                      graph={topologyView.endpoint}
-                      viewIsBenign={topologyView.is_benign}
-                      repulsion={TOPOLOGY_REPULSION}
-                      minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                      chartHeight={CHART_HEIGHT}
-                    />
-                  </div>
+                  <TopologyChartPane
+                    hostGraph={topologyView.host}
+                    endpointGraph={topologyView.endpoint}
+                    viewIsBenign={topologyView.is_benign}
+                    repulsion={TOPOLOGY_REPULSION}
+                    minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+                    chartHeight={CHART_HEIGHT}
+                  />
                 ) : (
                   <p className="text-sm text-[#8c8c8c]">暂无拓扑数据</p>
                 )}

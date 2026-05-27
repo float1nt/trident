@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useApi } from "@/hooks/useApi";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Tag, Table, Button, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -104,7 +105,7 @@ export default function IpDetailPlaceholder() {
   const [searchParams] = useSearchParams();
   const ip = searchParams.get("ip")?.trim() ?? "";
 
-  const [loading, setLoading] = useState(false);
+  const { loading, run } = useApi();
   const [summary, setSummary] = useState<IpSummary | null>(null);
   const [ipRiskEventTopology, setIpRiskEventTopology] =
     useState<LearnerNetworkTopologyJson | null>(null);
@@ -120,8 +121,7 @@ export default function IpDetailPlaceholder() {
     }
 
     const load = async () => {
-      setLoading(true);
-      try {
+      const ok = await run(async () => {
         const [summaryData, topology, events, logs] = await Promise.all([
           RiskService.getIpSummary(ip),
           RiskService.getIpEventsTopology(ip),
@@ -132,16 +132,14 @@ export default function IpDetailPlaceholder() {
         setIpRiskEventTopology(topology);
         setRiskEvents(events);
         setTrafficLogs(logs);
-      } catch (error) {
-        console.error("加载 IP 详情失败", error);
+      });
+      if (ok === undefined) {
         setSummary(null);
-      } finally {
-        setLoading(false);
       }
     };
 
     void load();
-  }, [ip]);
+  }, [ip, run]);
 
   useEffect(() => {
     setRiskEventPage(1);

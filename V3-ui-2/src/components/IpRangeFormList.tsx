@@ -1,6 +1,7 @@
-import { Button, Form, Input, Space } from "antd";
+import { Button, Form, Input } from "antd";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import type { FormListFieldData } from "antd/es/form";
+import "./IpRangeFormList.css";
 
 const IPV4_REGEX =
   /^((25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
@@ -31,7 +32,7 @@ function IpRangeRow({
   canRemove: boolean;
 }) {
   return (
-    <Space align="start" className="mb-2 flex w-full">
+    <div className="ip-range-row">
       <Form.Item
         {...field}
         name={[field.name, "startIp"]}
@@ -44,13 +45,15 @@ function IpRangeRow({
             },
           },
         ]}
-        className="mb-0 flex-1"
+        className="ip-range-row__field"
         label="起始 IP"
         colon={false}
       >
         <Input placeholder="例如 10.0.0.0" allowClear />
       </Form.Item>
-      <span className="mt-[34px] text-[#bfbfbf]">—</span>
+      <span className="ip-range-row__sep" aria-hidden>
+        —
+      </span>
       <Form.Item
         {...field}
         name={[field.name, "endIp"]}
@@ -63,22 +66,25 @@ function IpRangeRow({
             },
           },
         ]}
-        className="mb-0 flex-1"
+        className="ip-range-row__field"
         label="结束 IP"
         colon={false}
       >
         <Input placeholder="例如 10.255.255.255" allowClear />
       </Form.Item>
       {canRemove ? (
-        <MinusCircleOutlined
-          className="mt-[34px] cursor-pointer text-base text-[#ff4d4f]"
+        <button
+          type="button"
+          className="ip-range-row__delete"
           onClick={() => remove(field.name)}
           aria-label="删除该 IP 范围"
-        />
+        >
+          <MinusCircleOutlined />
+        </button>
       ) : (
-        <span className="mt-[34px] inline-block w-4" aria-hidden />
+        <span className="ip-range-row__delete-placeholder" aria-hidden />
       )}
-    </Space>
+    </div>
   );
 }
 

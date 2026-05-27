@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { getCurrentUser } from "@/api/services/AuthService";
+import { runApi } from "@/hooks/useApi";
 
 interface UserInfo {
     companyName: string;
@@ -56,21 +57,20 @@ export const useUserStore = create<UserState>()(
                 return;
             }
 
-            try {
-                const response = await getCurrentUser();
-                if (response.data && response.data.user) {
-                    const { username, nickname } = response.data.user;
-                    const uname = username ?? "";
-                    const nname = nickname ?? "";
-                    get().setUserInfo({
-                        username: uname,
-                        nickname: nname,
-                        companyName: nname || uname || "石犀科技",
-                    });
-                }
-            } catch (error) {
-                console.error("获取用户信息失败:", error);
-                // 如果获取失败，可能是 token 过期，清除本地存储
+            const response = await runApi(
+                () => getCurrentUser(),
+                { successMessage: false },
+            );
+            if (response?.data?.user) {
+                const { username, nickname } = response.data.user;
+                const uname = username ?? "";
+                const nname = nickname ?? "";
+                get().setUserInfo({
+                    username: uname,
+                    nickname: nname,
+                    companyName: nname || uname || "石犀科技",
+                });
+            } else if (response === undefined) {
                 localStorage.removeItem("token");
                 localStorage.removeItem("userInfo");
             }
