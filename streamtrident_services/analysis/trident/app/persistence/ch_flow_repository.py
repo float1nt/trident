@@ -112,6 +112,7 @@ SELECT
     dst_port,
     protocol,
     app_proto,
+    total_bytes,
     feature_profile,
     features_json,
     assigned_learner,
@@ -330,18 +331,74 @@ FORMAT JSONEachRow
         sql = f"""
 SELECT
     count() AS total_flows,
-    uniqExact({main_protocol}) AS protocol_count,
+    sum(flow_total_bytes) AS total_bytes,
+    uniqExact(main_protocol) AS protocol_count,
     countIf({abnormal}) AS risk_flows,
     countIf(NOT ({abnormal})) AS normal_flows,
+    sumIf(flow_total_bytes, {abnormal}) AS risk_bytes,
+    sumIf(flow_total_bytes, NOT ({abnormal})) AS normal_bytes,
     uniqExactIf(src_ip, {abnormal}) AS risk_ip_count,
     max(window_index) AS current_window_index
-FROM ch_flow FINAL
-{where}
+FROM (
+    SELECT
+        total_bytes AS flow_total_bytes,
+        {main_protocol} AS main_protocol,
+        is_unknown,
+        assigned_learner,
+        src_ip,
+        window_index
+    FROM ch_flow FINAL
+    {where}
+)
 FORMAT JSONEachRow
 """
         text = self.client.execute(sql)
         rows = [_parse_json(line) for line in text.splitlines() if line.strip()]
         return rows[0] if rows else {}
+
+    def traffic_trend(
+        self,
+        *,
+        session_id: str,
+        risk_learners: list[str],
+        bucket: str,
+        time_from: str | None = None,
+        time_to: str | None = None,
+    ) -> list[dict[str, Any]]:
+        bucket_expr = {
+            "hour": "toStartOfHour(event_time)",
+            "day": "toStartOfDay(event_time)",
+            "week": "toStartOfWeek(event_time, 1)",
+        }.get(bucket)
+        if bucket_expr is None:
+            raise ValueError(f"unsupported traffic trend bucket: {bucket}")
+        where = _where(
+            [
+                f"session_id = {_quote(session_id)}",
+                _time_filter("event_time", time_from, time_to),
+            ]
+        )
+        abnormal = _abnormal_expr(risk_learners)
+        sql = f"""
+SELECT
+    formatDateTime(bucket_start, '%Y-%m-%d %H:%M:%S') AS bucket_start,
+    sumIf(total_bytes, NOT ({abnormal})) AS normal,
+    sumIf(total_bytes, {abnormal}) AS abnormal
+FROM (
+    SELECT
+        {bucket_expr} AS bucket_start,
+        total_bytes,
+        is_unknown,
+        assigned_learner
+    FROM ch_flow FINAL
+    {where}
+)
+GROUP BY bucket_start
+ORDER BY bucket_start ASC
+FORMAT JSONEachRow
+"""
+        text = self.client.execute(sql)
+        return [row for line in text.splitlines() if line.strip() for row in [_parse_json(line)]]
 
     def protocol_distribution(
         self,

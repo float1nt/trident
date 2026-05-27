@@ -7,7 +7,11 @@ from app.runtime.online_engine import FlowAssignment
 
 
 def test_assignment_update_preserves_base_row_and_increments_version() -> None:
-    message = RedisStreamMessage("suricata:cic_flow", "1000-0", {"dst_port": "443", "app_proto": "tls"})
+    message = RedisStreamMessage(
+        "suricata:cic_flow",
+        "1000-0",
+        {"dst_port": "443", "app_proto": "tls", "total_bytes": "2048"},
+    )
     record = FlowLoader(session_id="s1", feature_profile="compact").load(message)
     assignment = FlowAssignment(
         flow_uid=record.flow_uid,
@@ -25,6 +29,7 @@ def test_assignment_update_preserves_base_row_and_increments_version() -> None:
     assert row["flow_uid"] == record.flow_uid
     assert row["dst_port"] == 443
     assert row["app_proto"] == "tls"
+    assert row["total_bytes"] == 2048
     assert row["assigned_learner"] == "BASELINE_0"
     assert row["record_stage"] == "assigned"
     assert row["record_version"] == 1001

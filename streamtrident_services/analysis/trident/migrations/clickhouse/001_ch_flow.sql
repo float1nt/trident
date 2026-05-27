@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS ch_flow (
     src_port UInt16,
     dst_port UInt16,
     protocol UInt16,
+    total_bytes UInt64 DEFAULT 0,
     feature_profile LowCardinality(String) DEFAULT 'compact_stats_no_env',
     features_json String DEFAULT '{}',
     assigned_learner String DEFAULT '',

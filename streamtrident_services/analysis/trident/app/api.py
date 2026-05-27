@@ -115,6 +115,12 @@ def create_app(config_path: str | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         return _ok(_pages(cfg).overview_distributions(time_range=timeRange))
 
+    @app.get("/overview/traffic-trend", response_model=ApiResponse)
+    def overview_traffic_trend(
+        timeRange: str = "24h",
+    ) -> dict[str, Any]:
+        return _ok(_pages(cfg).overview_traffic_trend(time_range=timeRange))
+
     @app.get("/overview/network-topology", response_model=ApiResponse)
     def overview_network_topology(
         timeRange: str = "24h",

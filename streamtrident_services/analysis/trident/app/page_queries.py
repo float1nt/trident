@@ -66,13 +66,14 @@ class PageQueryService:
         return {
             "metrics": {
                 "total_flows": int(summary.get("total_flows") or 0),
+                "total_bytes": int(summary.get("total_bytes") or 0),
                 "protocol_count": int(summary.get("protocol_count") or 0),
                 "risk_learner_count": len(risk_names),
                 "risk_ip_count": int(summary.get("risk_ip_count") or 0),
             },
             "traffic_distribution": [
-                {"name": "正常流量", "value": int(summary.get("normal_flows") or 0)},
-                {"name": "疑似异常流量", "value": int(summary.get("risk_flows") or 0)},
+                {"name": "正常流量", "value": int(summary.get("normal_bytes") or 0)},
+                {"name": "疑似异常流量", "value": int(summary.get("risk_bytes") or 0)},
             ],
             "protocol_distribution": protocol_distribution,
             "runtime": {
@@ -88,7 +89,7 @@ class PageQueryService:
         overview = self.dashboard_overview(time_from=time_from)
         metrics = overview["metrics"]
         return {
-            "totalTraffic": int(metrics["total_flows"]),
+            "totalTraffic": int(metrics["total_bytes"]),
             "protocolCount": int(metrics["protocol_count"]),
             "riskTypeCount": int(metrics["risk_learner_count"]),
             "suspiciousIpCount": int(metrics["risk_ip_count"]),
@@ -101,6 +102,34 @@ class PageQueryService:
             "traffic": overview["traffic_distribution"],
             "protocol": overview["protocol_distribution"],
         }
+
+    def overview_traffic_trend(self, *, time_range: str = "24h") -> list[dict[str, Any]]:
+        sid = self.session_id
+        spec = _traffic_trend_spec(time_range)
+        learner_rows = self.learners.list_learners(session_id=sid)
+        risk_names = _risk_learner_names(learner_rows)
+        rows = self.flows.traffic_trend(
+            session_id=sid,
+            risk_learners=risk_names,
+            bucket=spec["bucket"],
+            time_from=spec["time_from"],
+            time_to=spec["time_to"],
+        )
+        by_bucket = {
+            str(row.get("bucket_start") or ""): {
+                "normal": int(row.get("normal") or 0),
+                "abnormal": int(row.get("abnormal") or 0),
+            }
+            for row in rows
+        }
+        return [
+            {
+                "label": item["label"],
+                "normal": by_bucket.get(item["key"], {}).get("normal", 0),
+                "abnormal": by_bucket.get(item["key"], {}).get("abnormal", 0),
+            }
+            for item in spec["buckets"]
+        ]
 
     def risk_events(
         self,
@@ -718,6 +747,69 @@ def _time_range_start(value: str) -> str | None:
     else:
         start = now - timedelta(hours=24)
     return start.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _traffic_trend_spec(value: str) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    if value == "7d":
+        start = today - timedelta(days=6)
+        buckets = [
+            {
+                "key": _bucket_key(start + timedelta(days=index)),
+                "label": (start + timedelta(days=index)).strftime("%m-%d"),
+            }
+            for index in range(7)
+        ]
+        return {
+            "bucket": "day",
+            "time_from": _iso_z(start),
+            "time_to": _iso_z(now),
+            "buckets": buckets,
+        }
+
+    if value == "30d":
+        first_day = today - timedelta(days=29)
+        start = first_day - timedelta(days=first_day.weekday())
+        bucket_count = int(((today - start).days // 7) + 1)
+        buckets = [
+            {
+                "key": _bucket_key(start + timedelta(days=index * 7)),
+                "label": (start + timedelta(days=index * 7)).strftime("%m-%d"),
+            }
+            for index in range(bucket_count)
+        ]
+        return {
+            "bucket": "week",
+            "time_from": _iso_z(start),
+            "time_to": _iso_z(now),
+            "buckets": buckets,
+        }
+
+    start = current_hour - timedelta(hours=23)
+    buckets = [
+        {
+            "key": _bucket_key(start + timedelta(hours=index)),
+            "label": (start + timedelta(hours=index)).strftime("%H:00"),
+        }
+        for index in range(24)
+    ]
+    return {
+        "bucket": "hour",
+        "time_from": _iso_z(start),
+        "time_to": _iso_z(now),
+        "buckets": buckets,
+    }
+
+
+def _iso_z(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _bucket_key(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _risk_item_from_learner(
