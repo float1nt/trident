@@ -285,14 +285,14 @@ const RiskTaskList = () => {
                     }
                   />
                 </div>
-              </div>
-              <div className="mt-3 flex justify-end">
-                <Space>
-                  <Button onClick={handleEventReset}>重置</Button>
-                  <Button type="primary" onClick={handleEventSearch}>
-                    查询
-                  </Button>
-                </Space>
+                <div className="risk-filter-actions">
+                  <Space>
+                    <Button onClick={handleEventReset}>重置</Button>
+                    <Button type="primary" onClick={handleEventSearch}>
+                      查询
+                    </Button>
+                  </Space>
+                </div>
               </div>
             </Card>
             <Card
@@ -331,14 +331,14 @@ const RiskTaskList = () => {
                   value={searchInputs.subjectIp}
                   onChange={(e) => updateSearchInput("subjectIp", e.target.value)}
                 />
-              </div>
-              <div className="mt-3 flex justify-end">
-                <Space>
-                  <Button onClick={handleReset}>重置</Button>
-                  <Button type="primary" onClick={handleSearch}>
-                    查询
-                  </Button>
-                </Space>
+                <div className="risk-filter-actions">
+                  <Space>
+                    <Button onClick={handleReset}>重置</Button>
+                    <Button type="primary" onClick={handleSearch}>
+                      查询
+                    </Button>
+                  </Space>
+                </div>
               </div>
             </div>
             <div className="min-h-0 flex-1 rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
