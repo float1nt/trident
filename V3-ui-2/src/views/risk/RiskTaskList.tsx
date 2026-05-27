@@ -14,13 +14,11 @@ import "./RiskTaskList.css";
 type RiskSearchForm = {
   name: string;
   subjectIp: string;
-  triggerTime: string;
 };
 
 const EMPTY_SEARCH: RiskSearchForm = {
   name: "",
   subjectIp: "",
-  triggerTime: "",
 };
 
 type EventSearchForm = {
@@ -81,7 +79,6 @@ const RiskTaskList = () => {
         offset: (curPage - 1) * pageSize,
         name: curFilters.name,
         subjectIp: curFilters.subjectIp,
-        triggerTime: curFilters.triggerTime,
       });
       setListdata(response.risks);
       setTotal(response.total);
@@ -171,37 +168,6 @@ const RiskTaskList = () => {
         ),
     },
     {
-      title: "触发时间",
-      dataIndex: "triggerTime",
-      key: "triggerTime",
-      width: 170,
-      align: "center",
-    },
-    {
-      title: "风险说明",
-      dataIndex: "description",
-      key: "description",
-      width: 280,
-      align: "center",
-      render: (text: string) => (
-        <TextWithTooltip
-          text={text || ""}
-          emptyText="-"
-          className="text-gray-600"
-        />
-      ),
-    },
-    {
-      title: "风险特征",
-      dataIndex: "features",
-      key: "features",
-      width: 220,
-      align: "center",
-      render: (text: string) => (
-        <TextWithTooltip text={text || ""} emptyText="-" />
-      ),
-    },
-    {
       title: "操作",
       key: "action",
       width: 100,
@@ -212,9 +178,10 @@ const RiskTaskList = () => {
           <Button
             variant="link"
             color="primary"
-            icon={<EyeOutlined />}
             onClick={() => handleIpDetail(record.subjectIp)}
-          />
+          >
+            详情
+          </Button>
         </Tooltip>
       ),
     },
@@ -316,13 +283,6 @@ const RiskTaskList = () => {
                   value={searchInputs.subjectIp}
                   onChange={(e) => updateSearchInput("subjectIp", e.target.value)}
                 />
-                <Input
-                  className="risk-filter-field"
-                  prefix="触发时间"
-                  placeholder="请输入"
-                  value={searchInputs.triggerTime}
-                  onChange={(e) => updateSearchInput("triggerTime", e.target.value)}
-                />
               </div>
               <div className="mt-3 flex justify-end">
                 <Space>
@@ -348,7 +308,7 @@ const RiskTaskList = () => {
                   showTotal: (t) => `共 ${t} 条`,
                   onChange: setPage,
                 }}
-                scroll={{ x: 1100, y: "calc(100vh - 420px)" }}
+                scroll={{ x: 480, y: "calc(100vh - 420px)" }}
                 bordered
               />
             </div>

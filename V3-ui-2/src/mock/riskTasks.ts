@@ -109,7 +109,6 @@ export interface MockRiskListParams {
   name?: string;
   subjectIp?: string;
   description?: string;
-  triggerTime?: string;
 }
 
 export interface MockRiskListResult {
@@ -126,7 +125,6 @@ export function fetchMockRiskList(
       const name = (params.name ?? "").trim().toLowerCase();
       const subjectIp = (params.subjectIp ?? "").trim().toLowerCase();
       const description = (params.description ?? "").trim().toLowerCase();
-      const triggerTime = (params.triggerTime ?? "").trim().toLowerCase();
 
       let filtered = mockRisks;
       if (name) {
@@ -142,11 +140,6 @@ export function fetchMockRiskList(
       if (description) {
         filtered = filtered.filter((r) =>
           r.description.toLowerCase().includes(description)
-        );
-      }
-      if (triggerTime) {
-        filtered = filtered.filter((r) =>
-          r.triggerTime.toLowerCase().includes(triggerTime)
         );
       }
       const total = filtered.length;
