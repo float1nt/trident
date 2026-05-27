@@ -243,7 +243,7 @@
 
 #### GET `/overview/network-topology`
 
-总览页网络拓扑（合计 / 良性 / 攻击 三视图）。
+总览页网络拓扑（混合 / 良性 / 攻击 三视图）。
 
 **Query：** `timeRange`（同上）
 
@@ -692,7 +692,7 @@
 |------|------|------|
 | `label` | string | 视图标识 |
 | `view_kind` | string | 可选，`"label"` \| `"aggregate"` |
-| `is_benign` | boolean \| null | `null`=合计，`true`=良性，`false`=攻击 |
+| `is_benign` | boolean \| null | `null`=混合，`true`=良性，`false`=攻击 |
 | `host` | TopologyGraph | IP（主机）拓扑 |
 | `endpoint` | TopologyGraph | IP:端口（服务）拓扑 |
 

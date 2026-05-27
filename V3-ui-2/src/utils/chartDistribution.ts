@@ -12,6 +12,7 @@ import {
   pickOverviewChartGradient,
   toEChartsLinearGradient,
 } from "@/utils/chartGradient";
+import { formatTrafficVolumeText } from "@/utils/formatTotalTraffic";
 
 export type DistributionItem = {
   name: string;
@@ -85,7 +86,7 @@ export function buildDistributionRingOption(
             ? Number(params.value ?? 0)
             : 0;
         const ratio = total > 0 ? (value / total) * 100 : 0;
-        return `${name}<br/>占比: ${ratio.toFixed(1)}%<br/>数量: ${value.toLocaleString("zh-CN")}`;
+        return `${name}<br/>占比: ${ratio.toFixed(1)}%<br/>流量: ${formatTrafficVolumeText(value)}`;
       },
     },
     legend: {

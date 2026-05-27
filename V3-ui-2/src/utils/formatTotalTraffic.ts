@@ -36,6 +36,12 @@ export function formatTotalTrafficBytes(bytes: number): FormattedTrafficVolume {
   };
 }
 
+/** 图表/tooltip 等场景：格式化为「数值 + 单位」文本 */
+export function formatTrafficVolumeText(bytes: number): string {
+  const { value, unit } = formatTotalTrafficBytes(bytes);
+  return unit ? `${value} ${unit}` : value;
+}
+
 /** 数量单位换算：个 / 万个 / 亿个（10000 进位） */
 export function formatMetricCount(count: number): FormattedTrafficVolume {
   const n = Math.max(0, Number(count) || 0);

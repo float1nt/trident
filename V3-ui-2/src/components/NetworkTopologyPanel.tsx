@@ -17,6 +17,10 @@ export type TopologyNode = {
   port: number | null;
   flow_count: number;
   is_internal: boolean;
+  /** 节点关联协议列表（可选，后端扩展字段） */
+  protocols?: string[];
+  /** 节点主协议（可选，后端扩展字段） */
+  protocol?: string;
 };
 
 export type TopologyLink = {
@@ -24,6 +28,10 @@ export type TopologyLink = {
   target: string;
   value: number;
   is_benign?: boolean;
+  /** 边关联协议列表（可选，后端扩展字段） */
+  protocols?: string[];
+  /** 边主协议（可选，后端扩展字段） */
+  protocol?: string;
 };
 
 export type TopologyGraph = {
@@ -59,7 +67,11 @@ type GraphNode = {
   name: string;
   value: number;
   flow_count: number;
+  ip: string;
+  port: number | null;
   is_internal: boolean;
+  protocols?: string[];
+  protocol?: string;
   symbolSize: number;
   itemStyle: { color: string; borderColor: string; borderWidth: number };
 };
@@ -130,7 +142,11 @@ function buildGraphData(
       name: n.id,
       value: n.flow_count,
       flow_count: n.flow_count,
+      ip: n.ip,
+      port: n.port,
       is_internal: n.is_internal,
+      protocols: n.protocols,
+      protocol: n.protocol,
       symbolSize: Math.max(minSize, Math.min(size, maxSize)),
       itemStyle: {
         color: n.is_internal
@@ -174,6 +190,58 @@ function buildGraphData(
   return { nodes, links };
 }
 
+function formatTrafficAnalysisLabel(
+  viewIsBenign: boolean | null | undefined,
+): string {
+  if (viewIsBenign === true) return "良性";
+  if (viewIsBenign === false) return "攻击";
+  return "混合";
+}
+
+function formatNodeProtocols(node: Pick<TopologyNode, "protocols" | "protocol">): string {
+  if (Array.isArray(node.protocols) && node.protocols.length > 0) {
+    return node.protocols.join("、");
+  }
+  if (node.protocol) {
+    return node.protocol;
+  }
+  return "—";
+}
+
+function formatNodeTooltip(
+  node: TopologyNode,
+  viewIsBenign: boolean | null | undefined,
+): string {
+  const ipLabel = node.port != null ? node.id : node.ip;
+  return [
+    ipLabel,
+    `访问次数:${node.flow_count.toLocaleString("zh-CN")}`,
+    `流量分析:${formatTrafficAnalysisLabel(viewIsBenign)}`,
+    `协议:${formatNodeProtocols(node)}`,
+  ].join("<br/>");
+}
+
+function formatEdgeTrafficAnalysisLabel(
+  edge: TopologyLink,
+  viewIsBenign: boolean | null | undefined,
+): string {
+  if (edge.is_benign === true) return "良性";
+  if (edge.is_benign === false) return "攻击";
+  return formatTrafficAnalysisLabel(viewIsBenign);
+}
+
+function formatEdgeTooltip(
+  edge: TopologyLink,
+  viewIsBenign: boolean | null | undefined,
+): string {
+  return [
+    `${edge.source} → ${edge.target}`,
+    `访问次数:${edge.value.toLocaleString("zh-CN")}`,
+    `流量分析:${formatEdgeTrafficAnalysisLabel(edge, viewIsBenign)}`,
+    `协议:${formatNodeProtocols(edge)}`,
+  ].join("<br/>");
+}
+
 function buildChartOption(
   graphData: { nodes: GraphNode[]; links: GraphLink[] },
   repulsion: number,
@@ -198,22 +266,11 @@ function buildChartOption(
           data?: GraphNode | GraphLink;
         };
         if (p.dataType === "edge" && p.data) {
-          const e = p.data as GraphLink;
-          const benign =
-            e.is_benign !== undefined ? e.is_benign : Boolean(viewIsBenign);
-          return [
-            `<b>${e.source} → ${e.target}</b>`,
-            `flows=${e.value.toLocaleString()}`,
-            `type=${benign ? "良性" : "攻击"}`,
-          ].join("<br/>");
+          return formatEdgeTooltip(p.data as GraphLink, viewIsBenign);
         }
         if (p.data) {
           const node = p.data as GraphNode;
-          return [
-            `<b>${node.id}</b>`,
-            `flows=${node.flow_count.toLocaleString()}`,
-            `scope=${node.is_internal ? "内网" : "外网"}`,
-          ].join("<br/>");
+          return formatNodeTooltip(node, viewIsBenign);
         }
         return "";
       },
@@ -307,7 +364,7 @@ function TopologyGraphModeToggle({
           <Button
             key={mode}
             type="default"
-            size={compact ? "small" : "middle"}
+            size={compact ? "small" : "small"}
             className={selected ? "ant-btn-topology-selected" : undefined}
             onClick={() => onChange(mode)}
           >
