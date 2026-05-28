@@ -1,5 +1,5 @@
 import type { EChartsOption } from "echarts";
-import type { TrafficTrendPoint } from "@/mock/overviewTrafficTrend";
+import type { TrafficTrendPoint } from "@/api/services/OverviewService";
 import {
   TRAFFIC_ABNORMAL_GRADIENT,
   TRAFFIC_NORMAL_GRADIENT,
@@ -8,17 +8,35 @@ import {
   TRAFFIC_NORMAL_LABEL,
   TRAFFIC_SUSPECTED_ABNORMAL_LABEL,
 } from "@/constants/overviewTrafficColors";
+import {
+  formatTotalTrafficBytes,
+  formatTrafficVolumeText,
+} from "@/utils/formatTotalTraffic";
 import { toEChartsLinearGradient } from "@/utils/chartGradient";
 
 const TRAFFIC_NORMAL_FILL = toEChartsLinearGradient(TRAFFIC_NORMAL_GRADIENT);
 const TRAFFIC_ABNORMAL_FILL = toEChartsLinearGradient(TRAFFIC_ABNORMAL_GRADIENT);
+const BYTE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
-/** 构建正常 / 异常流量堆叠柱状图 */
+function trafficTrendYAxisScale(maxBytes: number): { divisor: number; unit: string } {
+  const { unit } = formatTotalTrafficBytes(maxBytes);
+  const unitIndex = Math.max(0, BYTE_UNITS.indexOf(unit as (typeof BYTE_UNITS)[number]));
+  const divisor = unitIndex === 0 ? 1 : 1024 ** unitIndex;
+  return { divisor, unit };
+}
+
+/** 构建正常 / 异常流量堆叠柱状图（数据单位为字节） */
 export function buildTrafficTrendBarOption(
   data: TrafficTrendPoint[],
 ): EChartsOption {
   const xLabelsRotated = data.length > 12;
   const gridBottom = xLabelsRotated ? 62 : 56;
+  const maxBytes = data.reduce(
+    (max, item) => Math.max(max, item.normal + item.abnormal),
+    0,
+  );
+  const { divisor, unit } = trafficTrendYAxisScale(maxBytes);
+  const toDisplay = (bytes: number) => bytes / divisor;
 
   return {
     backgroundColor: "transparent",
@@ -31,8 +49,13 @@ export function buildTrafficTrendBarOption(
         const first = params[0] as { axisValue?: string; name?: string };
         const axisLabel = first.axisValue ?? first.name ?? "";
         const lines = params.map((item) => {
-          const value = Number(item.value ?? 0);
-          return `${item.marker}${item.seriesName}: ${value.toLocaleString("zh-CN")} GB`;
+          const index = Number(item.dataIndex ?? 0);
+          const point = data[index];
+          const bytes =
+            item.seriesName === TRAFFIC_NORMAL_LABEL
+              ? point?.normal ?? 0
+              : point?.abnormal ?? 0;
+          return `${item.marker}${item.seriesName}: ${formatTrafficVolumeText(bytes)}`;
         });
         return [axisLabel, ...lines].join("<br/>");
       },
@@ -65,7 +88,7 @@ export function buildTrafficTrendBarOption(
     },
     yAxis: {
       type: "value",
-      name: "GB",
+      name: unit,
       nameTextStyle: { color: "#8c8c8c", fontSize: 12 },
       axisLine: { show: false },
       axisTick: { show: false },
@@ -80,7 +103,7 @@ export function buildTrafficTrendBarOption(
         barMaxWidth: 28,
         emphasis: { focus: "series" },
         itemStyle: { color: TRAFFIC_NORMAL_FILL },
-        data: data.map((item) => item.normal),
+        data: data.map((item) => toDisplay(item.normal)),
       },
       {
         name: TRAFFIC_SUSPECTED_ABNORMAL_LABEL,
@@ -89,7 +112,7 @@ export function buildTrafficTrendBarOption(
         barMaxWidth: 28,
         emphasis: { focus: "series" },
         itemStyle: { color: TRAFFIC_ABNORMAL_FILL },
-        data: data.map((item) => item.abnormal),
+        data: data.map((item) => toDisplay(item.abnormal)),
       },
     ],
   };
