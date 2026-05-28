@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from app.page_queries import PageQueryService
+from app.page_queries import PageQueryService, _compact_protocol_distribution, _protocol_distribution_bucket
 
 
 class FakeFlows:
@@ -85,7 +85,7 @@ def test_dashboard_overview_maps_database_rows_to_page_shape() -> None:
     assert data["metrics"]["total_bytes"] == 10000
     assert data["metrics"]["risk_learner_count"] == 1
     assert data["traffic_distribution"][1] == {"name": "疑似异常流量", "value": 3000}
-    assert data["protocol_distribution"] == [{"name": "TLS", "value": 8}, {"name": "DNS", "value": 2}]
+    assert data["protocol_distribution"] == [{"name": "其他", "value": 10}]
 
 
 def test_overview_metrics_reports_total_traffic_bytes() -> None:
@@ -124,8 +124,7 @@ def test_risk_events_default_to_attack_type_learners() -> None:
     assert data["total"] == 1
     assert data["items"][0]["learner_name"] == "NEW_1"
     assert data["items"][0]["risk_name"] == "DDoS攻击"
-    assert "风险类型=" not in data["items"][0]["risk_description"]
-    assert data["items"][0]["risk_description"].startswith("置信度=0.820; 说明=")
+    assert data["items"][0]["risk_description"].startswith("海量分布式源IP")
     assert data["items"][0]["subject_ips"] == ["10.0.0.8"]
 
 
@@ -190,6 +189,47 @@ def test_risk_events_topology_distinguishes_risk_types_and_events() -> None:
     assert data["total"] == 3
     assert data["risk_type_total"] == 2
     assert data["risk_ip_count"] == 3
+
+
+def test_risk_events_topology_filters_by_display_name_not_learner_name() -> None:
+    class TopologyFlows(FakeFlows):
+        def topology_graph(self, **_: Any) -> dict[str, Any]:
+            return {"flow_count": 1, "node_mode": "host", "nodes": [], "links": [], "stats": {}}
+
+        def risk_ip_view(self, **kwargs: Any) -> dict[str, Any]:
+            assert kwargs.get("learner_name_like") is None
+            return {"total": 1, "items": []}
+
+    class MultiLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            baseline = FakeLearners().list_learners()[1]
+            first = copy.deepcopy(FakeLearners().list_learners()[0])
+            first["id"] = 21
+            first["learner_name"] = "NEW_2"
+            second = copy.deepcopy(first)
+            second["id"] = 22
+            second["learner_name"] = "NEW_3"
+            return [baseline, first, second]
+
+        def get_learner(self, **kwargs: Any) -> dict[str, Any]:
+            name = str(kwargs.get("learner_name") or "")
+            for row in self.list_learners():
+                if str(row.get("learner_name") or "") == name:
+                    return row
+            return {}
+
+    service = PageQueryService(session_id="s1", flows=TopologyFlows(), learners=MultiLearners())
+
+    by_display = service.risk_events_topology(name="DDoS")
+    assert by_display["total"] == 2
+    assert set(by_display["learners"]) == {"NEW_2", "NEW_3"}
+
+    by_learner_name = service.risk_events_topology(name="NEW_2")
+    assert by_learner_name["total"] == 0
+
+    by_numbered_display = service.risk_events_topology(name="DDoS攻击1")
+    assert by_numbered_display["total"] == 1
+    assert by_numbered_display["learners"] == ["NEW_2"]
 
 
 def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
@@ -362,3 +402,31 @@ def test_learner_topology_uses_primary_attack_type_for_benign_view() -> None:
     assert data["views"]["BASELINE_0"]["is_benign"] is True
     assert all(call["traffic_kind"] == "benign" for call in service.flows.calls)
     assert all(call["risk_learners"] == [] for call in service.flows.calls)
+
+
+def test_protocol_distribution_bucket_maps_tcp_udp_and_other() -> None:
+    assert _protocol_distribution_bucket(6) == "TCP"
+    assert _protocol_distribution_bucket("TCP") == "TCP"
+    assert _protocol_distribution_bucket(17) == "UDP"
+    assert _protocol_distribution_bucket("udp") == "UDP"
+    assert _protocol_distribution_bucket(0) == "其他"
+    assert _protocol_distribution_bucket(1) == "其他"
+    assert _protocol_distribution_bucket("ICMP") == "其他"
+    assert _protocol_distribution_bucket("") == "其他"
+    assert _protocol_distribution_bucket(None) == "其他"
+    assert _protocol_distribution_bucket("unknown") == "其他"
+
+
+def test_compact_protocol_distribution_groups_non_tcp_udp_into_other() -> None:
+    rows = [
+        {"protocol": "TCP", "value": 44572},
+        {"protocol": "UDP", "value": 42915},
+        {"protocol": "0", "value": 116},
+        {"protocol": "ICMP", "value": 44},
+    ]
+
+    assert _compact_protocol_distribution(rows) == [
+        {"name": "TCP", "value": 44572},
+        {"name": "UDP", "value": 42915},
+        {"name": "其他", "value": 160},
+    ]
