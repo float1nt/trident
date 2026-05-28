@@ -281,6 +281,9 @@ class PageQueryService:
         sid = session_id or self.session_id
         learner = self.learners.get_learner(session_id=sid, learner_name=learner_name) or {}
         event = _learner_event_item(1, learner) if learner else _empty_event_item(learner_name)
+        is_benign = event["risk_band"] == "low"
+        traffic_kind = "benign" if is_benign else "attack"
+        topology_risk_learners = [] if is_benign else [learner_name]
         view = {
             "learner": learner_name,
             "risk_id": event["risk_id"],
@@ -290,19 +293,23 @@ class PageQueryService:
             "attack_ratio": event["attack_ratio"],
             "dominant_label": event["dominant_label"],
             "dominant_ratio": event["risk_score"],
-            "is_benign": event["risk_band"] == "low",
+            "is_benign": is_benign,
             "host": self.flows.topology_graph(
                 session_id=sid,
                 node_mode="host",
+                risk_learners=topology_risk_learners,
                 learner_name=learner_name,
                 subject_ip=subject_ip,
+                traffic_kind=traffic_kind,
                 top_n=top_n,
             ),
             "endpoint": self.flows.topology_graph(
                 session_id=sid,
                 node_mode="endpoint",
+                risk_learners=topology_risk_learners,
                 learner_name=learner_name,
                 subject_ip=subject_ip,
+                traffic_kind=traffic_kind,
                 top_n=top_n,
             ),
         }

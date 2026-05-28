@@ -141,3 +141,25 @@ def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
     assert data["items"][0]["name"] == "DDoS受害目标"
     assert data["items"][0]["id"] == 11
     assert "top_protocol=TLS" in data["items"][0]["description"]
+
+
+def test_learner_topology_marks_high_risk_view_as_attack() -> None:
+    class CaptureFlows(FakeFlows):
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def topology_graph(self, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append(kwargs)
+            return {"flow_count": 1, "node_mode": kwargs["node_mode"], "nodes": [], "links": [], "stats": {}}
+
+    class CaptureLearners(FakeLearners):
+        def get_learner(self, **_: Any) -> dict[str, Any]:
+            return FakeLearners().list_learners()[0]
+
+    service = PageQueryService(session_id="s1", flows=CaptureFlows(), learners=CaptureLearners())
+
+    data = service.learner_topology(learner_name="NEW_1")
+
+    assert data["views"]["NEW_1"]["is_benign"] is False
+    assert all(call["traffic_kind"] == "attack" for call in service.flows.calls)
+    assert all(call["risk_learners"] == ["NEW_1"] for call in service.flows.calls)
