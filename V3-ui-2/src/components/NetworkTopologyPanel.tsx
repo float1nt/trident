@@ -17,6 +17,8 @@ export type TopologyNode = {
   ip: string;
   port: number | null;
   flow_count: number;
+  out_flow_count?: number;
+  in_flow_count?: number;
   is_internal: boolean;
   /** 节点关联协议列表（可选，后端扩展字段） */
   protocols?: string[];
@@ -86,6 +88,8 @@ type GraphNode = {
   name: string;
   value: number;
   flow_count: number;
+  out_flow_count?: number;
+  in_flow_count?: number;
   ip: string;
   port: number | null;
   is_internal: boolean;
@@ -163,6 +167,8 @@ function buildGraphData(
       name: n.id,
       value: n.flow_count,
       flow_count: n.flow_count,
+      out_flow_count: n.out_flow_count,
+      in_flow_count: n.in_flow_count,
       ip: n.ip,
       port: n.port,
       is_internal: n.is_internal,
@@ -247,9 +253,13 @@ function formatNodeTooltip(
   viewIsBenign: boolean | null | undefined,
 ): string {
   const ipLabel = node.port != null ? node.id : node.ip;
+  const outFlowCount = node.out_flow_count ?? 0;
+  const inFlowCount = node.in_flow_count ?? 0;
   return [
     ipLabel,
-    `访问次数:${node.flow_count.toLocaleString("zh-CN")}`,
+    `总关联次数:${node.flow_count.toLocaleString("zh-CN")}`,
+    `访问次数:${outFlowCount.toLocaleString("zh-CN")}`,
+    `被访问次数:${inFlowCount.toLocaleString("zh-CN")}`,
     formatTrafficAnalysisHtml(getTrafficAnalysisText(viewIsBenign)),
     `协议:${formatNodeProtocols(node)}`,
   ].join("<br/>");

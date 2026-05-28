@@ -146,9 +146,12 @@ export type IpSummary = {
 export type IpRiskEventItem = {
   id: number;
   name: string;
+  learnerName?: string;
   triggerTime: string;
   description: string;
   features: string;
+  riskScore?: number;
+  riskBand?: string;
 };
 
 export type RiskDetail = RiskItem & {
