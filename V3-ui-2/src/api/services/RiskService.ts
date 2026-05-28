@@ -31,6 +31,7 @@ function normalizeEventTopology(value: LearnerNetworkTopologyJson): LearnerNetwo
       : Object.keys(views);
   return {
     version: value.version ?? 1,
+    total: typeof value.total === "number" ? value.total : undefined,
     learners,
     default_learner:
       value.default_learner && learners.includes(value.default_learner)
