@@ -1,5 +1,4 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { useState } from "react";
 import logoImg from "@/assets/top-svg/logo3.0.png";
 import homeOff from "@/assets/svg/navigation-only-home-off.svg";
 import homeOn from "@/assets/svg/navigation-only-home-on.svg";
@@ -54,7 +53,6 @@ const TEXT_ACTIVE = "#333333";
 const Sidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const [hoveredId, setHoveredId] = useState<NavId | null>(null);
 
   const activeItem = MENU.find((item) => pathMatchesMenu(location.pathname, item)) ?? MENU[0];
 
@@ -74,18 +72,16 @@ const Sidebar = () => {
 
       <nav className="mt-[8px] flex min-h-0 w-full flex-1 flex-col gap-[20px] overflow-y-auto overflow-x-hidden pb-3 pl-[6px] pt-[12px]">
         {MENU.map((item) => {
-          const onAsset = activeItem.id === item.id || hoveredId === item.id;
+          const onAsset = activeItem.id === item.id;
           return (
             <button
               key={item.id}
               type="button"
               onClick={() => navigate(item.path)}
-              onMouseEnter={() => setHoveredId(item.id)}
-              onMouseLeave={() => setHoveredId(null)}
               className={[
                 "flex flex-row items-center justify-start gap-[4px] h-[34px] w-[84px] shrink-0 pl-3 pr-1.5 rounded-l-[25px] cursor-pointer border-0",
-                "transition-[color,background-color] text-left font-medium",
-                onAsset ? "bg-[#FFFFFF]" : "bg-transparent hover:bg-[#FFFFFF]",
+                "text-left font-medium",
+                onAsset ? "bg-[#FFFFFF]" : "bg-transparent",
                 onAsset
                   ? [
                       "relative z-[1]",

@@ -60,8 +60,10 @@ function findEventTopologyInObject(root: unknown): LearnerNetworkTopologyJson | 
   return null;
 }
 
-function buildEventTopologyParams(query: EventTopologyQuery): Record<string, string> {
-  const params: Record<string, string> = {};
+function buildEventTopologyParams(
+  query: EventTopologyQuery,
+): Record<string, string | number> {
+  const params: Record<string, string | number> = {};
   const name = query.name?.trim();
   if (name) {
     params.name = name;
@@ -76,6 +78,12 @@ function buildEventTopologyParams(query: EventTopologyQuery): Record<string, str
   ) {
     params.triggerStart = start;
     params.triggerEnd = end;
+  }
+  if (query.limit != null) {
+    params.limit = query.limit;
+  }
+  if (query.offset != null) {
+    params.offset = query.offset;
   }
   return params;
 }
@@ -104,7 +112,11 @@ export type EventTopologyQuery = {
   name?: string;
   triggerStart?: string;
   triggerEnd?: string;
+  limit?: number;
+  offset?: number;
 };
+
+export const EVENT_TOPOLOGY_PAGE_SIZE = 6;
 
 export type RiskIpListItem = {
   ip: string;
@@ -113,8 +125,12 @@ export type RiskIpListItem = {
 
 export type RiskTrafficLogItem = {
   id: string;
-  time: string;
-  ip: string;
+  srcIp: string;
+  srcPort: number;
+  dstIp: string;
+  dstPort: number;
+  accessTime: string;
+  traffic: number;
   protocol: string;
 };
 
@@ -137,6 +153,7 @@ export type IpRiskEventItem = {
 
 export type RiskDetail = RiskItem & {
   riskIpCount?: number;
+  riskPortCount?: number;
 };
 
 export class RiskService {
@@ -179,7 +196,7 @@ export class RiskService {
 
   static async getRiskTrafficLogs(
     riskId: number,
-    limit = 100,
+    limit = 10,
     offset = 0,
   ): Promise<RiskTrafficLogItem[]> {
     const res = await get<RiskTrafficLogItem[]>(
@@ -221,7 +238,7 @@ export class RiskService {
 
   static async getIpTrafficLogs(
     ip: string,
-    limit = 100,
+    limit = 10,
     offset = 0,
   ): Promise<RiskTrafficLogItem[]> {
     const res = await get<RiskTrafficLogItem[]>(

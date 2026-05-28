@@ -1,5 +1,5 @@
-import { Component, useMemo, type ErrorInfo, type ReactNode } from "react";
-import { Button, Card, Col, Empty, Row, Typography } from "antd";
+import { Component, type ErrorInfo, useMemo, type ReactNode } from "react";
+import { Button, Card, Col, Empty, Row, Spin, Typography } from "antd";
 import {
   GRID_CHART_HEIGHT,
   TopologyChartPane,
@@ -15,6 +15,14 @@ const TOPOLOGY_REPULSION = 70;
 const TOPOLOGY_MIN_EDGE_FLOWS = 1;
 
 export type { LearnerNetworkTopologyJson, LearnerTopologyOption };
+
+type Props = {
+  data: LearnerNetworkTopologyJson | null;
+  onRiskClick?: (riskId: number) => void;
+  emptyHint?: string;
+  loadingMore?: boolean;
+  hasMore?: boolean;
+};
 
 class ChartPaneErrorBoundary extends Component<
   { children: ReactNode; title: string },
@@ -43,17 +51,15 @@ class ChartPaneErrorBoundary extends Component<
   }
 }
 
-type Props = {
-  data: LearnerNetworkTopologyJson | null;
-  onRiskClick?: (riskId: number) => void;
-};
-
 function buildSortedLearnerOptions(
   data: LearnerNetworkTopologyJson,
 ): LearnerTopologyOption[] {
-  const names = data.learners?.length
-    ? data.learners.filter((k) => data.views[k])
-    : Object.keys(data.views);
+  // 以 views 为主，learners 作为补充，避免 learners 与 views 键名轻微不一致时被筛空
+  const viewKeys = Object.keys(data.views ?? {});
+  const learnerKeys = data.learners ?? [];
+  const names = Array.from(new Set([...viewKeys, ...learnerKeys])).filter(
+    (k) => Boolean(data.views[k]),
+  );
 
   const items: LearnerTopologyOption[] = names.map((name) => {
     const fromView = data.views[name];
@@ -75,24 +81,54 @@ function buildSortedLearnerOptions(
 }
 
 /** 事件视角 — 学习器网络拓扑网格 */
-export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
+export function LearnerInternalTopologyPanel({
+  data,
+  onRiskClick,
+  emptyHint,
+  loadingMore = false,
+  hasMore = false,
+}: Props) {
   const sortedOptions = useMemo(() => {
     if (!data) return [] as LearnerTopologyOption[];
     return buildSortedLearnerOptions(data);
   }, [data]);
 
-  if (!data || sortedOptions.length === 0) {
+  if (!data) {
     return (
       <Empty
-        description="暂无学习器拓扑数据，请调整筛选条件后重试。"
-        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] h-[calc(100vh-325px)] pt-[20px] !m-0"
+        description={
+          emptyHint ?? "暂无学习器拓扑数据，请点「重置」刷新数据。"
+        }
+        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10"
+      />
+    );
+  }
+
+  const learnerNames = data.learners ?? [];
+  const viewCount = Object.keys(data.views ?? {}).length;
+  if (sortedOptions.length === 0 && (learnerNames.length > 0 || viewCount > 0)) {
+    const missingViews = learnerNames.filter((name) => !data.views[name]);
+    return (
+      <Empty
+        description={`渲染后为 0 项（learners=${learnerNames.length}, views=${viewCount}, 缺失views=${missingViews.length}），请检查前端过滤逻辑与后端键名一致性。`}
+        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10"
+      />
+    );
+  }
+
+  if (sortedOptions.length === 0) {
+    return (
+      <Empty
+        description={
+          emptyHint ?? "当前筛选条件下暂无学习器拓扑数据"
+        }
+        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] h-[calc(100vh-330px)] py-10"
       />
     );
   }
 
   return (
-    <div className="space-y-3">
-
+    <div className="space-y-3 pb-2">
       <Row gutter={[8, 8]}>
         {sortedOptions.map((option) => {
           const gridView = data.views[option.name];
@@ -103,8 +139,6 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
                 size="small"
                 className="risk-event-topology-card"
                 title={
-
-
                   <div>
                     <div className="flex items-center justify-between gap-2">
                       <Text
@@ -126,7 +160,6 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
                       >
                         查看详情
                       </Button>
-
                     </div>
                     <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] font-normal leading-[16px]">
                       <span className="shrink-0 whitespace-nowrap font-normal text-[#8c8c8c]">
@@ -146,14 +179,6 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
                   body: { padding: "8px 8px 4px" },
                 }}
               >
-
-                {/* <Text
-                  type="secondary"
-                  ellipsis={{ tooltip: metaText }}
-                  className="mb-1 mt-0.5 block text-[10px] leading-tight"
-                >
-                  {metaText}
-                </Text> */}
                 <ChartPaneErrorBoundary title="拓扑图">
                   <TopologyChartPane
                     title=" "
@@ -170,6 +195,14 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
           );
         })}
       </Row>
+      {loadingMore ? (
+        <div className="py-3 text-center">
+          <Spin size="small" />
+        </div>
+      ) : null}
+      {!hasMore && sortedOptions.length > 0 ? (
+        <div className="pb-1 text-center text-sm text-[#8c8c8c]">已加载全部</div>
+      ) : null}
     </div>
   );
 }

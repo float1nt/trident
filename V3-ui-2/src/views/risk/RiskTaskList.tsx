@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useApi } from "@/hooks/useApi";
+import { useEventTopologyInfiniteScroll } from "@/hooks/useEventTopologyInfiniteScroll";
 import { useNavigate } from "react-router-dom";
 import {
   Table,
@@ -20,7 +21,6 @@ import type { IpRiskListItem } from "@/api/types";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
 import { RiskService } from "@/api/services/RiskService";
-import type { LearnerNetworkTopologyJson } from "@/types/learnerTopology";
 import { CHART_GREEN, CHART_RED } from "@/theme/chartTheme";
 import "./RiskTaskList.css";
 
@@ -80,51 +80,35 @@ const RiskTaskList = () => {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const { loading, run: runIpList } = useApi();
-  const { loading: eventLoading, run: runEventLoad } = useApi();
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
-  const [eventTopology, setEventTopology] =
-    useState<LearnerNetworkTopologyJson | null>(null);
   const [eventIpTotal, setEventIpTotal] = useState(0);
   const [eventLoadError, setEventLoadError] = useState<string | null>(null);
+  const eventScrollRef = useRef<HTMLDivElement>(null);
 
-  const eventCardCount = useMemo(() => {
-    if (!eventTopology) return 0;
-    const names = eventTopology.learners?.length
-      ? eventTopology.learners.filter((k) => eventTopology.views[k])
-      : Object.keys(eventTopology.views);
-    return names.length;
-  }, [eventTopology]);
-
-  const loadEventTopology = useCallback(async () => {
-    setEventLoadError(null);
-    const ok = await runEventLoad(async () => {
+  const fetchEventTopologyPage = useCallback(
+    async (offset: number, limit: number) => {
       const range = formatTriggerRange(eventFilters.triggerPeriod);
-      const [data, ipListRes] = await Promise.all([
-        RiskService.getEventTopology({
-          name: eventFilters.name || undefined,
-          ...range,
-        }),
-        RiskService.listRisks({
-          limit: 1,
-          offset: 0,
-          name: eventFilters.name || undefined,
-        }),
-      ]);
-      setEventTopology(data);
-      setEventIpTotal(ipListRes.total);
-      const count = data.learners?.length ?? 0;
-      if (count === 0 && eventFilters.triggerPeriod) {
-        setEventLoadError(
-          "当前触发时段内没有学习器，请点「重置」清空时段或扩大时间范围。",
-        );
-      }
-      return data;
-    });
-    if (ok === undefined) {
-      setEventTopology(null);
-      setEventIpTotal(0);
-    }
-  }, [eventFilters, runEventLoad]);
+      return RiskService.getEventTopology({
+        name: eventFilters.name || undefined,
+        ...range,
+        limit,
+        offset,
+      });
+    },
+    [eventFilters],
+  );
+
+  const {
+    eventTopology,
+    initialLoading: eventInitialLoading,
+    loadingMore: eventLoadingMore,
+    hasMore: eventTopologyHasMore,
+    eventTopologyTotal,
+  } = useEventTopologyInfiniteScroll(
+    activeView === "event",
+    eventScrollRef,
+    fetchEventTopologyPage,
+  );
 
   const getListData = useCallback(
     async (opts?: { page?: number; nextFilters?: RiskSearchForm }) => {
@@ -151,8 +135,33 @@ const RiskTaskList = () => {
 
   useEffect(() => {
     if (activeView !== "event") return;
-    void loadEventTopology();
-  }, [eventFilters, activeView, loadEventTopology]);
+    void (async () => {
+      const response = await RiskService.listRisks({
+        limit: 1,
+        offset: 0,
+        name: eventFilters.name || undefined,
+      });
+      setEventIpTotal(response.total);
+    })();
+  }, [activeView, eventFilters]);
+
+  useEffect(() => {
+    if (activeView !== "event" || eventInitialLoading) return;
+    if (eventTopologyTotal === 0 && eventFilters.triggerPeriod) {
+      setEventLoadError(
+        "当前触发时段内没有学习器，请点「重置」清空时段或扩大时间范围。",
+      );
+      return;
+    }
+    if (eventTopologyTotal > 0) {
+      setEventLoadError(null);
+    }
+  }, [
+    activeView,
+    eventInitialLoading,
+    eventTopologyTotal,
+    eventFilters.triggerPeriod,
+  ]);
 
   const handleDetailList = (id: number) => {
     navigate({
@@ -190,6 +199,7 @@ const RiskTaskList = () => {
   const handleEventReset = () => {
     setEventSearchInputs(EMPTY_EVENT_SEARCH);
     setEventFilters(EMPTY_EVENT_SEARCH);
+    setEventLoadError(null);
   };
 
   const handleViewChange = (key: string) => {
@@ -270,7 +280,7 @@ const RiskTaskList = () => {
     },
   ];
 
-  const pageLoading = activeView === "event" ? eventLoading : loading;
+  const pageLoading = activeView === "event" ? eventInitialLoading : loading;
 
   return (
     <div className="task-list-page bg-[#f6faff] p-[12px] h-full w-full rounded-[8px]">
@@ -334,22 +344,25 @@ const RiskTaskList = () => {
                 </div>
               </div>
             </Card>
-            <div className="h-[calc(100vh-250px)] overflow-y-auto rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+            <div
+              ref={eventScrollRef}
+              className="h-[calc(100vh-250px)] overflow-y-auto rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
+            >
               <div className="risk-event-summary-row">
                 <div className="risk-event-summary">
                   <span className="risk-event-summary__bar" aria-hidden />
                   <p className="risk-event-summary__text">
                     总共
-                    <span className="risk-event-summary__num">{eventCardCount}</span>
+                    <span className="risk-event-summary__num">{eventTopologyTotal}</span>
                     类风险，涉及
                     <span className="risk-event-summary__num">{eventIpTotal}</span>
                     个风险 IP
                   </p>
                 </div>
                 <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
-                  <span style={{ color: CHART_GREEN }}>绿色</span>
+                  <span style={{ color: CHART_GREEN ,fontSize: '18px'}}>→</span>
                   代表正常，
-                  <span style={{ color: CHART_RED }}>红色</span>
+                  <span style={{ color: CHART_RED ,fontSize: '18px'}}>→</span>
                   代表异常。
                 </Paragraph>
               </div>
@@ -361,6 +374,9 @@ const RiskTaskList = () => {
               <LearnerInternalTopologyPanel
                 data={eventTopology}
                 onRiskClick={handleEventRiskClick}
+                emptyHint={eventLoadError ?? undefined}
+                loadingMore={eventLoadingMore}
+                hasMore={eventTopologyHasMore}
               />
             </div>
           </>
