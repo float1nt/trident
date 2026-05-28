@@ -121,6 +121,12 @@
   color: #8c8c8c !important;
 }
 
+.risk-event-scroll {
+  height: calc(100vh - 370px);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .risk-event-pagination {
   display: flex;
   flex-shrink: 0;

@@ -374,7 +374,7 @@ const RiskTaskList = () => {
                   {eventLoadError}
                 </Paragraph>
               ) : null}
-              <div className="h-[calc(100vh-370px)] overflow-y-auto">
+              <div className="risk-event-scroll">
                 <LearnerInternalTopologyPanel
                   data={eventTopology}
                   onRiskClick={handleEventRiskClick}
