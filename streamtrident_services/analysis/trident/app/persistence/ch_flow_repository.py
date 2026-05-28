@@ -214,19 +214,23 @@ WITH edge_rows AS (
     GROUP BY source, target
 ),
 node_rows AS (
-    SELECT node AS id, sum(c) AS flow_count
+    SELECT
+        node AS id,
+        sum(out_count) AS out_flow_count,
+        sum(in_count) AS in_flow_count,
+        sum(out_count) + sum(in_count) AS flow_count
     FROM (
-        SELECT {source_expr} AS node, count() AS c FROM ch_flow FINAL {where} GROUP BY node
+        SELECT {source_expr} AS node, count() AS out_count, 0 AS in_count FROM ch_flow FINAL {where} GROUP BY node
         UNION ALL
-        SELECT {target_expr} AS node, count() AS c FROM ch_flow FINAL {where} GROUP BY node
+        SELECT {target_expr} AS node, 0 AS out_count, count() AS in_count FROM ch_flow FINAL {where} GROUP BY node
     )
     WHERE node IN ({top_nodes_sql})
     GROUP BY node
 )
-SELECT 'node' AS row_type, id, '' AS source, '' AS target, flow_count AS value, 0 AS is_benign
+SELECT 'node' AS row_type, id, '' AS source, '' AS target, flow_count AS value, out_flow_count, in_flow_count, 0 AS is_benign
 FROM node_rows
 UNION ALL
-SELECT 'edge' AS row_type, '' AS id, source, target, value, is_benign
+SELECT 'edge' AS row_type, '' AS id, source, target, value, 0 AS out_flow_count, 0 AS in_flow_count, is_benign
 FROM edge_rows
 FORMAT JSONEachRow
 """
@@ -239,8 +243,18 @@ FORMAT JSONEachRow
             if row.get("row_type") == "node":
                 node_id = str(row.get("id") or "")
                 flow_count = int(row.get("value") or 0)
+                out_flow_count = int(row.get("out_flow_count") or 0)
+                in_flow_count = int(row.get("in_flow_count") or 0)
                 total += flow_count
-                nodes.append(_topology_node(node_id, flow_count, node_mode=node_mode))
+                nodes.append(
+                    _topology_node(
+                        node_id,
+                        flow_count,
+                        node_mode=node_mode,
+                        out_flow_count=out_flow_count,
+                        in_flow_count=in_flow_count,
+                    )
+                )
             elif row.get("row_type") == "edge":
                 links.append(
                     {
@@ -507,10 +521,10 @@ FORMAT JSONEachRow
         subject_ip_like: str | None = None,
         trigger_time_prefix: str | None = None,
     ) -> dict[str, Any]:
-        abnormal = _abnormal_expr(risk_learners)
+        risk_learner_filter = _risk_learner_expr(risk_learners)
         filters = [
             f"session_id = {_quote(session_id)}",
-            abnormal,
+            risk_learner_filter,
             _contains_filter("assigned_learner", learner_name_like),
             _contains_filter("src_ip", subject_ip_like),
             _prefix_filter("toString(event_time)", trigger_time_prefix),
@@ -628,7 +642,18 @@ def _abnormal_expr(risk_learners: list[str]) -> str:
     return "(is_unknown = 1)"
 
 
-def _topology_node(node_id: str, flow_count: int, *, node_mode: str) -> dict[str, Any]:
+def _risk_learner_expr(risk_learners: list[str]) -> str:
+    return _in_filter("assigned_learner", risk_learners) or "(0 = 1)"
+
+
+def _topology_node(
+    node_id: str,
+    flow_count: int,
+    *,
+    node_mode: str,
+    out_flow_count: int = 0,
+    in_flow_count: int = 0,
+) -> dict[str, Any]:
     ip = node_id
     port: int | None = None
     if node_mode == "endpoint" and ":" in node_id:
@@ -642,6 +667,8 @@ def _topology_node(node_id: str, flow_count: int, *, node_mode: str) -> dict[str
         "ip": ip,
         "port": port,
         "flow_count": flow_count,
+        "out_flow_count": out_flow_count,
+        "in_flow_count": in_flow_count,
         "is_internal": _is_internal_ip(ip),
     }
 

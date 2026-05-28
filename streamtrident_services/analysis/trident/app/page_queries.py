@@ -179,14 +179,18 @@ class PageQueryService:
             subject_ip_like=subject_ip,
             trigger_time_prefix=trigger_time,
         )
-        items = [
-            _risk_ip_item(
-                row,
-                learner_by_name.get(str(row.get("assigned_learner") or "")),
-                is_risk_learner=str(row.get("assigned_learner") or "") in risk_name_set,
+        items = []
+        for row in result["items"]:
+            learner_name = str(row.get("assigned_learner") or "")
+            if learner_name not in risk_name_set:
+                continue
+            items.append(
+                _risk_ip_item(
+                    row,
+                    learner_by_name.get(learner_name),
+                    is_risk_learner=True,
+                )
             )
-            for row in result["items"]
-        ]
         return {"items": items, "total": int(result["total"])}
 
     def dashboard_topology(
@@ -350,27 +354,31 @@ class PageQueryService:
             learner_name_like=name,
             subject_ip_like=subject_ip,
         )
-        grouped: dict[str, dict[str, int]] = {}
+        grouped: dict[str, list[dict[str, Any]]] = {}
         for row in raw["items"]:
             ip = str(row.get("subject_ip") or "")
             learner = str(row.get("assigned_learner") or "") or "UNKNOWN"
+            if learner not in risk_name_set:
+                continue
             learner_row = learner_by_name.get(learner) or {}
-            attack_type = _primary_attack_type(learner_row) if learner in risk_name_set else "UNKNOWN_SUSPECTED"
+            attack_type = _primary_attack_type(learner_row)
             display_name = _attack_display(attack_type)["name"] if attack_type else learner
             if not ip:
                 continue
-            grouped.setdefault(ip, {})
-            grouped[ip][display_name] = grouped[ip].get(display_name, 0) + int(row.get("flow_count") or 0)
+            grouped.setdefault(ip, []).append(
+                {
+                    "name": display_name,
+                    "learnerName": learner,
+                    "triggerCount": int(row.get("flow_count") or 0),
+                }
+            )
 
         ip_rows: list[dict[str, Any]] = []
-        for seq, (ip, name_counts) in enumerate(
-            sorted(grouped.items(), key=lambda item: (-sum(item[1].values()), item[0])),
+        for seq, (ip, learner_risks) in enumerate(
+            sorted(grouped.items(), key=lambda item: (-sum(risk["triggerCount"] for risk in item[1]), item[0])),
             start=1,
         ):
-            risks = [
-                {"name": risk_name, "triggerCount": count}
-                for risk_name, count in sorted(name_counts.items(), key=lambda item: (-item[1], item[0]))
-            ]
+            risks = sorted(learner_risks, key=lambda item: (-item["triggerCount"], item["name"], item["learnerName"]))
             ip_rows.append(
                 {
                     "id": seq,
@@ -493,9 +501,12 @@ class PageQueryService:
             {
                 "id": item["id"],
                 "name": item["name"],
+                "learnerName": item["learnerName"],
                 "triggerTime": item["triggerTime"],
                 "description": item["description"],
                 "features": item["features"],
+                "riskScore": item["riskScore"],
+                "riskBand": item["riskBand"],
             }
             for item in data["items"]
         ]
@@ -684,7 +695,7 @@ def _risk_ip_item(
     is_risk_learner: bool,
 ) -> dict[str, Any]:
     learner_name = str(row.get("assigned_learner") or "")
-    attack_type = _primary_attack_type(learner or {}) if is_risk_learner else "UNKNOWN_SUSPECTED"
+    attack_type = _primary_attack_type(learner or {})
     display = _attack_display(attack_type)
     risk_score = _float(learner.get("risk_score") if learner else None)
     risk_band = str((learner or {}).get("risk_band") or "low").lower()

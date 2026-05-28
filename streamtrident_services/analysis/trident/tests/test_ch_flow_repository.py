@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.flow_loader import FlowLoader
-from app.persistence.ch_flow_repository import AssignmentUpdate
+from app.persistence.ch_flow_repository import AssignmentUpdate, _topology_node
 from app.redis_consumer import RedisStreamMessage
 from app.runtime.online_engine import FlowAssignment
 
@@ -33,3 +33,17 @@ def test_assignment_update_preserves_base_row_and_increments_version() -> None:
     assert row["assigned_learner"] == "BASELINE_0"
     assert row["record_stage"] == "assigned"
     assert row["record_version"] == 1001
+
+
+def test_topology_node_includes_directional_flow_counts() -> None:
+    node = _topology_node(
+        "192.168.10.3",
+        12,
+        node_mode="host",
+        out_flow_count=7,
+        in_flow_count=5,
+    )
+
+    assert node["flow_count"] == 12
+    assert node["out_flow_count"] == 7
+    assert node["in_flow_count"] == 5
