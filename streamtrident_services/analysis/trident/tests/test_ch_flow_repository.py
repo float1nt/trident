@@ -76,7 +76,8 @@ def test_topology_graph_selects_top_edges_before_nodes() -> None:
     assert "ORDER BY value DESC, source ASC, target ASC" in topology_sql
     assert "LIMIT 50" in topology_sql
     assert "selected_nodes AS" in topology_sql
-    assert "WHERE node IN (SELECT node FROM selected_nodes)" in topology_sql
+    assert "SELECT source AS node, value AS out_count, 0 AS in_count FROM edge_rows" in topology_sql
+    assert "SELECT target AS node, 0 AS out_count, value AS in_count FROM edge_rows" in topology_sql
     stats_sql = repo.client.sql[1]
     assert "unique_ip_count" in stats_sql
     assert "unique_endpoint_count" in stats_sql
@@ -85,6 +86,9 @@ def test_topology_graph_selects_top_edges_before_nodes() -> None:
     assert graph["total_flow_count"] == 9
     assert graph["stats"]["unique_ip_count"] == 2
     assert graph["nodes"][0]["id"] == "10.0.0.1"
+    assert graph["nodes"][0]["flow_count"] == 3
+    assert graph["nodes"][0]["out_flow_count"] == 3
+    assert graph["nodes"][0]["in_flow_count"] == 0
     assert graph["links"] == [
         {"source": "10.0.0.1", "target": "10.0.0.2", "value": 3, "is_benign": False}
     ]

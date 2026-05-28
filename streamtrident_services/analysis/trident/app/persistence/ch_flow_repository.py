@@ -213,11 +213,10 @@ node_rows AS (
         sum(in_count) AS in_flow_count,
         sum(out_count) + sum(in_count) AS flow_count
     FROM (
-        SELECT {source_expr} AS node, count() AS out_count, 0 AS in_count FROM ch_flow FINAL {where} GROUP BY node
+        SELECT source AS node, value AS out_count, 0 AS in_count FROM edge_rows
         UNION ALL
-        SELECT {target_expr} AS node, 0 AS out_count, count() AS in_count FROM ch_flow FINAL {where} GROUP BY node
+        SELECT target AS node, 0 AS out_count, value AS in_count FROM edge_rows
     )
-    WHERE node IN (SELECT node FROM selected_nodes)
     GROUP BY node
 )
 SELECT 'node' AS row_type, id, '' AS source, '' AS target, flow_count AS value, out_flow_count, in_flow_count, 0 AS is_benign
