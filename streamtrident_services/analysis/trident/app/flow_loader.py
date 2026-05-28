@@ -17,6 +17,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
     "dst_port": ("dst_port", "destination_port", "Destination Port", "Dst Port"),
     "protocol": ("protocol", "proto", "Protocol"),
     "app_proto": ("app_proto", "application_protocol", "app_protocol", "Application Protocol"),
+    "total_bytes": ("total_bytes", "totalBytes", "bytes"),
     "source_flow_id": ("source_flow_id", "flow_id", "flowid", "Flow ID"),
 }
 
@@ -32,6 +33,7 @@ class FlowRecord:
     dst_port: int
     protocol: int
     app_proto: str
+    total_bytes: int
     feature_profile: str
     features_json: str
     mq_type: str
@@ -54,6 +56,7 @@ class FlowRecord:
             "dst_port": self.dst_port,
             "protocol": self.protocol,
             "app_proto": self.app_proto,
+            "total_bytes": self.total_bytes,
             "feature_profile": self.feature_profile,
             "features_json": self.features_json,
             "window_index": self.window_index,
@@ -84,6 +87,7 @@ class FlowLoader:
         dst_port = _uint16(_pick(merged, "dst_port", 0))
         protocol = _protocol(_pick(merged, "protocol", 0))
         app_proto = _app_proto(_pick(merged, "app_proto", "unknown"))
+        total_bytes = _total_bytes(merged)
         source_flow_id = str(_pick(merged, "source_flow_id", ""))
         features = _features(merged)
         raw_event = _raw_event(fields, raw_payload)
@@ -99,6 +103,7 @@ class FlowLoader:
             dst_port=dst_port,
             protocol=protocol,
             app_proto=app_proto,
+            total_bytes=total_bytes,
             feature_profile=self.feature_profile,
             features_json=json.dumps(features, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
             mq_type=str(merged.get("event_type") or "cic_flow"),
@@ -174,6 +179,35 @@ def _features(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _total_bytes(payload: Mapping[str, Any]) -> int:
+    picked = _pick(payload, "total_bytes", None)
+    value = _non_negative_int(picked)
+    if value > 0:
+        return value
+
+    cic = payload.get("cic")
+    if isinstance(cic, Mapping):
+        total = _non_negative_int(cic.get("total_bytes"))
+        if total > 0:
+            return total
+        return _non_negative_int(cic.get("totlen_fwd_pkts")) + _non_negative_int(cic.get("totlen_bwd_pkts"))
+
+    features = _features(payload)
+    total = _non_negative_int(features.get("total_bytes"))
+    if total > 0:
+        return total
+    total = _non_negative_int(features.get("bytes"))
+    if total > 0:
+        return total
+    cic_style_total = (
+        _non_negative_int(features.get("Total Length of Fwd Packet"))
+        + _non_negative_int(features.get("Total Length of Bwd Packet"))
+    )
+    if cic_style_total > 0:
+        return cic_style_total
+    return _non_negative_int(features.get("totlen_fwd_pkts")) + _non_negative_int(features.get("totlen_bwd_pkts"))
+
+
 def _raw_event(fields: Mapping[str, Any], raw_payload: Mapping[str, Any]) -> str:
     raw = fields.get("raw_event_json") or fields.get("raw_event")
     if isinstance(raw, str) and raw.strip():
@@ -222,6 +256,14 @@ def _uint16(value: Any) -> int:
     except (TypeError, ValueError):
         return 0
     return max(0, min(65535, number))
+
+
+def _non_negative_int(value: Any) -> int:
+    try:
+        number = int(float(value))
+    except (TypeError, ValueError):
+        return 0
+    return max(0, number)
 
 
 def _protocol(value: Any) -> int:
