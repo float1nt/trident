@@ -459,6 +459,32 @@ FORMAT JSONEachRow
         text = self.client.execute(sql)
         return [row for line in text.splitlines() if line.strip() for row in [_parse_json(line)]]
 
+    def unique_dst_port_count_by_learner(
+        self,
+        *,
+        session_id: str,
+        learner_name: str,
+    ) -> int:
+        where = _where(
+            [
+                f"session_id = {_quote(session_id)}",
+                f"assigned_learner = {_quote(learner_name)}",
+            ]
+        )
+        sql = f"""
+SELECT uniqExact(dst_port) AS port_count
+FROM ch_flow FINAL
+{where}
+FORMAT JSONEachRow
+"""
+        text = self.client.execute(sql)
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            row = _parse_json(line)
+            return int(row.get("port_count") or 0)
+        return 0
+
     def top_subject_ips_by_learner(
         self,
         *,

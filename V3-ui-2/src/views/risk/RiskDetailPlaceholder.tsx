@@ -38,7 +38,7 @@ function buildRiskIpColumns(currentPage: number): ColumnsType<RiskIpListItem> {
       title: "风险触发次数",
       dataIndex: "triggerCount",
       key: "triggerCount",
-      width: 540,
+      width: 120,
       align: "center",
     },
   ];
@@ -185,11 +185,17 @@ export default function RiskDetailPlaceholder() {
                     </p>
                   ) : null}
                 </div>
-                <div className="flex items-center gap-[12px] mr-[16px]">
+                <div className="mr-[16px] flex items-center gap-[24px]">
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险 IP 数</div>
                     <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
                       {risk?.riskIpCount ?? 0}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <div className="text-sm text-[#8c8c8c]">风险端口数</div>
+                    <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
+                      {risk?.riskPortCount ?? 0}
                     </div>
                   </div>
                 </div>
@@ -207,43 +213,44 @@ export default function RiskDetailPlaceholder() {
             </p>
           ) : risk ? (
             <div className="flex flex-col gap-[12px]">
-              <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-                <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
-                  网络拓扑（IP / 端口）
-                </h3>
-                {topologyView ? (
-                  <TopologyChartPane
-                    hostGraph={topologyView.host}
-                    endpointGraph={topologyView.endpoint}
-                    viewIsBenign={topologyView.is_benign}
-                    repulsion={TOPOLOGY_REPULSION}
-                    minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                    chartHeight={CHART_HEIGHT}
-                  />
-                ) : (
-                  <p className="text-sm text-[#8c8c8c]">暂无拓扑数据</p>
-                )}
-              </div>
+              <div className="flex min-w-0 gap-[12px]">
+                <div className="min-w-0 flex-[2] rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+                  {topologyView ? (
+                    <TopologyChartPane
+                      title="流量拓扑图"
+                      hostGraph={topologyView.host}
+                      endpointGraph={topologyView.endpoint}
+                      viewIsBenign={topologyView.is_benign}
+                      repulsion={TOPOLOGY_REPULSION}
+                      minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+                      chartHeight={CHART_HEIGHT}
+                    />
+                  ) : (
+                    <p className="text-sm text-[#8c8c8c]">暂无拓扑数据</p>
+                  )}
+                </div>
 
-              <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-                <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
-                  风险 IP 列表（按每个 IP 的风险触发次数从多到少排序）
-                </h3>
-                <Table<RiskIpListItem>
-                  rowKey="ip"
-                  size="middle"
-                  bordered
-                  columns={buildRiskIpColumns(riskIpPage)}
-                  dataSource={riskIpList}
-                  pagination={{
-                    current: riskIpPage,
-                    pageSize: LIST_PAGE_SIZE,
-                    total: riskIpList.length,
-                    showTotal: (total) => `共 ${total} 条`,
-                    onChange: setRiskIpPage,
-                  }}
-                  scroll={{ y: LIST_MAX_HEIGHT }}
-                />
+                <div className="flex min-w-0 flex-[1] flex-col rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+                  <h3 className="mb-[12px] shrink-0 text-[14px] font-medium text-[#333]">
+                    风险 IP 列表（按每个 IP 的风险触发次数从多到少排序）
+                  </h3>
+                  <Table<RiskIpListItem>
+                    className="min-w-0"
+                    rowKey="ip"
+                    size="middle"
+                    bordered
+                    columns={buildRiskIpColumns(riskIpPage)}
+                    dataSource={riskIpList}
+                    pagination={{
+                      current: riskIpPage,
+                      pageSize: LIST_PAGE_SIZE,
+                      total: riskIpList.length,
+                      showTotal: (total) => `共 ${total} 条`,
+                      onChange: setRiskIpPage,
+                    }}
+                    scroll={{ y: LIST_MAX_HEIGHT }}
+                  />
+                </div>
               </div>
 
               <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">

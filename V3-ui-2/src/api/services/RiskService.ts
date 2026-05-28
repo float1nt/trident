@@ -137,6 +137,7 @@ export type IpRiskEventItem = {
 
 export type RiskDetail = RiskItem & {
   riskIpCount?: number;
+  riskPortCount?: number;
 };
 
 export class RiskService {

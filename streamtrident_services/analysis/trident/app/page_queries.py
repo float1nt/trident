@@ -423,6 +423,15 @@ class PageQueryService:
         learner = self.learners.get_learner_by_id(session_id=self.session_id, learner_id=risk_id) or {}
         item = _risk_item_from_learner(learner, subject_ip=_first_subject_ip(self, learner))
         item["riskIpCount"] = len(self.risk_ips(risk_id=risk_id, limit=1000))
+        learner_name = str(learner.get("learner_name") or "")
+        item["riskPortCount"] = (
+            self.flows.unique_dst_port_count_by_learner(
+                session_id=self.session_id,
+                learner_name=learner_name,
+            )
+            if learner_name
+            else 0
+        )
         return item
 
     def risk_network_topology(self, *, risk_id: int, top_n: int = 50) -> dict[str, Any]:

@@ -4,6 +4,7 @@ export const chartTheme = {
   textSecondary: "#666666",
   axis: "#d9e4fa",
   green: "#52c41a",
+  orange: "#fa8c16",
   red: "#ff4d4f",
   white: "#ffffff",
   nodeInternal: "#ecf2ff",
@@ -16,4 +17,5 @@ export const CHART_TEXT_PRIMARY = chartTheme.text;
 export const CHART_TEXT_SECONDARY = chartTheme.textSecondary;
 export const CHART_AXIS_LINE = chartTheme.axis;
 export const CHART_GREEN = chartTheme.green;
+export const CHART_ORANGE = chartTheme.orange;
 export const CHART_RED = chartTheme.red;

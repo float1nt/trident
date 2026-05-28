@@ -6,6 +6,7 @@ import "./NetworkTopologyPanel.css";
 import {
   CHART_AXIS_LINE,
   CHART_GREEN,
+  CHART_ORANGE,
   CHART_RED,
   CHART_TEXT_PRIMARY,
   chartTheme,
@@ -215,7 +216,7 @@ function getTrafficAnalysisText(
 ): string {
   if (viewIsBenign === true) return "良性";
   if (viewIsBenign === false) return "异常";
-  return "混合";
+  return "部分异常";
 }
 
 function formatTrafficAnalysisHtml(label: string): string {
@@ -224,6 +225,9 @@ function formatTrafficAnalysisHtml(label: string): string {
   }
   if (label === "异常") {
     return `流量分析:<span style="color:${CHART_RED}">异常</span>`;
+  }
+  if (label === "部分异常") {
+    return `流量分析:<span style="color:${CHART_ORANGE}">部分异常</span>`;
   }
   return `流量分析:${label}`;
 }

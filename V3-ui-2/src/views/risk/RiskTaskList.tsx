@@ -348,9 +348,9 @@ const RiskTaskList = () => {
                   </p>
                 </div>
                 <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
-                  <span style={{ color: CHART_GREEN }}>绿色</span>
+                  <span style={{ color: CHART_GREEN ,fontSize: '18px'}}>→</span>
                   代表正常，
-                  <span style={{ color: CHART_RED }}>红色</span>
+                  <span style={{ color: CHART_RED ,fontSize: '18px'}}>→</span>
                   代表异常。
                 </Paragraph>
               </div>
