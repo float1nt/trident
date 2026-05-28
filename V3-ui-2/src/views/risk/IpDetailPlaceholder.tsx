@@ -2,83 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { useTrafficLogsInfiniteScroll } from "@/hooks/useTrafficLogsInfiniteScroll";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Tag, Table, Button, Spin } from "antd";
-import type { ColumnsType } from "antd/es/table";
+import { Tag, Spin } from "antd";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
-import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { TrafficLogsTable } from "@/components/TrafficLogsTable";
-import {
-  RiskService,
-  type IpRiskEventItem,
-  type IpSummary,
-} from "@/api/services/RiskService";
+import { RiskService, type IpSummary } from "@/api/services/RiskService";
 import type { LearnerNetworkTopologyJson } from "@/types/learnerTopology";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
-
-const LIST_PAGE_SIZE = 10;
-const LIST_MAX_HEIGHT = "200px";
-
-function buildIpRiskEventColumns(
-  currentPage: number,
-  onViewRisk: (riskId: number) => void,
-): ColumnsType<IpRiskEventItem> {
-  return [
-    {
-      title: "序号",
-      key: "index",
-      width: 72,
-      align: "center",
-      render: (_value, _record, index) =>
-        (currentPage - 1) * LIST_PAGE_SIZE + index + 1,
-    },
-    {
-      title: "风险名称",
-      dataIndex: "name",
-      key: "name",
-      width: 180,
-      render: (text: string) => (
-        <TextWithTooltip text={text || ""} className="font-medium" />
-      ),
-    },
-    {
-      title: "触发时间",
-      dataIndex: "triggerTime",
-      key: "triggerTime",
-      width: 170,
-    },
-    {
-      title: "风险说明",
-      dataIndex: "description",
-      key: "description",
-      render: (text: string) => (
-        <TextWithTooltip text={text || ""} emptyText="-" className="text-gray-600" />
-      ),
-    },
-    {
-      title: "风险特征",
-      dataIndex: "features",
-      key: "features",
-      width: 220,
-      render: (text: string) => (
-        <TextWithTooltip text={text || ""} emptyText="-" />
-      ),
-    },
-    {
-      title: "操作",
-      key: "action",
-      width: 100,
-      align: "center",
-      render: (_value, record) =>
-        record.id > 0 ? (
-          <Button type="link" size="small" onClick={() => onViewRisk(record.id)}>
-            查看
-          </Button>
-        ) : (
-          <span className="text-[#8c8c8c]">-</span>
-        ),
-    },
-  ];
-}
 
 /** IP 详情页 */
 export default function IpDetailPlaceholder() {
@@ -94,9 +23,7 @@ export default function IpDetailPlaceholder() {
   const [loadState, setLoadState] = useState<"idle" | "loading" | "done">("loading");
   const [ipRiskEventTopology, setIpRiskEventTopology] =
     useState<LearnerNetworkTopologyJson | null>(null);
-  const [riskEvents, setRiskEvents] = useState<IpRiskEventItem[]>([]);
   const [riskEventsLoading, setRiskEventsLoading] = useState(false);
-  const [riskEventPage, setRiskEventPage] = useState(1);
   const requestSeqRef = useRef(0);
 
   const trafficLogsEnabled = loadState === "done" && !!summary && !!ip;
@@ -116,7 +43,6 @@ export default function IpDetailPlaceholder() {
     if (!ip) {
       setSummary(null);
       setIpRiskEventTopology(null);
-      setRiskEvents([]);
       setRiskEventsLoading(false);
       setLoadState("done");
       return;
@@ -126,7 +52,6 @@ export default function IpDetailPlaceholder() {
     setLoadState("loading");
     setSummary(null);
     setIpRiskEventTopology(null);
-    setRiskEvents([]);
     setRiskEventsLoading(false);
 
     const load = async () => {
@@ -143,20 +68,10 @@ export default function IpDetailPlaceholder() {
       setLoadState("done");
 
       setRiskEventsLoading(true);
-      void Promise.allSettled([
-        RiskService.getIpEventsTopology(ip),
-        RiskService.getIpEvents(ip),
-      ])
-        .then((results) => {
+      void RiskService.getIpEventsTopology(ip)
+        .then((topology) => {
           if (requestSeq !== requestSeqRef.current) return;
-
-          const [topologyResult, eventsResult] = results;
-          if (topologyResult.status === "fulfilled") {
-            setIpRiskEventTopology(topologyResult.value);
-          }
-          if (eventsResult.status === "fulfilled") {
-            setRiskEvents(eventsResult.value);
-          }
+          setIpRiskEventTopology(topology);
         })
         .finally(() => {
           if (requestSeq !== requestSeqRef.current) return;
@@ -166,10 +81,6 @@ export default function IpDetailPlaceholder() {
 
     void load();
   }, [ip, run]);
-
-  useEffect(() => {
-    setRiskEventPage(1);
-  }, [ip]);
 
   const featureTags = summary?.features
     ? summary.features.split("、").map((item) => item.trim()).filter(Boolean)
@@ -260,27 +171,6 @@ export default function IpDetailPlaceholder() {
                   onRiskClick={handleViewRisk}
                 />
               </div>
-
-              {/* <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-                <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
-                  与IP关联的风险事件列表（按触发时间从近到远排序）
-                </h3>
-                <Table<IpRiskEventItem>
-                  rowKey="id"
-                  size="middle"
-                  bordered
-                  columns={buildIpRiskEventColumns(riskEventPage, handleViewRisk)}
-                  dataSource={riskEvents}
-                  pagination={{
-                    current: riskEventPage,
-                    pageSize: LIST_PAGE_SIZE,
-                    total: riskEvents.length,
-                    showTotal: (total) => `共 ${total} 条`,
-                    onChange: setRiskEventPage,
-                  }}
-                  scroll={{ x: 1100, y: LIST_MAX_HEIGHT }}
-                />
-              </div> */}
 
               <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
                 <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">

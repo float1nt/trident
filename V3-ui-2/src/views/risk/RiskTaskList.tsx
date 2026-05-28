@@ -218,7 +218,6 @@ const RiskTaskList = () => {
       dataIndex: "subjectIp",
       key: "subjectIp",
       width: 150,
-      align: "center",
       render: (text: string) => (
         <TextWithTooltip text={text || ""} className="font-medium" />
       ),
@@ -228,7 +227,6 @@ const RiskTaskList = () => {
       dataIndex: "riskCount",
       key: "riskCount",
       width: 90,
-      align: "center",
       render: (count: number) =>
         count > 0 ? (
           <span className="font-medium">{count}</span>
@@ -241,10 +239,9 @@ const RiskTaskList = () => {
       dataIndex: "risks",
       key: "risks",
       width: 320,
-      align: "center",
       render: (risks: IpRiskListItem["risks"]) =>
         risks?.length ? (
-          <div className="flex flex-wrap justify-center gap-1 max-w-full">
+          <div className="flex max-w-full flex-wrap justify-start gap-1">
             {risks.map((risk) => {
               const label = `${risk.name}（${risk.triggerCount}）`;
               return (
@@ -265,7 +262,6 @@ const RiskTaskList = () => {
       key: "action",
       width: 100,
       fixed: "right",
-      align: "center",
       render: (_: unknown, record: IpRiskListItem) => (
         <Tooltip title="查看详情">
           <Button

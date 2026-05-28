@@ -26,7 +26,6 @@ function buildRiskIpColumns(currentPage: number): ColumnsType<RiskIpListItem> {
       title: "序号",
       key: "index",
       width: 72,
-      align: "center",
       render: (_value, _record, index) =>
         (currentPage - 1) * LIST_PAGE_SIZE + index + 1,
     },
@@ -40,7 +39,6 @@ function buildRiskIpColumns(currentPage: number): ColumnsType<RiskIpListItem> {
       dataIndex: "triggerCount",
       key: "triggerCount",
       width: 120,
-      align: "center",
     },
   ];
 }

@@ -186,6 +186,25 @@ body {
 }
 
 
+/* 全局表格：表头浅蓝底、全部左对齐 */
+.ant-table-wrapper .ant-table-thead > tr > th,
+.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-fix-left,
+.ant-table-wrapper .ant-table-thead > tr > th.ant-table-cell-fix-right {
+  background: #f0f5ff !important;
+  text-align: left !important;
+}
+
+.ant-table-wrapper .ant-table-tbody > tr > td,
+.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell-fix-left,
+.ant-table-wrapper .ant-table-tbody > tr > td.ant-table-cell-fix-right {
+  text-align: left !important;
+}
+
+.ant-table-wrapper .ant-table-cell.ant-table-cell-align-center,
+.ant-table-wrapper .ant-table-cell.ant-table-cell-align-right {
+  text-align: left !important;
+}
+
 /* 表格的滚动条 */
 .ant-table-content,
 .ant-table-body {
