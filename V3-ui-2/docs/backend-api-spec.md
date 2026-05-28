@@ -663,7 +663,11 @@
   "links": [ /* TopologyLink[] */ ],
   "stats": {
     "top_dst_port": 443,
-    "top_dst_port_ratio": 0.42
+    "top_dst_port_ratio": 0.42,
+    "total_flow_count": 125000,
+    "unique_ip_count": 135,
+    "unique_endpoint_count": 2940,
+    "unique_dst_port_count": 717
   }
 }
 ```
@@ -674,7 +678,7 @@
 | `node_mode` | string | `"host"` 或 `"endpoint"` |
 | `nodes` | TopologyNode[] | 节点列表 |
 | `links` | TopologyLink[] | 边列表 |
-| `stats` | Record<string, number> | 统计扩展字段，键名自定义 |
+| `stats` | Record<string, number> | 统计扩展字段；`unique_*` 和 `total_flow_count` 为全量统计，不受拓扑绘图 `top_n` 限制 |
 
 #### TopologyLabelView
 

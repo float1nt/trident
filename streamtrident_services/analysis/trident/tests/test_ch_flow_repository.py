@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.flow_loader import FlowLoader
-from app.persistence.ch_flow_repository import AssignmentUpdate
+from app.persistence.ch_flow_repository import AssignmentUpdate, ChFlowRepository, _topology_node
 from app.redis_consumer import RedisStreamMessage
 from app.runtime.online_engine import FlowAssignment
 
@@ -33,3 +33,58 @@ def test_assignment_update_preserves_base_row_and_increments_version() -> None:
     assert row["assigned_learner"] == "BASELINE_0"
     assert row["record_stage"] == "assigned"
     assert row["record_version"] == 1001
+
+
+def test_topology_node_includes_directional_flow_counts() -> None:
+    node = _topology_node(
+        "192.168.10.3",
+        12,
+        node_mode="host",
+        out_flow_count=7,
+        in_flow_count=5,
+    )
+
+    assert node["flow_count"] == 12
+    assert node["out_flow_count"] == 7
+    assert node["in_flow_count"] == 5
+
+
+def test_topology_graph_selects_top_edges_before_nodes() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sql: list[str] = []
+
+        def execute(self, sql: str) -> str:
+            self.sql.append(sql)
+            if "top_dst_port_ratio" in sql:
+                return '{"total_flow_count":9,"top_dst_port":443,"top_dst_port_ratio":1,"unique_ip_count":2,"unique_endpoint_count":4,"unique_dst_port_count":1}\n'
+            return "\n".join(
+                [
+                    '{"row_type":"node","id":"10.0.0.1","source":"","target":"","value":3,"out_flow_count":3,"in_flow_count":0,"is_benign":0}',
+                    '{"row_type":"node","id":"10.0.0.2","source":"","target":"","value":3,"out_flow_count":0,"in_flow_count":3,"is_benign":0}',
+                    '{"row_type":"edge","id":"","source":"10.0.0.1","target":"10.0.0.2","value":3,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
+                ]
+            )
+
+    repo = ChFlowRepository.__new__(ChFlowRepository)
+    repo.client = FakeClient()
+
+    graph = repo.topology_graph(session_id="s1", node_mode="host", top_n=50)
+
+    topology_sql = repo.client.sql[0]
+    assert "WITH edge_rows AS" in topology_sql
+    assert "ORDER BY value DESC, source ASC, target ASC" in topology_sql
+    assert "LIMIT 50" in topology_sql
+    assert "selected_nodes AS" in topology_sql
+    assert "WHERE node IN (SELECT node FROM selected_nodes)" in topology_sql
+    stats_sql = repo.client.sql[1]
+    assert "unique_ip_count" in stats_sql
+    assert "unique_endpoint_count" in stats_sql
+    assert "unique_dst_port_count" in stats_sql
+    assert graph["flow_count"] == 9
+    assert graph["total_flow_count"] == 9
+    assert graph["stats"]["unique_ip_count"] == 2
+    assert graph["nodes"][0]["id"] == "10.0.0.1"
+    assert graph["links"] == [
+        {"source": "10.0.0.1", "target": "10.0.0.2", "value": 3, "is_benign": False}
+    ]

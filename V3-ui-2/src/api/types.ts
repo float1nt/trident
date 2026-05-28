@@ -71,6 +71,8 @@ export interface RiskItem {
 /** IP 视角列表：单个风险名称及触发次数 */
 export interface IpRiskNameStat {
   name: string;
+  /** 后端学习器名；同一风险名称可能来自多个学习器 */
+  learnerName?: string;
   triggerCount: number;
 }
 
@@ -78,7 +80,7 @@ export interface IpRiskNameStat {
 export interface IpRiskListItem {
   id: number;
   subjectIp: string;
-  /** 该 IP 关联的不同风险种类数 */
+  /** 该 IP 关联的学习器数量 */
   riskCount: number;
   risks: IpRiskNameStat[];
 }
