@@ -87,7 +87,7 @@ def test_risk_events_default_to_medium_and_high_learners() -> None:
 
     assert data["total"] == 1
     assert data["items"][0]["learner_name"] == "NEW_1"
-    assert data["items"][0]["risk_name"] == "DDoS受害目标"
+    assert data["items"][0]["risk_name"] == "分布式拒绝服务攻击"
     assert data["items"][0]["subject_ips"] == ["10.0.0.8"]
 
 
@@ -113,6 +113,6 @@ def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
 
     assert data["total"] == 1
     assert data["items"][0]["subjectIp"] == "10.0.0.8"
-    assert data["items"][0]["name"] == "DDoS受害目标"
+    assert data["items"][0]["name"] == "分布式拒绝服务攻击"
     assert data["items"][0]["id"] == 11
     assert "top_protocol=TLS" in data["items"][0]["description"]

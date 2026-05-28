@@ -14,14 +14,14 @@ RULE_SET_VERSION = "2026-05-27.v1"
 ATTACK_EXPLAIN: dict[str, str] = {
     "PORT_SCAN": "端口维度高度展开，符合端口扫描模式。",
     "HOST_SCAN": "存在明显出向 hub，符合主机扫描或横向探测模式。",
-    "DDOS_VICTIM": "固定目标服务被多源汇聚，符合 DDoS 受害模式。",
+    "DDOS_VICTIM": "固定目标服务被多源汇聚，符合分布式拒绝服务攻击特征。",
     "DOS_ATTACKER": "固定目标集中且边复用高，符合 DoS 攻击源模式。",
     "DRDOS_REFLECTION_FAMILY": "边分散且单向性强，符合反射放大型攻击族模式。",
     "SLOW_DOS_SUSPECTED": "固定目标且低往返，符合慢速 DoS 嫌疑模式。",
     "WEB_DDOS_SUSPECTED": "Web 端口主导且双向复杂，符合 Web DDoS 嫌疑模式。",
     "BRUTE_FORCE_SUSPECTED": "目标端口集中且短时复用高，符合暴力破解嫌疑模式。",
     "BENIGN_NORMAL": "未命中攻击规则，行为更接近正常业务流量。",
-    "UNKNOWN_SUSPECTED": "未形成稳定攻击画像，建议结合更多窗口继续观察。",
+    "UNKNOWN_SUSPECTED": "存在异常迹象，但尚未匹配到已命名攻击类型。",
 }
 
 
@@ -549,10 +549,14 @@ def _match_attack_rules(
             and _m(metrics, "host_max_out_degree_ratio") <= 70.0
         )
         if benign_like:
+            benign_confidence = min(
+                0.35,
+                max(0.18, 0.35 - _m(metrics, "temporal_burst") / 300.0),
+            )
             attack_types = [
                 {
                     "attack_type": "BENIGN_NORMAL",
-                    "confidence": round(max(0.55, 1.0 - _m(metrics, "temporal_burst") / 120.0), 6),
+                    "confidence": round(benign_confidence, 6),
                     "evidence_rules": ["learner_benign_fallback"],
                     "explain": ATTACK_EXPLAIN["BENIGN_NORMAL"],
                 }
@@ -576,7 +580,7 @@ def _match_attack_rules(
             attack_types = [
                 {
                     "attack_type": "UNKNOWN_SUSPECTED",
-                    "confidence": 0.45,
+                    "confidence": 0.35,
                     "evidence_rules": ["learner_unknown_fallback"],
                     "explain": ATTACK_EXPLAIN["UNKNOWN_SUSPECTED"],
                 }

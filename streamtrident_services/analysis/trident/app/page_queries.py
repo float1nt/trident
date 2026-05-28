@@ -14,14 +14,14 @@ RISK_BANDS = {"medium", "high"}
 ATTACK_TYPE_DISPLAY: dict[str, dict[str, str]] = {
     "PORT_SCAN": {"name": "端口扫描", "desc": "短时间探测大量目标端口，常用于资产发现。"},
     "HOST_SCAN": {"name": "主机扫描/横向探测", "desc": "单个来源连接大量主机，存在横向探测特征。"},
-    "DDOS_VICTIM": {"name": "DDoS受害目标", "desc": "目标被大量来源集中访问，疑似遭受分布式拒绝服务攻击。"},
+    "DDOS_VICTIM": {"name": "分布式拒绝服务攻击", "desc": "目标被大量来源集中访问，呈现典型分布式拒绝服务攻击特征。"},
     "DOS_ATTACKER": {"name": "DoS攻击源", "desc": "来源持续高频访问固定目标，疑似拒绝服务攻击发起端。"},
     "DRDOS_REFLECTION_FAMILY": {"name": "反射放大攻击族", "desc": "流量呈单向扩散与反射放大特征，需重点关注。"},
     "SLOW_DOS_SUSPECTED": {"name": "慢速DoS嫌疑", "desc": "连接行为更像慢速耗尽型攻击，建议持续观察。"},
     "WEB_DDOS_SUSPECTED": {"name": "Web DDoS嫌疑", "desc": "Web服务端口压力异常，疑似应用层DDoS。"},
     "BRUTE_FORCE_SUSPECTED": {"name": "暴力破解嫌疑", "desc": "固定端口反复尝试，疑似口令爆破。"},
-    "BENIGN_NORMAL": {"name": "良性流量", "desc": "当前窗口未命中攻击规则，行为接近正常业务。"},
-    "UNKNOWN_SUSPECTED": {"name": "待观察流量", "desc": "暂未形成明确攻击画像，请结合后续窗口继续判断。"},
+    "BENIGN_NORMAL": {"name": "正常流量", "desc": "当前窗口未命中攻击规则，行为接近正常业务。"},
+    "UNKNOWN_SUSPECTED": {"name": "未命名攻击", "desc": "当前流量存在异常迹象，但尚未匹配到已命名攻击类型。"},
 }
 
 
@@ -772,7 +772,7 @@ def _primary_attack_confidence(learner: dict[str, Any]) -> float:
                 if isinstance(item, dict):
                     return _float(item.get("confidence"))
     if _primary_attack_type(learner) == "BENIGN_NORMAL":
-        return 0.75
+        return 0.35
     return 0.0
 
 
