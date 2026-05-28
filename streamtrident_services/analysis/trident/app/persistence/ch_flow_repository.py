@@ -636,10 +636,7 @@ def _prefix_filter(expression: str, value: str | None) -> str | None:
 
 
 def _abnormal_expr(risk_learners: list[str]) -> str:
-    risk_filter = _in_filter("assigned_learner", risk_learners)
-    if risk_filter:
-        return f"(is_unknown = 1 OR {risk_filter})"
-    return "(is_unknown = 1)"
+    return _risk_learner_expr(risk_learners)
 
 
 def _risk_learner_expr(risk_learners: list[str]) -> str:

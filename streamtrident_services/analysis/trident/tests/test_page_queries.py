@@ -105,7 +105,7 @@ def test_overview_traffic_trend_returns_filled_buckets() -> None:
     assert sum(item["normal"] + item["abnormal"] for item in data) == 0
 
 
-def test_risk_events_default_to_medium_and_high_learners() -> None:
+def test_risk_events_default_to_attack_type_learners() -> None:
     service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
 
     data = service.risk_events()
@@ -116,7 +116,7 @@ def test_risk_events_default_to_medium_and_high_learners() -> None:
     assert data["items"][0]["subject_ips"] == ["10.0.0.8"]
 
 
-def test_risk_events_topology_includes_all_learners() -> None:
+def test_risk_events_topology_includes_attack_type_learners_only() -> None:
     class TopologyFlows(FakeFlows):
         def topology_graph(self, **_: Any) -> dict[str, Any]:
             return {"flow_count": 1, "node_mode": "host", "nodes": [], "links": [], "stats": {}}
@@ -128,7 +128,7 @@ def test_risk_events_topology_includes_all_learners() -> None:
     service = PageQueryService(session_id="s1", flows=TopologyFlows(), learners=TopologyLearners())
     data = service.risk_events_topology()
 
-    assert sorted(data["learners"]) == ["BASELINE_0", "NEW_1"]
+    assert data["learners"] == ["NEW_1"]
 
 
 def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
@@ -217,6 +217,11 @@ def test_risk_list_counts_learners_not_deduped_risk_names() -> None:
                     "risk_reason": "unknown family",
                     "last_seen_at": "2026-05-27T10:00:00Z",
                     "flow_count": 20,
+                    "rule_json": {
+                        "attack_types": [
+                            {"attack_type": "UNKNOWN_SUSPECTED", "confidence": 0.82},
+                        ]
+                    },
                 },
                 {
                     "id": 12,
@@ -226,6 +231,11 @@ def test_risk_list_counts_learners_not_deduped_risk_names() -> None:
                     "risk_reason": "unknown family",
                     "last_seen_at": "2026-05-27T10:01:00Z",
                     "flow_count": 12,
+                    "rule_json": {
+                        "attack_types": [
+                            {"attack_type": "UNKNOWN_SUSPECTED", "confidence": 0.72},
+                        ]
+                    },
                 },
             ]
 

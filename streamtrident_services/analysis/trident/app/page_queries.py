@@ -9,8 +9,6 @@ from .persistence.learner_repository import LearnerRepository
 from .redis_consumer import RedisStreamConsumer
 
 
-RISK_BANDS = {"medium", "high"}
-
 ATTACK_TYPE_DISPLAY: dict[str, dict[str, str]] = {
     "PORT_SCAN": {"name": "端口扫描", "desc": "短时间探测大量目标端口，常用于资产发现。"},
     "HOST_SCAN": {"name": "主机扫描/横向探测", "desc": "单个来源连接大量主机，存在横向探测特征。"},
@@ -407,7 +405,7 @@ class PageQueryService:
             risk_band=None,
             time_from=time_from,
             time_to=time_to,
-            include_all_bands=True,
+            include_all_bands=False,
         )
         rows = [row for row in rows if int(row.get("flow_count") or 0) > 0]
         views: dict[str, Any] = {}
@@ -570,11 +568,14 @@ class PageQueryService:
 def _risk_learner_names(rows: list[dict[str, Any]]) -> list[str]:
     names: list[str] = []
     for row in rows:
-        band = str(row.get("risk_band") or "").lower()
         name = str(row.get("learner_name") or "")
-        if name and band in RISK_BANDS:
+        if name and _is_attack_learner(row):
             names.append(name)
     return names
+
+
+def _is_attack_learner(row: dict[str, Any]) -> bool:
+    return _primary_attack_type(row) != "BENIGN_NORMAL"
 
 
 def _clean_trigger_bound(value: str | None) -> str | None:
@@ -603,7 +604,7 @@ def _filter_learner_rows(
         if band_text:
             if row_band != band_text:
                 continue
-        elif not include_all_bands and row_band not in RISK_BANDS:
+        elif not include_all_bands and not _is_attack_learner(row):
             continue
         learner_name = str(row.get("learner_name") or "").lower()
         if name_text and name_text not in learner_name:
@@ -879,13 +880,7 @@ def _primary_attack_type(learner: dict[str, Any]) -> str:
                     attack_type = str(item.get("attack_type") or "").strip()
                     if attack_type:
                         return attack_type
-    # 老数据兼容兜底：没有 attack_types 时，按低风险/良性标识归类为良性流量
-    risk_band = str(learner.get("risk_band") or "").strip().lower()
-    is_benign = bool(learner.get("is_benign"))
-    score = _float(learner.get("risk_score"))
-    if is_benign or risk_band == "low" or score <= 0.35:
-        return "BENIGN_NORMAL"
-    return "UNKNOWN_SUSPECTED"
+    return "BENIGN_NORMAL"
 
 
 def _primary_attack_confidence(learner: dict[str, Any]) -> float:
