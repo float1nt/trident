@@ -7,7 +7,6 @@ import {
   Input,
   Button,
   Space,
-  Tooltip,
   Tag,
   DatePicker,
   Card,
@@ -19,12 +18,17 @@ import PageTabs from "@/components/PageTabs";
 import type { Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { IpRiskListItem } from "@/api/types";
+import OverflowTooltip from "@/components/OverflowTooltip";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
+import { RiskService } from "@/api/services/RiskService";
 import {
-  EVENT_TOPOLOGY_PAGE_SIZE,
-  RiskService,
-} from "@/api/services/RiskService";
+  createPaginationProps,
+  createTablePagination,
+  DEFAULT_EVENT_TOPOLOGY_PAGE_SIZE,
+  DEFAULT_TABLE_PAGE_SIZE,
+  EVENT_TOPOLOGY_PAGE_SIZE_OPTIONS,
+} from "@/constants/tablePagination";
 import { CHART_GREEN, CHART_RED } from "@/theme/chartTheme";
 import "./RiskTaskList.css";
 
@@ -82,13 +86,15 @@ const RiskTaskList = () => {
     useState<EventSearchForm>(EMPTY_EVENT_SEARCH);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [eventPageSize, setEventPageSize] = useState(
+    DEFAULT_EVENT_TOPOLOGY_PAGE_SIZE,
+  );
   const { loading, run: runIpList } = useApi();
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
   const [eventIpTotal, setEventIpTotal] = useState(0);
   const [eventLoadError, setEventLoadError] = useState<string | null>(null);
   const [eventPage, setEventPage] = useState(1);
-  const [eventPageSize] = useState(EVENT_TOPOLOGY_PAGE_SIZE);
 
   const fetchEventTopologyPage = useCallback(
     async (offset: number, limit: number) => {
@@ -252,11 +258,11 @@ const RiskTaskList = () => {
             {risks.map((risk) => {
               const label = `${risk.name}（${risk.triggerCount}）`;
               return (
-                <Tooltip key={risk.name} title={label}>
+                <OverflowTooltip key={risk.name} title={label}>
                   <Tag color="processing" className="!m-0 max-w-full truncate">
                     {label}
                   </Tag>
-                </Tooltip>
+                </OverflowTooltip>
               );
             })}
           </div>
@@ -270,15 +276,13 @@ const RiskTaskList = () => {
       width: 100,
       fixed: "right",
       render: (_: unknown, record: IpRiskListItem) => (
-        <Tooltip title="查看详情">
-          <Button
-            variant="link"
-            color="primary"
-            onClick={() => handleIpDetail(record.subjectIp)}
-          >
-            详情
-          </Button>
-        </Tooltip>
+        <Button
+          variant="link"
+          color="primary"
+          onClick={() => handleIpDetail(record.subjectIp)}
+        >
+          查看详情
+        </Button>
       ),
     },
   ];
@@ -357,17 +361,18 @@ const RiskTaskList = () => {
                   <p className="risk-event-summary__text">
                     总共
                     <span className="risk-event-summary__num">{eventTopologyTotal}</span>
-                    类风险，涉及
+                    类风险
+                    ，
                     <span className="risk-event-summary__num">{eventIpTotal}</span>
-                    个风险 IP
+                    类风险事件
                   </p>
                 </div>
-                <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
+                {/* <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
                   <span style={{ color: CHART_GREEN ,fontSize: '18px'}}>→</span>
                   代表正常，
                   <span style={{ color: CHART_RED ,fontSize: '18px'}}>→</span>
                   代表异常。
-                </Paragraph>
+                </Paragraph> */}
               </div>
               {eventLoadError ? (
                 <Paragraph type="danger" className="!mb-3 text-xs">
@@ -385,12 +390,22 @@ const RiskTaskList = () => {
               {eventTopologyListTotal > 0 ? (
                 <div className="risk-event-pagination">
                   <Pagination
-                    current={eventPage}
-                    pageSize={eventPageSize}
-                    total={eventTopologyListTotal}
-                    showTotal={(t) => `共 ${t} 条`}
-                    onChange={setEventPage}
-                    showSizeChanger={false}
+                    {...createPaginationProps({
+                      current: eventPage,
+                      pageSize: eventPageSize,
+                      total: eventTopologyListTotal,
+                      pageSizeOptions: EVENT_TOPOLOGY_PAGE_SIZE_OPTIONS.map(
+                        String,
+                      ),
+                      onChange: (nextPage, nextPageSize) => {
+                        if (nextPageSize !== eventPageSize) {
+                          setEventPageSize(nextPageSize);
+                          setEventPage(1);
+                          return;
+                        }
+                        setEventPage(nextPage);
+                      },
+                    })}
                   />
                 </div>
               ) : null}
@@ -431,13 +446,15 @@ const RiskTaskList = () => {
                 dataSource={listdata}
                 rowKey="id"
                 size="middle"
-                pagination={{
+                pagination={createTablePagination({
                   current: page,
-                  pageSize: pageSize,
-                  total: total,
-                  showTotal: (t) => `共 ${t} 条`,
-                  onChange: setPage,
-                }}
+                  pageSize,
+                  total,
+                  onChange: (nextPage, nextPageSize) => {
+                    setPage(nextPage);
+                    setPageSize(nextPageSize);
+                  },
+                })}
                 scroll={{ x: 710, y: "calc(100vh - 370px)" }}
                 bordered
               />

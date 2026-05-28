@@ -197,8 +197,15 @@ def create_app(config_path: str | None = None) -> FastAPI:
     def risk_ip_events_topology(
         ip: str,
         top_n: int = Query(50, ge=1, le=500),
+        limit: int = Query(6, ge=1, le=50),
+        offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
-        data = _pages(cfg).ip_events_topology(ip=ip, top_n=top_n)
+        data = _pages(cfg).ip_events_topology(
+            ip=ip,
+            top_n=top_n,
+            limit=limit,
+            offset=offset,
+        )
         return _ok(LearnerTopologyData.model_validate(data).model_dump())
 
     @app.get("/risk/ips/{ip}/events", response_model=ApiResponse)

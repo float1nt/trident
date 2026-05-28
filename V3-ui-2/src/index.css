@@ -185,6 +185,20 @@ body {
   background: #999999;
 }
 
+/* 统一 antd Tooltip 白底样式（ECharts option.tooltip 不在此范围） */
+.ant-tooltip .ant-tooltip-inner {
+  background-color: #ffffff !important;
+  color: #333333 !important;
+  border: 1px solid #d9e4fa;
+  box-shadow:
+    0 6px 16px 0 rgba(0, 0, 0, 0.08),
+    0 3px 6px -4px rgba(0, 0, 0, 0.12),
+    0 9px 28px 8px rgba(0, 0, 0, 0.05);
+}
+
+.ant-tooltip .ant-tooltip-arrow {
+  display: none !important;
+}
 
 /* 全局表格：表头浅蓝底、全部左对齐 */
 .ant-table-wrapper .ant-table-thead > tr > th,

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { QuestionCircleOutlined } from "@ant-design/icons";
-import { Button, Tooltip } from "antd";
+import { InfoCircleOutlined } from "@ant-design/icons";
+import { Button } from "antd";
+import IconTooltip from "@/components/IconTooltip";
 import type { EChartsOption } from "echarts";
 import EChartsRingChart from "@/components/EChartsRingChart";
 import "./NetworkTopologyPanel.css";
@@ -69,7 +70,7 @@ export type DatasetNetworkTopologyJson = {
 export const GRID_CHART_HEIGHT = 280;
 
 const TOPOLOGY_NODE_LIMIT_HINT =
-  "IP/端口总数可能过大，拓扑示意图默认最多展示访问次数最多的50个IP/端口节点。";
+  "图例最多可展示访问次数TOP50 的IP/端口。";
 
 const COMPACT_MAX_NODES = 28;
 
@@ -507,14 +508,14 @@ export function TopologyChartPane({
                 {title}
               </h4>
             ) : null}
-            <Tooltip title={TOPOLOGY_NODE_LIMIT_HINT}>
+            <IconTooltip title={TOPOLOGY_NODE_LIMIT_HINT}>
               <span className="inline-flex shrink-0 items-center leading-none">
-                <QuestionCircleOutlined
+                <InfoCircleOutlined
                   className="cursor-help text-[12px] text-[#8c8c8c] hover:text-[#4368f0]"
                   aria-label="拓扑展示说明"
                 />
               </span>
-            </Tooltip>
+            </IconTooltip>
           </div>
           {hasDualGraph ? (
             <TopologyGraphModeToggle

@@ -1,5 +1,6 @@
 import { ReloadOutlined } from "@ant-design/icons";
 import { Select, Button } from "antd";
+import OverflowTooltip from "@/components/OverflowTooltip";
 import metricsSectionBg from "@/assets/编组 58@2x.png";
 import titleIcon from "@/assets/路径.png";
 import metricIcon1 from "@/assets/总览/生成特定背景图-3-2.png";
@@ -88,7 +89,9 @@ export default function DataFlowMetricsSection({
           {METRIC_DEFS.map((item) => (
             <div key={item.label} className="data-flow-metrics__card">
               <div className="data-flow-metrics__card-main">
-                <span className="data-flow-metrics__card-label">{item.label}</span>
+                <OverflowTooltip title={item.label}>
+                  <span className="data-flow-metrics__card-label">{item.label}</span>
+                </OverflowTooltip>
                 {renderMetricValue(item.key, metrics[item.key])}
               </div>
               <img

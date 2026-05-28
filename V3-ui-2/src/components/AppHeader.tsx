@@ -1,4 +1,5 @@
 import { Dropdown } from "antd";
+import OverflowTooltip from "@/components/OverflowTooltip";
 import type { MenuProps } from "antd";
 import BreadcrumbNav from "@/components/BreadcrumbNav";
 import favicon from "@/assets/top-svg/l-favicon.svg";
@@ -10,7 +11,7 @@ import avatarImg from "@/assets/top-svg/avatar.png";
 
 const PLATFORM_TITLE = "数据流动治理平台";
 /** 静态展示，与稿一致 */
-const VERSION_TEXT = "v2.10.0-pre.5";
+const VERSION_TEXT = "v-demo";
 
 type AppHeaderProps = {
   userName: string;
@@ -49,7 +50,6 @@ export default function AppHeader({ userName, dropdownItems }: AppHeaderProps) {
         <div
           className="flex items-center rounded-[8px] px-[6px] h-6 text-[14px] text-[#7c88b1] whitespace-nowrap cursor-default line-height-[24px]"
           style={{ border: "1px solid #7c88b1" }}
-          title={VERSION_TEXT}
         >
           <span className="mr-1">版本号</span>
           <span>{VERSION_TEXT}</span>
@@ -73,9 +73,11 @@ export default function AppHeader({ userName, dropdownItems }: AppHeaderProps) {
             <div className="w-8 h-8 rounded-full overflow-hidden border border-[#e0e8f5] shrink-0 bg-[#f5f7fa]">
               <img src={avatarImg} alt="" className="w-full h-full object-cover block" />
             </div>
-            <span className="ml-4 text-base font-normal text-[#5a607f] whitespace-nowrap max-w-[200px] truncate">
-              {userName}
-            </span>
+            <OverflowTooltip title={userName}>
+              <span className="ml-4 block min-w-0 max-w-[200px] truncate text-base font-normal text-[#5a607f]">
+                {userName}
+              </span>
+            </OverflowTooltip>
             <img
               src={chevronDown}
               alt=""

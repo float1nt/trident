@@ -117,7 +117,23 @@ export type EventTopologyQuery = {
   offset?: number;
 };
 
-export const EVENT_TOPOLOGY_PAGE_SIZE = 6;
+export type IpEventsTopologyQuery = {
+  limit?: number;
+  offset?: number;
+};
+
+function buildIpEventsTopologyParams(
+  query: IpEventsTopologyQuery,
+): Record<string, string | number> {
+  const params: Record<string, string | number> = {};
+  if (query.limit != null) {
+    params.limit = query.limit;
+  }
+  if (query.offset != null) {
+    params.offset = query.offset;
+  }
+  return params;
+}
 
 export type RiskIpListItem = {
   ip: string;
@@ -219,18 +235,14 @@ export class RiskService {
 
   static async getIpEventsTopology(
     ip: string,
+    query: IpEventsTopologyQuery = {},
   ): Promise<LearnerNetworkTopologyJson> {
     const res = await get<LearnerNetworkTopologyJson>(
       `/risk/ips/${encodeURIComponent(ip)}/events/topology`,
+      buildIpEventsTopologyParams(query),
+      { timeout: 120_000 },
     );
-    return (
-      res.data ?? {
-        version: 1,
-        learners: [],
-        default_learner: "",
-        views: {},
-      }
-    );
+    return unwrapEventTopology(res);
   }
 
   static async getIpEvents(ip: string): Promise<IpRiskEventItem[]> {
