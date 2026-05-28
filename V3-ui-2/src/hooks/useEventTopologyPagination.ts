@@ -18,9 +18,6 @@ export function useEventTopologyPagination(
   const [total, setTotal] = useState(0);
   const [riskEventTotal, setRiskEventTotal] = useState(0);
   const requestSeqRef = useRef(0);
-  const fetchPageRef = useRef(fetchPage);
-
-  fetchPageRef.current = fetchPage;
 
   const loadPage = useCallback(async () => {
     if (!enabled) return;
@@ -30,7 +27,7 @@ export function useEventTopologyPagination(
 
     try {
       const offset = (page - 1) * pageSize;
-      const result = await fetchPageRef.current(offset, pageSize);
+      const result = await fetchPage(offset, pageSize);
       if (requestSeq !== requestSeqRef.current) return;
 
       const resolvedTotal = result.total ?? result.learners.length;
@@ -43,11 +40,10 @@ export function useEventTopologyPagination(
       setTotal(resolvedTotal);
       setRiskEventTotal(resolvedRiskEventTotal);
     } finally {
-      if (requestSeq === requestSeqRef.current) {
-        setLoading(false);
-      }
+      if (requestSeq !== requestSeqRef.current) return;
+      setLoading(false);
     }
-  }, [enabled, page, pageSize]);
+  }, [enabled, fetchPage, page, pageSize]);
 
   useEffect(() => {
     if (!enabled) {

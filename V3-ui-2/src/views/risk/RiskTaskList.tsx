@@ -353,7 +353,7 @@ const RiskTaskList = () => {
                     <span className="risk-event-summary__num">
                       {eventTopologyRiskEventTotal}
                     </span>
-                    类风险事件
+                    个风险事件
                   </p>
                 </div>
                 {/* <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
