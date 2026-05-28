@@ -62,6 +62,30 @@ export function formatMetricCount(count: number): FormattedTrafficVolume {
 
   return {
     value: n.toLocaleString("zh-CN"),
-    unit: " ",
+    unit: "个",
+  };
+}
+
+/** 次数单位换算：次 / 万次 / 亿次（10000 进位） */
+export function formatMetricTimes(count: number): FormattedTrafficVolume {
+  const n = Math.max(0, Number(count) || 0);
+
+  if (n >= 100_000_000) {
+    return {
+      value: formatScaledNumber(n / 100_000_000),
+      unit: "亿次",
+    };
+  }
+
+  if (n >= 10_000) {
+    return {
+      value: formatScaledNumber(n / 10_000),
+      unit: "万次",
+    };
+  }
+
+  return {
+    value: n.toLocaleString("zh-CN"),
+    unit: "次",
   };
 }

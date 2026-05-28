@@ -424,7 +424,7 @@ const RiskTaskList = () => {
                 </div>
               </div>
             </div>
-            <div className="min-h-0 flex-1 rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+            <div className="min-h-0 flex-1 rounded-[8px] bg-[#fff] p-[16px]  shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
               <Table
                 className="w-full max-w-full min-w-0"
                 columns={columns}
@@ -438,7 +438,7 @@ const RiskTaskList = () => {
                   showTotal: (t) => `共 ${t} 条`,
                   onChange: setPage,
                 }}
-                scroll={{ x: 710, y: "calc(100vh - 420px)" }}
+                scroll={{ x: 710, y: "calc(100vh - 370px)" }}
                 bordered
               />
             </div>
