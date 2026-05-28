@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "@/hooks/useApi";
-import { useTrafficLogsInfiniteScroll } from "@/hooks/useTrafficLogsInfiniteScroll";
+import { useTrafficLogsPagination } from "@/hooks/useTrafficLogsPagination";
 import { useSearchParams } from "react-router-dom";
 import { Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -70,6 +70,10 @@ export default function RiskDetailPlaceholder() {
   const [riskIpList, setRiskIpList] = useState<RiskIpListItem[]>([]);
   const [riskIpPage, setRiskIpPage] = useState(1);
   const [riskIpPageSize, setRiskIpPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [trafficLogPage, setTrafficLogPage] = useState(1);
+  const [trafficLogPageSize, setTrafficLogPageSize] = useState(
+    DEFAULT_TABLE_PAGE_SIZE,
+  );
   const requestSeqRef = useRef(0);
 
   const trafficLogsEnabled =
@@ -82,9 +86,13 @@ export default function RiskDetailPlaceholder() {
   const {
     trafficLogs,
     loading: trafficLogsLoading,
-    hasMore: trafficLogsHasMore,
-    tableWrapperRef,
-  } = useTrafficLogsInfiniteScroll(trafficLogsEnabled, fetchTrafficLogs);
+    total: trafficLogsTotal,
+  } = useTrafficLogsPagination(
+    trafficLogsEnabled,
+    trafficLogPage,
+    trafficLogPageSize,
+    fetchTrafficLogs,
+  );
 
   useEffect(() => {
     if (!riskId || Number.isNaN(numericId)) {
@@ -136,6 +144,8 @@ export default function RiskDetailPlaceholder() {
   useEffect(() => {
     setRiskIpPage(1);
     setRiskIpPageSize(DEFAULT_TABLE_PAGE_SIZE);
+    setTrafficLogPage(1);
+    setTrafficLogPageSize(DEFAULT_TABLE_PAGE_SIZE);
   }, [riskId]);
 
   const topologyView = networkTopology?.views.__combined__;
@@ -247,8 +257,15 @@ export default function RiskDetailPlaceholder() {
                 <TrafficLogsTable
                   trafficLogs={trafficLogs}
                   loading={trafficLogsLoading}
-                  hasMore={trafficLogsHasMore}
-                  tableWrapperRef={tableWrapperRef}
+                  pagination={createTablePagination({
+                    current: trafficLogPage,
+                    pageSize: trafficLogPageSize,
+                    total: trafficLogsTotal,
+                    onChange: (nextPage, nextPageSize) => {
+                      setTrafficLogPage(nextPage);
+                      setTrafficLogPageSize(nextPageSize);
+                    },
+                  })}
                 />
               </div>
             </div>

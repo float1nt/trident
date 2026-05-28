@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { useEventTopologyPagination } from "@/hooks/useEventTopologyPagination";
-import { useTrafficLogsInfiniteScroll } from "@/hooks/useTrafficLogsInfiniteScroll";
+import { useTrafficLogsPagination } from "@/hooks/useTrafficLogsPagination";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Tag, Spin, Pagination } from "antd";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
@@ -12,7 +12,9 @@ import OverflowTooltip from "@/components/OverflowTooltip";
 import { RiskService, type IpSummary } from "@/api/services/RiskService";
 import {
   createPaginationProps,
+  createTablePagination,
   DEFAULT_EVENT_TOPOLOGY_PAGE_SIZE,
+  DEFAULT_TABLE_PAGE_SIZE,
   EVENT_TOPOLOGY_PAGE_SIZE_OPTIONS,
 } from "@/constants/tablePagination";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
@@ -31,6 +33,10 @@ export default function IpDetailPlaceholder() {
   const [eventPage, setEventPage] = useState(1);
   const [eventPageSize, setEventPageSize] = useState(
     DEFAULT_EVENT_TOPOLOGY_PAGE_SIZE,
+  );
+  const [trafficLogPage, setTrafficLogPage] = useState(1);
+  const [trafficLogPageSize, setTrafficLogPageSize] = useState(
+    DEFAULT_TABLE_PAGE_SIZE,
   );
   const requestSeqRef = useRef(0);
 
@@ -60,9 +66,13 @@ export default function IpDetailPlaceholder() {
   const {
     trafficLogs,
     loading: trafficLogsLoading,
-    hasMore: trafficLogsHasMore,
-    tableWrapperRef,
-  } = useTrafficLogsInfiniteScroll(trafficLogsEnabled, fetchTrafficLogs);
+    total: trafficLogsTotal,
+  } = useTrafficLogsPagination(
+    trafficLogsEnabled,
+    trafficLogPage,
+    trafficLogPageSize,
+    fetchTrafficLogs,
+  );
 
   useEffect(() => {
     if (!ip) {
@@ -95,6 +105,8 @@ export default function IpDetailPlaceholder() {
   useEffect(() => {
     setEventPage(1);
     setEventPageSize(DEFAULT_EVENT_TOPOLOGY_PAGE_SIZE);
+    setTrafficLogPage(1);
+    setTrafficLogPageSize(DEFAULT_TABLE_PAGE_SIZE);
   }, [ip]);
 
   const handleViewRisk = (riskId: number) => {
@@ -211,8 +223,15 @@ export default function IpDetailPlaceholder() {
                 <TrafficLogsTable
                   trafficLogs={trafficLogs}
                   loading={trafficLogsLoading}
-                  hasMore={trafficLogsHasMore}
-                  tableWrapperRef={tableWrapperRef}
+                  pagination={createTablePagination({
+                    current: trafficLogPage,
+                    pageSize: trafficLogPageSize,
+                    total: trafficLogsTotal,
+                    onChange: (nextPage, nextPageSize) => {
+                      setTrafficLogPage(nextPage);
+                      setTrafficLogPageSize(nextPageSize);
+                    },
+                  })}
                 />
               </div>
             </div>

@@ -1,11 +1,9 @@
-import { Spin, Table } from "antd";
+import { Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import type { RefObject } from "react";
+import type { TablePaginationConfig } from "antd/es/table";
 import type { RiskTrafficLogItem } from "@/api/services/RiskService";
 import { formatTrafficVolumeText } from "@/utils/formatTotalTraffic";
 import { normalizeApiList } from "@/utils/normalizeApiList";
-
-const LIST_MAX_HEIGHT = "200px";
 
 function formatPort(port: number): string {
   return port > 0 ? String(port) : "-";
@@ -62,45 +60,25 @@ const trafficLogColumns: ColumnsType<RiskTrafficLogItem> = [
 type TrafficLogsTableProps = {
   trafficLogs: RiskTrafficLogItem[];
   loading: boolean;
-  hasMore: boolean;
-  tableWrapperRef: RefObject<HTMLDivElement>;
+  pagination: TablePaginationConfig;
 };
 
 export function TrafficLogsTable({
   trafficLogs,
   loading,
-  hasMore,
-  tableWrapperRef,
+  pagination,
 }: TrafficLogsTableProps) {
   const rows = normalizeApiList<RiskTrafficLogItem>(trafficLogs);
   return (
-    <div ref={tableWrapperRef}>
-      <Table<RiskTrafficLogItem>
-        rowKey="id"
-        size="middle"
-        bordered
-        columns={trafficLogColumns}
-        dataSource={rows}
-        pagination={false}
-        scroll={{ x: 980, y: LIST_MAX_HEIGHT }}
-        footer={() => {
-          if (loading) {
-            return (
-              <div className="py-2 text-center">
-                <Spin size="small" />
-              </div>
-            );
-          }
-          if (!hasMore && rows.length > 0) {
-            return (
-              <div className="py-2 text-center text-sm text-[#8c8c8c]">
-                已加载全部
-              </div>
-            );
-          }
-          return null;
-        }}
-      />
-    </div>
+    <Table<RiskTrafficLogItem>
+      rowKey="id"
+      size="middle"
+      bordered
+      loading={loading}
+      columns={trafficLogColumns}
+      dataSource={rows}
+      pagination={pagination}
+      scroll={{ x: 980 }}
+    />
   );
 }

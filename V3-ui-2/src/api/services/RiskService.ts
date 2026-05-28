@@ -156,6 +156,32 @@ export type RiskTrafficLogItem = {
   protocol: string;
 };
 
+export type TrafficLogsPageResponse = {
+  items: RiskTrafficLogItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+function normalizeTrafficLogsPage(
+  data: unknown,
+  limit: number,
+  offset: number,
+): TrafficLogsPageResponse {
+  const items = normalizeApiList<RiskTrafficLogItem>(data);
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const obj = data as Record<string, unknown>;
+    const total = typeof obj.total === "number" ? obj.total : items.length;
+    return {
+      items,
+      total,
+      limit: typeof obj.limit === "number" ? obj.limit : limit,
+      offset: typeof obj.offset === "number" ? obj.offset : offset,
+    };
+  }
+  return { items, total: items.length, limit, offset };
+}
+
 export type IpSummary = {
   ip: string;
   description: string;
@@ -235,12 +261,12 @@ export class RiskService {
     riskId: number,
     limit = 10,
     offset = 0,
-  ): Promise<RiskTrafficLogItem[]> {
-    const res = await get<RiskTrafficLogItem[] | { items?: RiskTrafficLogItem[] }>(
+  ): Promise<TrafficLogsPageResponse> {
+    const res = await get<TrafficLogsPageResponse | RiskTrafficLogItem[]>(
       `/risks/${riskId}/traffic-logs`,
       { limit, offset },
     );
-    return normalizeApiList<RiskTrafficLogItem>(res.data);
+    return normalizeTrafficLogsPage(res.data, limit, offset);
   }
 
   static async getIpSummary(ip: string): Promise<IpSummary | null> {
@@ -273,11 +299,11 @@ export class RiskService {
     ip: string,
     limit = 10,
     offset = 0,
-  ): Promise<RiskTrafficLogItem[]> {
-    const res = await get<RiskTrafficLogItem[] | { items?: RiskTrafficLogItem[] }>(
+  ): Promise<TrafficLogsPageResponse> {
+    const res = await get<TrafficLogsPageResponse | RiskTrafficLogItem[]>(
       `/risk/ips/${encodeURIComponent(ip)}/traffic-logs`,
       { limit, offset },
     );
-    return normalizeApiList<RiskTrafficLogItem>(res.data);
+    return normalizeTrafficLogsPage(res.data, limit, offset);
   }
 }
