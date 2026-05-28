@@ -10,14 +10,14 @@ from .redis_consumer import RedisStreamConsumer
 
 
 ATTACK_TYPE_DISPLAY: dict[str, dict[str, str]] = {
-    "PORT_SCAN": {"name": "端口扫描", "desc": "短时间探测大量目标端口，常用于资产发现。"},
-    "HOST_SCAN": {"name": "主机扫描/横向探测", "desc": "单个来源连接大量主机，存在横向探测特征。"},
-    "DDOS_VICTIM": {"name": "分布式拒绝服务攻击", "desc": "目标被大量来源集中访问，呈现典型分布式拒绝服务攻击特征。"},
-    "DOS_ATTACKER": {"name": "DoS攻击源", "desc": "来源持续高频访问固定目标，疑似拒绝服务攻击发起端。"},
-    "DRDOS_REFLECTION_FAMILY": {"name": "反射放大攻击族", "desc": "流量呈单向扩散与反射放大特征，需重点关注。"},
-    "SLOW_DOS_SUSPECTED": {"name": "慢速DoS嫌疑", "desc": "连接行为更像慢速耗尽型攻击，建议持续观察。"},
-    "WEB_DDOS_SUSPECTED": {"name": "Web DDoS嫌疑", "desc": "Web服务端口压力异常，疑似应用层DDoS。"},
-    "BRUTE_FORCE_SUSPECTED": {"name": "暴力破解嫌疑", "desc": "固定端口反复尝试，疑似口令爆破。"},
+    "PORT_SCAN": {"name": "端口扫描", "desc": "攻击源针对少量固定目标主机，批量试探大量不同端口，探测开放服务，为后续渗透做铺垫，整体端口分散、无固定访问服务。"},
+    "HOST_SCAN": {"name": "主机扫描/横向探测", "desc": "攻击源依托固定常用服务端口，批量访问内网大量不同目标主机，探测存活资产，是典型的内网横向渗透前置行为。"},
+    "DDOS_VICTIM": {"name": "DDoS攻击", "desc": "海量分布式源IP集中冲击单一或少量目标主机的固定服务端口，通过流量洪泛消耗目标带宽与算力，可能造成服务瘫痪。"},
+    "DOS_ATTACKER": {"name": "DoS攻击", "desc": "攻击源高频重复连接固定目标服务，依托高复用连接路径持续施压，耗尽目标资源实现单点打击。"},
+    "DRDOS_REFLECTION_FAMILY": {"name": "反射放大/高分散单向冲击", "desc": "攻击者伪造受害者地址利用第三方服务放大流量，具备端口极度分散、连接一次性、流量单向失衡的特征，对目标形成无差别洪泛冲击。"},
+    "SLOW_DOS_SUSPECTED": {"name": "慢速DoS攻击", "desc": "不依靠大流量洪泛，通过低速请求、长效弱连接持续占用目标Web及固定服务资源，缓慢耗尽服务端会话与算力导致服务失效。"},
+    "WEB_DDOS_SUSPECTED": {"name": "Web DDoS攻击", "desc": "海量访问源集中针对80、443等Web端口及业务接口发起复杂高频请求，依托多样业务访问路径施压，专门打击Web业务服务。"},
+    "BRUTE_FORCE_SUSPECTED": {"name": "暴力破解", "desc": "攻击源反复高频访问SSH、Web等固定登录端口，持续尝试账号密码组合，流量重复度高。"},
     "BENIGN_NORMAL": {"name": "正常流量", "desc": "当前窗口未命中攻击规则，行为接近正常业务。"},
     "UNKNOWN_SUSPECTED": {"name": "未命名攻击", "desc": "当前流量存在异常迹象，但尚未匹配到已命名攻击类型。"},
 }
@@ -667,7 +667,7 @@ def _learner_event_item(index: int, row: dict[str, Any]) -> dict[str, Any]:
     risk_name = display["name"] if primary_attack else learner_name
     confidence = _primary_attack_confidence(row)
     attack_desc = (
-        f"风险类型={display['name']}; 置信度={confidence:.3f}; 说明={display['desc']}"
+        f"置信度={confidence:.3f}; 说明={display['desc']}"
         if primary_attack
         else ""
     )
