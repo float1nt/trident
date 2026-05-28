@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 from app.page_queries import PageQueryService
@@ -105,6 +106,16 @@ def test_overview_traffic_trend_returns_filled_buckets() -> None:
     assert sum(item["normal"] + item["abnormal"] for item in data) == 0
 
 
+def test_overview_traffic_trend_30d_uses_date_range_labels() -> None:
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
+
+    data = service.overview_traffic_trend(time_range="30d")
+
+    assert len(data) >= 4
+    assert all("~" in item["label"] for item in data)
+    assert all(len(item["label"].split("~")) == 2 for item in data)
+
+
 def test_risk_events_default_to_attack_type_learners() -> None:
     service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
 
@@ -131,14 +142,54 @@ def test_risk_events_topology_includes_attack_type_learners_only() -> None:
     data = service.risk_events_topology()
 
     assert data["total"] == 1
-    assert data["risk_event_total"] == 1
+    assert data["risk_type_total"] == 1
+    assert data["risk_ip_count"] == 1
     assert data["learners"] == ["NEW_1"]
 
     page = service.risk_events_topology(limit=1, offset=0)
     assert page["total"] == 1
-    assert page["risk_event_total"] == 1
+    assert page["risk_type_total"] == 1
     assert len(page["learners"]) == 1
-    assert page["learners"][0] in data["learners"]
+    assert page["learners"][0] == "NEW_1"
+
+
+def test_risk_events_topology_distinguishes_risk_types_and_events() -> None:
+    class TopologyFlows(FakeFlows):
+        def topology_graph(self, **_: Any) -> dict[str, Any]:
+            return {"flow_count": 1, "node_mode": "host", "nodes": [], "links": [], "stats": {}}
+
+        def risk_ip_view(self, **_: Any) -> dict[str, Any]:
+            return {"total": 3, "items": []}
+
+    class MultiLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            base = FakeLearners().list_learners()[0]
+            second = copy.deepcopy(base)
+            second["id"] = 13
+            second["learner_name"] = "NEW_2"
+            third = copy.deepcopy(base)
+            third["id"] = 14
+            third["learner_name"] = "NEW_3"
+            third["rule_json"] = {
+                "attack_types": [
+                    {"attack_type": "PORT_SCAN", "confidence": 0.75},
+                ]
+            }
+            return [base, second, third]
+
+        def get_learner(self, **kwargs: Any) -> dict[str, Any]:
+            name = str(kwargs.get("learner_name") or "")
+            for row in self.list_learners():
+                if str(row.get("learner_name") or "") == name:
+                    return row
+            return {}
+
+    service = PageQueryService(session_id="s1", flows=TopologyFlows(), learners=MultiLearners())
+    data = service.risk_events_topology()
+
+    assert data["total"] == 3
+    assert data["risk_type_total"] == 2
+    assert data["risk_ip_count"] == 3
 
 
 def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
@@ -256,7 +307,7 @@ def test_risk_list_counts_learners_not_deduped_risk_names() -> None:
     assert data["total"] == 1
     assert data["risks"][0]["riskCount"] == 2
     assert [risk["learnerName"] for risk in data["risks"][0]["risks"]] == ["NEW_1", "NEW_2"]
-    assert [risk["name"] for risk in data["risks"][0]["risks"]] == ["未命名攻击", "未命名攻击"]
+    assert [risk["name"] for risk in data["risks"][0]["risks"]] == ["未命名攻击1", "未命名攻击2"]
 
 
 def test_ip_events_returns_risk_learner_metadata() -> None:

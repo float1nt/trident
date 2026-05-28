@@ -92,7 +92,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.get("/api/v1/runtime/summary", response_model=ApiResponse)
     def runtime_summary() -> dict[str, Any]:
         redis_state = _redis(cfg)
-        flow_repo = ChFlowRepository(cfg.clickhouse_dsn)
+        flow_repo = _flow_repo(cfg)
         return _ok(
             {
                 "session_id": cfg.session_id,
@@ -232,7 +232,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         offset: int | None = Query(None, ge=0),
         cursor: str | None = None,
     ) -> dict[str, Any]:
-        result = ChFlowRepository(cfg.clickhouse_dsn).list_flows(
+        result = _flow_repo(cfg).list_flows(
             session_id=session_id or cfg.session_id,
             window_index=window_index,
             learner_name=learner_name,
@@ -247,11 +247,11 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     @app.get("/api/v1/learners", response_model=ApiResponse)
     def list_learners(session_id: str | None = None) -> dict[str, Any]:
-        return _ok({"items": LearnerRepository(cfg.postgres_dsn).list_learners(session_id=session_id or cfg.session_id)})
+        return _ok({"items": _learner_repo(cfg).list_learners(session_id=session_id or cfg.session_id)})
 
     @app.get("/api/v1/learners/{learner_name}", response_model=ApiResponse)
     def get_learner(learner_name: str, session_id: str | None = None) -> dict[str, Any]:
-        learner = LearnerRepository(cfg.postgres_dsn).get_learner(
+        learner = _learner_repo(cfg).get_learner(
             session_id=session_id or cfg.session_id,
             learner_name=learner_name,
         )
@@ -265,7 +265,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         offset: int | None = Query(None, ge=0),
         cursor: str | None = None,
     ) -> dict[str, Any]:
-        result = ChFlowRepository(cfg.clickhouse_dsn).list_flows(
+        result = _flow_repo(cfg).list_flows(
             session_id=session_id or cfg.session_id,
             learner_name=learner_name,
             limit=limit,

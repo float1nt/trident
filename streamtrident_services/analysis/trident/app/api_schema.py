@@ -80,7 +80,8 @@ class LearnerTopologyView(BaseModel):
 class LearnerTopologyData(BaseModel):
     version: int = 1
     total: int | None = None
-    risk_event_total: int | None = None
+    risk_type_total: int | None = None
+    risk_ip_count: int | None = None
     learners: list[str]
     default_learner: str
     views: dict[str, LearnerTopologyView]
