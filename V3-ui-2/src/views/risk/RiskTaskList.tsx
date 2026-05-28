@@ -92,7 +92,6 @@ const RiskTaskList = () => {
   );
   const { loading, run: runIpList } = useApi();
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
-  const [eventIpTotal, setEventIpTotal] = useState(0);
   const [eventLoadError, setEventLoadError] = useState<string | null>(null);
   const [eventPage, setEventPage] = useState(1);
 
@@ -114,6 +113,7 @@ const RiskTaskList = () => {
     loading: eventTopologyLoading,
     total: eventTopologyListTotal,
     eventTopologyTotal,
+    eventTopologyRiskEventTotal,
   } = useEventTopologyPagination(
     activeView === "event",
     eventPage,
@@ -143,18 +143,6 @@ const RiskTaskList = () => {
     if (activeView !== "ip") return;
     void getListData();
   }, [page, filters, activeView, getListData]);
-
-  useEffect(() => {
-    if (activeView !== "event") return;
-    void (async () => {
-      const response = await RiskService.listRisks({
-        limit: 1,
-        offset: 0,
-        name: eventFilters.name || undefined,
-      });
-      setEventIpTotal(response.total);
-    })();
-  }, [activeView, eventFilters]);
 
   useEffect(() => {
     if (activeView !== "event" || eventTopologyLoading) return;
@@ -363,7 +351,9 @@ const RiskTaskList = () => {
                     <span className="risk-event-summary__num">{eventTopologyTotal}</span>
                     类风险
                     ，
-                    <span className="risk-event-summary__num">{eventIpTotal}</span>
+                    <span className="risk-event-summary__num">
+                      {eventTopologyRiskEventTotal}
+                    </span>
                     类风险事件
                   </p>
                 </div>

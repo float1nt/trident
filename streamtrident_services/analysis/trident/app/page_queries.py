@@ -162,11 +162,12 @@ class PageQueryService:
         name: str | None = None,
         subject_ip: str | None = None,
         trigger_time: str | None = None,
+        learner_names: list[str] | None = None,
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
         learner_rows = self.learners.list_learners(session_id=sid)
         learner_by_name = {str(row.get("learner_name") or ""): row for row in learner_rows}
-        risk_names = _risk_learner_names(learner_rows)
+        risk_names = learner_names if learner_names is not None else _risk_learner_names(learner_rows)
         risk_name_set = set(risk_names)
         result = self.flows.risk_ip_view(
             session_id=sid,
@@ -411,6 +412,21 @@ class PageQueryService:
         )
         rows = [row for row in rows if int(row.get("flow_count") or 0) > 0]
         total = len(rows)
+        filtered_learner_names = [
+            str(row.get("learner_name") or "")
+            for row in rows
+            if str(row.get("learner_name") or "")
+        ]
+        risk_event_total = 0
+        if filtered_learner_names:
+            risk_event_total = int(
+                self.risk_ip_view(
+                    limit=1,
+                    offset=0,
+                    name=name,
+                    learner_names=filtered_learner_names,
+                )["total"]
+            )
         safe_offset = max(0, int(offset or 0))
         capped = max(1, min(int(limit), 50))
         page_rows = rows[safe_offset : safe_offset + capped]
@@ -427,6 +443,7 @@ class PageQueryService:
         return {
             "version": 1,
             "total": total,
+            "risk_event_total": risk_event_total,
             "learners": learners,
             "default_learner": learners[0] if learners else "",
             "views": views,

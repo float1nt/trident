@@ -130,11 +130,13 @@ def test_risk_events_topology_includes_attack_type_learners_only() -> None:
     service = PageQueryService(session_id="s1", flows=TopologyFlows(), learners=TopologyLearners())
     data = service.risk_events_topology()
 
-    assert data["total"] == 2
-    assert sorted(data["learners"]) == ["BASELINE_0", "NEW_1"]
+    assert data["total"] == 1
+    assert data["risk_event_total"] == 1
+    assert data["learners"] == ["NEW_1"]
 
     page = service.risk_events_topology(limit=1, offset=0)
-    assert page["total"] == 2
+    assert page["total"] == 1
+    assert page["risk_event_total"] == 1
     assert len(page["learners"]) == 1
     assert page["learners"][0] in data["learners"]
 
