@@ -7,7 +7,6 @@ import {
   Input,
   Button,
   Space,
-  Tooltip,
   Tag,
   DatePicker,
   Card,
@@ -19,6 +18,7 @@ import PageTabs from "@/components/PageTabs";
 import type { Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { IpRiskListItem } from "@/api/types";
+import OverflowTooltip from "@/components/OverflowTooltip";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
 import {
@@ -252,11 +252,11 @@ const RiskTaskList = () => {
             {risks.map((risk) => {
               const label = `${risk.name}（${risk.triggerCount}）`;
               return (
-                <Tooltip key={risk.name} title={label}>
+                <OverflowTooltip key={risk.name} title={label}>
                   <Tag color="processing" className="!m-0 max-w-full truncate">
                     {label}
                   </Tag>
-                </Tooltip>
+                </OverflowTooltip>
               );
             })}
           </div>
@@ -270,15 +270,13 @@ const RiskTaskList = () => {
       width: 100,
       fixed: "right",
       render: (_: unknown, record: IpRiskListItem) => (
-        <Tooltip title="查看详情">
-          <Button
-            variant="link"
-            color="primary"
-            onClick={() => handleIpDetail(record.subjectIp)}
-          >
-            详情
-          </Button>
-        </Tooltip>
+        <Button
+          variant="link"
+          color="primary"
+          onClick={() => handleIpDetail(record.subjectIp)}
+        >
+          查看详情
+        </Button>
       ),
     },
   ];

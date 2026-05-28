@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { QuestionCircleOutlined } from "@ant-design/icons";
-import { Button, Tooltip } from "antd";
+import { InfoCircleOutlined } from "@ant-design/icons";
+import { Button } from "antd";
+import IconTooltip from "@/components/IconTooltip";
 import type { EChartsOption } from "echarts";
 import EChartsRingChart from "@/components/EChartsRingChart";
 import "./NetworkTopologyPanel.css";
@@ -507,14 +508,14 @@ export function TopologyChartPane({
                 {title}
               </h4>
             ) : null}
-            <Tooltip title={TOPOLOGY_NODE_LIMIT_HINT}>
+            <IconTooltip title={TOPOLOGY_NODE_LIMIT_HINT}>
               <span className="inline-flex shrink-0 items-center leading-none">
-                <QuestionCircleOutlined
+                <InfoCircleOutlined
                   className="cursor-help text-[12px] text-[#8c8c8c] hover:text-[#4368f0]"
                   aria-label="拓扑展示说明"
                 />
               </span>
-            </Tooltip>
+            </IconTooltip>
           </div>
           {hasDualGraph ? (
             <TopologyGraphModeToggle

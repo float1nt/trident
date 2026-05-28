@@ -1,4 +1,3 @@
-import { Tooltip } from "antd";
 import { Status } from "@/api/types";
 
 interface TaskDotProps {
@@ -45,16 +44,16 @@ const TaskDot = ({ status, taskName, progress }: TaskDotProps) => {
     }
   };
 
-  const statusText = getStatusText(status);
-  let tooltipText = taskName ? `${taskName} (${statusText})` : statusText;
-  if (progress) tooltipText += `\n${progress}`;
-
   return (
-    <Tooltip title={tooltipText} mouseEnterDelay={0} mouseLeaveDelay={0}>
-      <div
-        className={`w-2 h-2 rounded-full ${getStatusColor()} cursor-pointer`}
-      />
-    </Tooltip>
+    <div
+      className={`w-2 h-2 rounded-full ${getStatusColor()} cursor-pointer`}
+      aria-label={[
+        taskName ? `${taskName}（${getStatusText(status)}）` : getStatusText(status),
+        progress,
+      ]
+        .filter(Boolean)
+        .join("，")}
+    />
   );
 };
 

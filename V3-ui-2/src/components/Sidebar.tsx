@@ -1,4 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
+import OverflowTooltip from "@/components/OverflowTooltip";
 import logoImg from "@/assets/top-svg/logo3.0.png";
 import homeOff from "@/assets/svg/navigation-only-home-off.svg";
 import homeOn from "@/assets/svg/navigation-only-home-on.svg";
@@ -100,9 +101,11 @@ const Sidebar = () => {
                 className="w-[20px] h-[20px] block pointer-events-none shrink-0"
                 draggable={false}
               />
-              <span className="text-[13px] leading-[18px] min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                {item.label}
-              </span>
+              <OverflowTooltip title={item.label}>
+                <span className="block min-w-0 flex-1 truncate text-[13px] leading-[18px]">
+                  {item.label}
+                </span>
+              </OverflowTooltip>
             </button>
           );
         })}

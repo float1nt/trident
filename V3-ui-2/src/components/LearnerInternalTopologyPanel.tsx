@@ -1,5 +1,7 @@
 import { Component, type ErrorInfo, useMemo, type ReactNode } from "react";
 import { Button, Card, Col, Empty, Row, Spin, Typography } from "antd";
+import { whiteTooltipProps } from "@/components/AppTooltip";
+import OverflowTooltip from "@/components/OverflowTooltip";
 import {
   GRID_CHART_HEIGHT,
   TopologyChartPane,
@@ -148,7 +150,12 @@ export function LearnerInternalTopologyPanel({
                   <div>
                     <div className="flex items-center justify-between gap-2">
                       <Text
-                        ellipsis={{ tooltip: option.riskName }}
+                        ellipsis={{
+                          tooltip: {
+                            title: option.riskName,
+                            ...whiteTooltipProps,
+                          },
+                        }}
                         className="min-w-0 flex-1 text-[11px]"
                       >
                         {option.riskName}
@@ -171,12 +178,11 @@ export function LearnerInternalTopologyPanel({
                       <span className="shrink-0 whitespace-nowrap font-normal text-[#8c8c8c]">
                         [{option.triggerTime}]
                       </span>
-                      <span
-                        className="min-w-0 flex-1 truncate font-normal text-[#8c8c8c]"
-                        title={option.riskDescription}
-                      >
-                        {option.riskDescription}
-                      </span>
+                      <OverflowTooltip title={option.riskDescription}>
+                        <span className="block min-w-0 flex-1 truncate font-normal text-[#8c8c8c]">
+                          {option.riskDescription}
+                        </span>
+                      </OverflowTooltip>
                     </div>
                   </div>
                 }
