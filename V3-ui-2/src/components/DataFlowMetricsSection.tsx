@@ -23,7 +23,7 @@ const METRIC_DEFS: MetricItem[] = [
   { label: "总流量", key: "totalTraffic", icon: metricIcon1 },
   { label: "协议数", key: "protocolCount", icon: metricIcon2 },
   { label: "风险类型数", key: "riskTypeCount", icon: metricIcon3 },
-  { label: "疑似风险 IP 数", key: "suspiciousIpCount", icon: metricIcon4 },
+  { label: "风险 IP 数", key: "suspiciousIpCount", icon: metricIcon4 },
 ];
 
 const TIME_RANGE_OPTIONS = [

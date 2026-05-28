@@ -17,6 +17,30 @@ function mockTrafficGb(
   return Math.max(1, Math.round(base * wave * share));
 }
 
+function addDays(base: Date, days: number): Date {
+  const next = new Date(base);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function startOfDay(date: Date): Date {
+  const day = new Date(date);
+  day.setHours(0, 0, 0, 0);
+  return day;
+}
+
+/** 柱状图横轴日期，如 05-22 */
+function formatChartDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${month}-${day}`;
+}
+
+/** 柱状图横轴日期范围，如 05-19~05-25 */
+function formatChartDateRange(start: Date, end: Date): string {
+  return `${formatChartDate(start)}~${formatChartDate(end)}`;
+}
+
 function buildHourlyTrend(): TrafficTrendPoint[] {
   return Array.from({ length: 24 }, (_, hour) => ({
     label: `${String(hour).padStart(2, "0")}:00`,
@@ -25,21 +49,32 @@ function buildHourlyTrend(): TrafficTrendPoint[] {
   }));
 }
 
+/** 近 7 天，横轴为具体日期 */
 function buildDailyTrend(): TrafficTrendPoint[] {
-  const weekdays = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"];
-  return weekdays.map((label, index) => ({
-    label,
-    normal: mockTrafficGb(index, "normal", 320),
-    abnormal: mockTrafficGb(index, "abnormal", 320),
-  }));
+  const today = startOfDay(new Date());
+  return Array.from({ length: 7 }, (_, index) => {
+    const day = addDays(today, index - 6);
+    return {
+      label: formatChartDate(day),
+      normal: mockTrafficGb(index, "normal", 320),
+      abnormal: mockTrafficGb(index, "abnormal", 320),
+    };
+  });
 }
 
+/** 近 4 个自然周，横轴为日期范围 */
 function buildWeeklyTrend(): TrafficTrendPoint[] {
-  return Array.from({ length: 5 }, (_, week) => ({
-    label: `第${week + 1}周`,
-    normal: mockTrafficGb(week, "normal", 1280),
-    abnormal: mockTrafficGb(week, "abnormal", 1280),
-  }));
+  const today = startOfDay(new Date());
+  const weekCount = 4;
+  return Array.from({ length: weekCount }, (_, index) => {
+    const weekEnd = addDays(today, -(weekCount - 1 - index) * 7);
+    const weekStart = addDays(weekEnd, -6);
+    return {
+      label: formatChartDateRange(weekStart, weekEnd),
+      normal: mockTrafficGb(index, "normal", 1280),
+      abnormal: mockTrafficGb(index, "abnormal", 1280),
+    };
+  });
 }
 
 /** 总览流量趋势柱状图 mock 数据 */

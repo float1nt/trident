@@ -213,7 +213,7 @@ function getTrafficAnalysisText(
   viewIsBenign: boolean | null | undefined,
 ): string {
   if (viewIsBenign === true) return "良性";
-  if (viewIsBenign === false) return "攻击";
+  if (viewIsBenign === false) return "异常";
   return "混合";
 }
 
@@ -221,8 +221,8 @@ function formatTrafficAnalysisHtml(label: string): string {
   if (label === "良性") {
     return `流量分析:<span style="color:${CHART_GREEN}">良性</span>`;
   }
-  if (label === "攻击") {
-    return `流量分析:<span style="color:${CHART_RED}">攻击</span>`;
+  if (label === "异常") {
+    return `流量分析:<span style="color:${CHART_RED}">异常</span>`;
   }
   return `流量分析:${label}`;
 }
@@ -255,7 +255,7 @@ function getEdgeTrafficAnalysisText(
   viewIsBenign: boolean | null | undefined,
 ): string {
   if (edge.is_benign === true) return "良性";
-  if (edge.is_benign === false) return "攻击";
+  if (edge.is_benign === false) return "异常";
   return getTrafficAnalysisText(viewIsBenign);
 }
 
@@ -474,7 +474,7 @@ export function TopologyChartPane({
             }`}
           >
             <TopologyStatCard
-              label="IP数量"
+              label={graphMode === "endpoint" ? "端口数量" : "IP数量"}
               value={
                 compact && activeGraph.nodes.length > (displayGraph?.nodes.length ?? 0)
                   ? `${displayGraph?.nodes.length ?? 0} / ${activeGraph.nodes.length}`

@@ -147,7 +147,7 @@ export default function HomeView() {
 
           <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
             <TopologyChartPane
-              title="攻击流量总拓扑"
+              title="异常流量总拓扑"
               hostGraph={attackView?.host}
               endpointGraph={attackView?.endpoint}
               viewIsBenign={attackView?.is_benign}
@@ -161,7 +161,7 @@ export default function HomeView() {
 
           <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
             <TopologyChartPane
-              title="良性流量总拓扑"
+              title="正常流量总拓扑"
               hostGraph={benignView?.host}
               endpointGraph={benignView?.endpoint}
               viewIsBenign={benignView?.is_benign}

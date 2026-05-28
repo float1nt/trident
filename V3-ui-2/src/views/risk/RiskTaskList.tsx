@@ -21,6 +21,7 @@ import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
 import { RiskService } from "@/api/services/RiskService";
 import type { LearnerNetworkTopologyJson } from "@/types/learnerTopology";
+import { CHART_GREEN, CHART_RED } from "@/theme/chartTheme";
 import "./RiskTaskList.css";
 
 type RiskSearchForm = {
@@ -204,7 +205,7 @@ const RiskTaskList = () => {
 
   const columns: ColumnsType<IpRiskListItem> = [
     {
-      title: "风险主体（IP）",
+      title: "风险主体",
       dataIndex: "subjectIp",
       key: "subjectIp",
       width: 150,
@@ -347,7 +348,10 @@ const RiskTaskList = () => {
                   </p>
                 </div>
                 <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
-                  绿色代表正常，红色代表攻击。
+                  <span style={{ color: CHART_GREEN }}>绿色</span>
+                  代表正常，
+                  <span style={{ color: CHART_RED }}>红色</span>
+                  代表异常。
                 </Paragraph>
               </div>
               {eventLoadError ? (
@@ -375,7 +379,7 @@ const RiskTaskList = () => {
                 />
                 <Input
                   className="risk-filter-field"
-                  prefix="风险主体（IP）"
+                  prefix="风险主体"
                   placeholder="请输入"
                   value={searchInputs.subjectIp}
                   onChange={(e) => updateSearchInput("subjectIp", e.target.value)}

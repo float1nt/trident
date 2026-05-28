@@ -136,7 +136,7 @@ export function LearnerInternalTopologyPanel({
             gridView.host?.flow_count ?? gridView.endpoint?.flow_count;
           const itemAttackPct = `${(gridView.attack_ratio * 100).toFixed(2)}%`;
           const itemDominant = gridView.dominant_label || option.dominantLabel || "—";
-          const metaText = `攻击 ${itemAttackPct} · ${itemDominant}${itemFlowCount != null ? ` · ${itemFlowCount.toLocaleString()} 流` : ""
+          const metaText = `异常 ${itemAttackPct} · ${itemDominant}${itemFlowCount != null ? ` · ${itemFlowCount.toLocaleString()} 流` : ""
             }`;
 
           return (

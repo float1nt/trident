@@ -29,7 +29,7 @@ function resolveTrafficDistributionGradient(
   }
   if (
     name === TRAFFIC_SUSPECTED_ABNORMAL_LABEL ||
-    name.includes("疑似") ||
+    name.includes("") ||
     name.includes("异常")
   ) {
     return toEChartsLinearGradient(TRAFFIC_ABNORMAL_GRADIENT);
@@ -39,11 +39,26 @@ function resolveTrafficDistributionGradient(
   );
 }
 
-/** 构建流量分布环形图（正常 / 疑似异常流量配色与趋势柱状图一致） */
+const TRAFFIC_DISTRIBUTION_LABELS = [
+  TRAFFIC_NORMAL_LABEL,
+  TRAFFIC_SUSPECTED_ABNORMAL_LABEL,
+] as const;
+
+/** 构建流量分布环形图（正常 / 异常流量配色与趋势柱状图一致） */
 export function buildTrafficDistributionRingOption(
   data: DistributionItem[],
 ): EChartsOption {
-  return buildDistributionRingOption(data, resolveTrafficDistributionGradient);
+  const labeled = data.map((item, index) => ({
+    ...item,
+    name:
+      index < TRAFFIC_DISTRIBUTION_LABELS.length
+        ? TRAFFIC_DISTRIBUTION_LABELS[index]
+        : item.name,
+  }));
+  return buildDistributionRingOption(
+    labeled,
+    resolveTrafficDistributionGradient,
+  );
 }
 
 /** 构建协议分布环形图（按背景色系列循环配色） */
