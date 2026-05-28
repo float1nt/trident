@@ -95,6 +95,7 @@ export default function IpDetailPlaceholder() {
   const [ipRiskEventTopology, setIpRiskEventTopology] =
     useState<LearnerNetworkTopologyJson | null>(null);
   const [riskEvents, setRiskEvents] = useState<IpRiskEventItem[]>([]);
+  const [riskEventsLoading, setRiskEventsLoading] = useState(false);
   const [riskEventPage, setRiskEventPage] = useState(1);
   const requestSeqRef = useRef(0);
 
@@ -116,6 +117,7 @@ export default function IpDetailPlaceholder() {
       setSummary(null);
       setIpRiskEventTopology(null);
       setRiskEvents([]);
+      setRiskEventsLoading(false);
       setLoadState("done");
       return;
     }
@@ -125,6 +127,7 @@ export default function IpDetailPlaceholder() {
     setSummary(null);
     setIpRiskEventTopology(null);
     setRiskEvents([]);
+    setRiskEventsLoading(false);
 
     const load = async () => {
       const summaryData = await run(async () => RiskService.getIpSummary(ip));
@@ -139,20 +142,26 @@ export default function IpDetailPlaceholder() {
       setSummary(summaryData);
       setLoadState("done");
 
+      setRiskEventsLoading(true);
       void Promise.allSettled([
         RiskService.getIpEventsTopology(ip),
         RiskService.getIpEvents(ip),
-      ]).then((results) => {
-        if (requestSeq !== requestSeqRef.current) return;
+      ])
+        .then((results) => {
+          if (requestSeq !== requestSeqRef.current) return;
 
-        const [topologyResult, eventsResult] = results;
-        if (topologyResult.status === "fulfilled") {
-          setIpRiskEventTopology(topologyResult.value);
-        }
-        if (eventsResult.status === "fulfilled") {
-          setRiskEvents(eventsResult.value);
-        }
-      });
+          const [topologyResult, eventsResult] = results;
+          if (topologyResult.status === "fulfilled") {
+            setIpRiskEventTopology(topologyResult.value);
+          }
+          if (eventsResult.status === "fulfilled") {
+            setRiskEvents(eventsResult.value);
+          }
+        })
+        .finally(() => {
+          if (requestSeq !== requestSeqRef.current) return;
+          setRiskEventsLoading(false);
+        });
     };
 
     void load();
@@ -247,6 +256,7 @@ export default function IpDetailPlaceholder() {
                 </h3>
                 <LearnerInternalTopologyPanel
                   data={ipRiskEventTopology}
+                  loading={riskEventsLoading}
                   onRiskClick={handleViewRisk}
                 />
               </div>
