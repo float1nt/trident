@@ -3,6 +3,7 @@ import type { ColumnsType } from "antd/es/table";
 import type { RefObject } from "react";
 import type { RiskTrafficLogItem } from "@/api/services/RiskService";
 import { formatTrafficVolumeText } from "@/utils/formatTotalTraffic";
+import { normalizeApiList } from "@/utils/normalizeApiList";
 
 const LIST_MAX_HEIGHT = "200px";
 
@@ -71,6 +72,7 @@ export function TrafficLogsTable({
   hasMore,
   tableWrapperRef,
 }: TrafficLogsTableProps) {
+  const rows = normalizeApiList<RiskTrafficLogItem>(trafficLogs);
   return (
     <div ref={tableWrapperRef}>
       <Table<RiskTrafficLogItem>
@@ -78,7 +80,7 @@ export function TrafficLogsTable({
         size="middle"
         bordered
         columns={trafficLogColumns}
-        dataSource={trafficLogs}
+        dataSource={rows}
         pagination={false}
         scroll={{ x: 980, y: LIST_MAX_HEIGHT }}
         footer={() => {
@@ -89,7 +91,7 @@ export function TrafficLogsTable({
               </div>
             );
           }
-          if (!hasMore && trafficLogs.length > 0) {
+          if (!hasMore && rows.length > 0) {
             return (
               <div className="py-2 text-center text-sm text-[#8c8c8c]">
                 已加载全部

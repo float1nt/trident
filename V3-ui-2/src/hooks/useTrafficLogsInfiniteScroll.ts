@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RiskTrafficLogItem } from "@/api/services/RiskService";
+import { normalizeApiList } from "@/utils/normalizeApiList";
 
 export const TRAFFIC_LOG_PAGE_SIZE = 10;
 const SCROLL_LOAD_THRESHOLD_PX = 8;
@@ -36,7 +37,8 @@ export function useTrafficLogsInfiniteScroll(
 
       try {
         const offset = reset ? 0 : offsetRef.current;
-        const items = await fetchPageRef.current(offset, TRAFFIC_LOG_PAGE_SIZE);
+        const rawItems = await fetchPageRef.current(offset, TRAFFIC_LOG_PAGE_SIZE);
+        const items = normalizeApiList<RiskTrafficLogItem>(rawItems);
         if (requestSeq !== requestSeqRef.current) return;
 
         setTrafficLogs((prev) => (reset ? items : [...prev, ...items]));

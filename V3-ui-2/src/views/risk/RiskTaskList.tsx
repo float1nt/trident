@@ -29,6 +29,7 @@ import {
   DEFAULT_TABLE_PAGE_SIZE,
   EVENT_TOPOLOGY_PAGE_SIZE_OPTIONS,
 } from "@/constants/tablePagination";
+import { normalizeApiList } from "@/utils/normalizeApiList";
 import "./RiskTaskList.css";
 
 type RiskSearchForm = {
@@ -131,7 +132,7 @@ const RiskTaskList = () => {
           name: curFilters.name || undefined,
           subjectIp: curFilters.subjectIp || undefined,
         });
-        setListdata(response.risks);
+        setListdata(normalizeApiList<IpRiskListItem>(response.risks));
         setTotal(response.total);
       });
     },
