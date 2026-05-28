@@ -27,13 +27,15 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SERVICE_ROOT = ROOT / "streamtrident_services"
-TRIDENT_ROOT = SERVICE_ROOT / "trident"
+TRIDENT_ROOT = SERVICE_ROOT / "analysis" / "trident"
 DEFAULT_OUT_ROOT = ROOT / "outputs" / "streamtrident_accuracy_eval"
 
 STREAM = "suricata:cic_flow"
 REDIS_URL = "redis://127.0.0.1:16379/0"
 CLICKHOUSE_DSN = "http://default:trident@127.0.0.1:18123/default"
 POSTGRES_DSN = "postgresql://trident:trident@127.0.0.1:15432/trident"
+
+DATA2019 = ROOT / "data" / "cicids2019"
 
 STRICT_LABEL_SPECS = [
     {
@@ -80,6 +82,78 @@ STRICT_LABEL_SPECS = [
     },
 ]
 
+# UDP-only plan: 50k BENIGN warmup + TFTP + full DrDoS family (10k each).
+UDP_DRDOS_TFTP_SPECS = [
+    {
+        "name": "TFTP",
+        "path": DATA2019 / "TFTP.csv",
+        "labels": {"TFTP"},
+        "target": 10000,
+    },
+    {
+        "name": "DRDOS_DNS",
+        "path": DATA2019 / "DrDoS_DNS.csv",
+        "labels": {"DrDoS_DNS"},
+        "target": 10000,
+    },
+    {
+        "name": "DRDOS_LDAP",
+        "path": DATA2019 / "DrDoS_LDAP.csv",
+        "labels": {"DrDoS_LDAP"},
+        "target": 10000,
+    },
+    {
+        "name": "DRDOS_MSSQL",
+        "path": DATA2019 / "DrDoS_MSSQL.csv",
+        "labels": {"DrDoS_MSSQL"},
+        "target": 10000,
+    },
+    {
+        "name": "DRDOS_NETBIOS",
+        "path": DATA2019 / "DrDoS_NetBIOS.csv",
+        "labels": {"DrDoS_NetBIOS"},
+        "target": 10000,
+    },
+    {
+        "name": "DRDOS_NTP",
+        "path": DATA2019 / "DrDoS_NTP.csv",
+        "labels": {"DrDoS_NTP"},
+        "target": 10000,
+    },
+    {
+        "name": "DRDOS_SNMP",
+        "path": DATA2019 / "DrDoS_SNMP.csv",
+        "labels": {"DrDoS_SNMP"},
+        "target": 10000,
+    },
+    {
+        "name": "DRDOS_SSDP",
+        "path": DATA2019 / "DrDoS_SSDP.csv",
+        "labels": {"DrDoS_SSDP"},
+        "target": 10000,
+    },
+    {
+        "name": "DRDOS_UDP",
+        "path": DATA2019 / "DrDoS_UDP.csv",
+        "labels": {"DrDoS_UDP"},
+        "target": 10000,
+    },
+]
+
+LABEL_PLANS: dict[str, list[dict[str, Any]]] = {
+    "legacy_mixed": STRICT_LABEL_SPECS,
+    "udp_drdos_tftp": UDP_DRDOS_TFTP_SPECS,
+}
+
+BENIGN_EVAL_SPEC = {
+    "name": "BENIGN",
+    "path": ROOT / "data" / "cic2017" / "monday.csv",
+    "labels": {"BENIGN"},
+    "target": 0,
+}
+
+BASELINE_LEARNER = "0000|UNLABELED"
+
 COARSE_MAP = {
     "BENIGN": "BENIGN",
     "PORTSCAN": "PORTSCAN",
@@ -88,6 +162,13 @@ COARSE_MAP = {
     "SYN": "SYN_FLOOD",
     "DRDOS_DNS": "DRDOS_UDP_FAMILY",
     "DRDOS_NTP": "DRDOS_UDP_FAMILY",
+    "DRDOS_LDAP": "DRDOS_UDP_FAMILY",
+    "DRDOS_MSSQL": "DRDOS_UDP_FAMILY",
+    "DRDOS_NETBIOS": "DRDOS_UDP_FAMILY",
+    "DRDOS_SNMP": "DRDOS_UDP_FAMILY",
+    "DRDOS_SSDP": "DRDOS_UDP_FAMILY",
+    "DRDOS_UDP": "DRDOS_UDP_FAMILY",
+    "TFTP": "TFTP",
 }
 
 CANONICAL_COLUMNS = {
@@ -158,7 +239,25 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument("--force-split", action="store_true", help="Always run tcp-only and udp-only after mixed")
     parser.add_argument("--benign-warmup", type=int, default=50000, help="BENIGN rows injected before evaluation and excluded from scoring")
+    parser.add_argument(
+        "--plan",
+        choices=sorted(LABEL_PLANS),
+        default="legacy_mixed",
+        help="legacy_mixed: mixed/tcp/udp split on CIC2017+2019 labels; udp_drdos_tftp: UDP-only TFTP + DrDoS family",
+    )
+    parser.add_argument(
+        "--eval-benign",
+        type=int,
+        default=0,
+        help="BENIGN rows mixed into eval injection (scored); e.g. 20000 probes baseline during attack phase",
+    )
+    parser.add_argument(
+        "--interleave-eval",
+        action="store_true",
+        help="Round-robin interleave eval rows by label instead of label-block injection order",
+    )
     args = parser.parse_args()
+    label_specs = eval_specs_for_plan(args.plan, LABEL_PLANS[args.plan], args.eval_benign)
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
     run_root = Path(args.out_root) / run_id
@@ -169,6 +268,10 @@ def main() -> int:
         "created_at": utc_now(),
         "project": "streamtrident_services",
         "method": "learner majority-label backfill accuracy",
+        "plan": args.plan,
+        "benign_warmup": args.benign_warmup,
+        "eval_benign": args.eval_benign,
+        "interleave_eval": args.interleave_eval,
         "outputs": {},
     }
     write_json(run_root / "manifest.json", manifest)
@@ -177,21 +280,34 @@ def main() -> int:
         run(["docker", "compose", "-f", str(SERVICE_ROOT / "compose.yaml"), "up", "-d", "redis", "clickhouse", "postgres"], cwd=ROOT)
     wait_for_deps()
 
-    plans = [ExperimentPlan("mixed_tcp_udp", None, STRICT_LABEL_SPECS)]
-    mixed_summary = run_one(plans[0], run_root=run_root, timeout=args.timeout, benign_warmup=args.benign_warmup)
-    split_needed = args.force_split or should_run_split(mixed_summary)
-    manifest["mixed_summary"] = mixed_summary
-    manifest["split_decision"] = {
-        "run_split": split_needed,
-        "reason": mixed_summary.get("split_decision_reason", ""),
-    }
-    write_json(run_root / "manifest.json", manifest)
+    summaries: list[dict[str, Any]] = []
+    if args.plan == "udp_drdos_tftp":
+        summary = run_one(
+            ExperimentPlan("udp_drdos_tftp", 17, label_specs),
+            run_root=run_root,
+            timeout=args.timeout,
+            benign_warmup=args.benign_warmup,
+            interleave_eval=args.interleave_eval,
+        )
+        summaries = [summary]
+        manifest["udp_drdos_tftp_summary"] = summary
+        write_json(run_root / "manifest.json", manifest)
+    else:
+        plans = [ExperimentPlan("mixed_tcp_udp", None, label_specs)]
+        mixed_summary = run_one(plans[0], run_root=run_root, timeout=args.timeout, benign_warmup=args.benign_warmup)
+        split_needed = args.force_split or should_run_split(mixed_summary)
+        manifest["mixed_summary"] = mixed_summary
+        manifest["split_decision"] = {
+            "run_split": split_needed,
+            "reason": mixed_summary.get("split_decision_reason", ""),
+        }
+        write_json(run_root / "manifest.json", manifest)
 
-    summaries = [mixed_summary]
-    if split_needed:
-        tcp_summary = run_one(ExperimentPlan("tcp_only", 6, STRICT_LABEL_SPECS), run_root=run_root, timeout=args.timeout, benign_warmup=args.benign_warmup)
-        udp_summary = run_one(ExperimentPlan("udp_only", 17, STRICT_LABEL_SPECS), run_root=run_root, timeout=args.timeout, benign_warmup=args.benign_warmup)
-        summaries.extend([tcp_summary, udp_summary])
+        summaries = [mixed_summary]
+        if split_needed:
+            tcp_summary = run_one(ExperimentPlan("tcp_only", 6, label_specs), run_root=run_root, timeout=args.timeout, benign_warmup=args.benign_warmup)
+            udp_summary = run_one(ExperimentPlan("udp_only", 17, label_specs), run_root=run_root, timeout=args.timeout, benign_warmup=args.benign_warmup)
+            summaries.extend([tcp_summary, udp_summary])
 
     write_json(run_root / "all_summaries.json", {"run_id": run_id, "summaries": summaries})
     write_markdown_report(run_root / "REPORT.md", summaries, manifest)
@@ -199,7 +315,18 @@ def main() -> int:
     return 0
 
 
-def run_one(plan: ExperimentPlan, *, run_root: Path, timeout: int, benign_warmup: int) -> dict[str, Any]:
+def eval_specs_for_plan(plan: str, base_specs: list[dict[str, Any]], eval_benign: int) -> list[dict[str, Any]]:
+    specs = [dict(spec) for spec in base_specs]
+    if int(eval_benign) <= 0:
+        return specs
+    benign = dict(BENIGN_EVAL_SPEC)
+    benign["target"] = int(eval_benign)
+    if plan == "udp_drdos_tftp":
+        return specs + [benign]
+    return [benign] + specs
+
+
+def run_one(plan: ExperimentPlan, *, run_root: Path, timeout: int, benign_warmup: int, interleave_eval: bool = False) -> dict[str, Any]:
     exp_root = run_root / plan.name
     exp_root.mkdir(parents=True, exist_ok=True)
     session_id = f"accuracy-{plan.name}-{uuid.uuid4().hex[:10]}"
@@ -225,7 +352,9 @@ def run_one(plan: ExperimentPlan, *, run_root: Path, timeout: int, benign_warmup
     warmup_path = exp_root / "warmup_benign.csv"
     warmup_summary = build_warmup_dataset(plan, warmup_path, target=benign_warmup)
     metadata_path = exp_root / "flow_labels.csv"
-    dataset_summary = build_dataset(plan, metadata_path)
+    dataset_summary = build_dataset(plan, metadata_path, interleave=interleave_eval)
+    if interleave_eval:
+        dataset_summary["interleave"] = "round_robin_by_label"
     expected = int(dataset_summary["total_rows"])
     if expected == 0:
         summary = {
@@ -348,49 +477,46 @@ def build_warmup_dataset(plan: ExperimentPlan, out_path: Path, *, target: int) -
     }
 
 
-def build_dataset(plan: ExperimentPlan, out_path: Path) -> dict[str, Any]:
-    rows_written = 0
+def build_dataset(plan: ExperimentPlan, out_path: Path, *, interleave: bool = False) -> dict[str, Any]:
+    fieldnames = [
+        "flow_uid",
+        "strict_label",
+        "coarse_label",
+        "protocol",
+        "event_time",
+        "src_ip",
+        "src_port",
+        "dst_ip",
+        "dst_port",
+        "source_flow_id",
+        "features_json",
+        "raw_event_json",
+    ]
     per_label: dict[str, int] = {}
     per_protocol: dict[str, int] = {}
-    with out_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(
-            handle,
-            fieldnames=[
-                "flow_uid",
-                "strict_label",
-                "coarse_label",
-                "protocol",
-                "event_time",
-                "src_ip",
-                "src_port",
-                "dst_ip",
-                "dst_port",
-                "source_flow_id",
-                "features_json",
-                "raw_event_json",
-            ],
-        )
-        writer.writeheader()
-        for spec in plan.specs:
-            label_name = str(spec["name"])
-            target = int(spec["target"])
-            count = 0
-            for row_index, raw in iter_matching_rows(Path(spec["path"]), labels=set(spec["labels"]), protocol_filter=plan.protocol_filter):
-                canonical = canonicalize_row(raw)
-                flow_uid = f"{plan.name}:{label_name}:{count}:{uuid.uuid4().hex[:12]}"
-                event_time = normalize_event_time(canonical.get("Timestamp", ""))
-                protocol = int(to_int(canonical.get("Protocol", 0)))
-                source_flow_id = str(canonical.get("Flow ID") or flow_uid)
-                record = {
+    buckets: list[list[dict[str, str]]] = []
+    for spec in plan.specs:
+        label_name = str(spec["name"])
+        target = int(spec["target"])
+        label_rows: list[dict[str, str]] = []
+        count = 0
+        for _, raw in iter_matching_rows(Path(spec["path"]), labels=set(spec["labels"]), protocol_filter=plan.protocol_filter):
+            canonical = canonicalize_row(raw)
+            flow_uid = f"{plan.name}:{label_name}:{count}:{uuid.uuid4().hex[:12]}"
+            event_time = normalize_event_time(canonical.get("Timestamp", ""))
+            protocol = int(to_int(canonical.get("Protocol", 0)))
+            source_flow_id = str(canonical.get("Flow ID") or flow_uid)
+            label_rows.append(
+                {
                     "flow_uid": flow_uid,
                     "strict_label": label_name,
                     "coarse_label": COARSE_MAP[label_name],
-                    "protocol": protocol,
+                    "protocol": str(protocol),
                     "event_time": event_time,
                     "src_ip": str(canonical.get("Src IP") or ""),
-                    "src_port": int(to_int(canonical.get("Src Port", 0))),
+                    "src_port": str(int(to_int(canonical.get("Src Port", 0)))),
                     "dst_ip": str(canonical.get("Dst IP") or ""),
-                    "dst_port": int(to_int(canonical.get("Dst Port", 0))),
+                    "dst_port": str(int(to_int(canonical.get("Dst Port", 0)))),
                     "source_flow_id": source_flow_id,
                     "features_json": json.dumps(features_from_row(canonical), ensure_ascii=False, separators=(",", ":"), sort_keys=True),
                     "raw_event_json": json.dumps(
@@ -405,21 +531,45 @@ def build_dataset(plan: ExperimentPlan, out_path: Path) -> dict[str, Any]:
                         sort_keys=True,
                     ),
                 }
-                writer.writerow(record)
-                rows_written += 1
-                count += 1
-                per_label[label_name] = per_label.get(label_name, 0) + 1
-                per_protocol[str(protocol)] = per_protocol.get(str(protocol), 0) + 1
-                if count >= target:
-                    break
+            )
+            count += 1
+            per_label[label_name] = per_label.get(label_name, 0) + 1
+            per_protocol[str(protocol)] = per_protocol.get(str(protocol), 0) + 1
+            if count >= target:
+                break
+        if label_rows:
+            buckets.append(label_rows)
+
+    ordered_rows = interleave_rows(buckets) if interleave and len(buckets) > 1 else [row for bucket in buckets for row in bucket]
+    with out_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(ordered_rows)
     return {
         "experiment": plan.name,
         "protocol_filter": plan.protocol_filter,
-        "total_rows": rows_written,
+        "total_rows": len(ordered_rows),
         "per_label": per_label,
         "per_protocol": per_protocol,
         "targets": {str(spec["name"]): int(spec["target"]) for spec in plan.specs},
     }
+
+
+def interleave_rows(buckets: list[list[dict[str, str]]]) -> list[dict[str, str]]:
+    """Round-robin merge label buckets so eval injection mimics mixed live traffic."""
+    indices = [0] * len(buckets)
+    out: list[dict[str, str]] = []
+    remaining = sum(len(bucket) for bucket in buckets)
+    cursor = 0
+    while remaining > 0:
+        bucket_idx = cursor % len(buckets)
+        pos = indices[bucket_idx]
+        if pos < len(buckets[bucket_idx]):
+            out.append(buckets[bucket_idx][pos])
+            indices[bucket_idx] += 1
+            remaining -= 1
+        cursor += 1
+    return out
 
 
 def iter_matching_rows(path: Path, *, labels: set[str], protocol_filter: int | None):
@@ -604,12 +754,15 @@ def evaluate(
     write_json(exp_root / "confusion_strict.json", confusion_strict)
     write_json(exp_root / "confusion_coarse.json", confusion_coarse)
 
+    baseline = baseline_metrics(joined)
+
     return {
         "experiment": plan.name,
         "session_id": session_id,
         "redis_before_id": redis_before_id,
         "dataset": dataset_summary,
         "warmup": warmup_summary,
+        "baseline": baseline,
         "assigned_rows": len(assignments),
         "expected_rows": len(labels),
         "learner_count": len({r["assigned_learner"] for r in joined if r["assigned_learner"]}),
@@ -629,6 +782,29 @@ def majority_by_learner(rows: list[dict[str, Any]], label_key: str) -> dict[str,
             continue
         counts[learner][str(row[label_key])] += 1
     return {learner: counter.most_common(1)[0][0] for learner, counter in counts.items() if counter}
+
+
+def baseline_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    benign_eval = [r for r in rows if str(r.get("strict_label")) == "BENIGN"]
+    if not benign_eval:
+        return {"eval_benign_rows": 0}
+    on_baseline = [r for r in benign_eval if str(r.get("assigned_learner")) == BASELINE_LEARNER and int(r.get("is_unknown") or 0) == 0]
+    assigned = [r for r in benign_eval if r.get("assigned_learner") and int(r.get("is_unknown") or 0) == 0]
+    coarse_ok = [r for r in benign_eval if str(r.get("pred_coarse_label")) == "BENIGN"]
+    return {
+        "eval_benign_rows": len(benign_eval),
+        "assigned_to_baseline": len(on_baseline),
+        "baseline_recall": safe_div(len(on_baseline), len(benign_eval)),
+        "benign_coarse_accuracy": safe_div(len(coarse_ok), len(benign_eval)),
+        "benign_coverage": safe_div(len(assigned), len(benign_eval)),
+        "baseline_absorb_attack_rows": sum(
+            1
+            for r in rows
+            if str(r.get("strict_label")) != "BENIGN"
+            and str(r.get("assigned_learner")) == BASELINE_LEARNER
+            and int(r.get("is_unknown") or 0) == 0
+        ),
+    }
 
 
 def build_learner_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -722,7 +898,7 @@ def write_config(path: Path, *, session_id: str, model_store: Path, best_effort_
         "block_ms": 1000,
         "ack": True,
         "session_id": session_id,
-        "window_size": 1000,
+        "window_size": 10000,
         "feature_profile": "compact_stats_no_env",
         "clickhouse_dsn": CLICKHOUSE_DSN,
         "postgres_dsn": POSTGRES_DSN,
@@ -737,6 +913,20 @@ def write_config(path: Path, *, session_id: str, model_store: Path, best_effort_
         "init_epochs": 5,
         "new_class_epochs": 4,
         "increment_epochs": 1,
+        "min_class_samples": 300,
+        "max_train_per_class": 20000,
+        "max_increment_samples": 1000,
+        "increment_min_samples": 1000,
+        "new_learner_min_size": 500,
+        "cluster_trigger_size": 120,
+        "dbscan_eps": 1.3,
+        "dbscan_min_samples": 10,
+        "max_unknown_buffer": 30000,
+        "benign_accept_scale": 0.34,
+        "benign_history_confidence_scale": 1.0,
+        "increment_drift_min_history_samples": 500,
+        "increment_route_min_samples": 1000,
+        "increment_iforest_guard_min_samples": 1000,
         "model_store_dir": str(model_store),
         "preprocessing_enabled": True,
         "preprocessing_drop_all_zero": False,
@@ -772,7 +962,10 @@ def clickhouse_json_each_row(sql: str) -> list[dict[str, Any]]:
 
 
 def clickhouse_execute(sql: str) -> str:
-    response = requests.post(clickhouse_query_url(sql), data=b"", timeout=120)
+    # Local ClickHouse must bypass HTTP_PROXY; otherwise localhost requests get 502.
+    session = requests.Session()
+    session.trust_env = False
+    response = session.post(clickhouse_query_url(sql), data=b"", timeout=120)
     response.raise_for_status()
     return response.text
 
@@ -804,6 +997,13 @@ def python_env() -> dict[str, str]:
     env = os.environ.copy()
     current = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = str(TRIDENT_ROOT) + (os.pathsep + current if current else "")
+    log_dir = DEFAULT_OUT_ROOT / ".logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    env["TRIDENT_LOG_DIR"] = str(log_dir)
+    env["NO_PROXY"] = "127.0.0.1,localhost"
+    env["no_proxy"] = "127.0.0.1,localhost"
+    for key in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "all_proxy"):
+        env.pop(key, None)
     return env
 
 

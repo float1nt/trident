@@ -72,6 +72,7 @@ class OnlineEngine:
             lr=cfg.tsieve_lr,
             min_class_samples=cfg.min_class_samples,
             max_train_per_class=cfg.max_train_per_class,
+            benign_accept_scale=cfg.benign_accept_scale,
             classifier_backend=cfg.algorithm_backend,
             seed=cfg.seed,
         )

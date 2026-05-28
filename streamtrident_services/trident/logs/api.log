@@ -1,0 +1,600 @@
+{"ts":"2026-05-27T10:36:49.651Z","service":"trident-api","event":"api_bootstrap","host":"0.0.0.0","port":8090,"config":"config/trident.yaml"}
+Started server process [1]
+Waiting for application startup.
+{"ts":"2026-05-27T10:36:49.669Z","service":"trident-api","event":"api_started","session_id":"trident-session-dev","redis_url":"redis://redis:6379/0","input_stream":"suricata:cic_flow","consumer_mode":"best_effort","clickhouse_dsn":"http://default:trident@clickhouse:8123/default","postgres_dsn":"postgresql://trident:trident@postgres:5432/trident"}
+Application startup complete.
+Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+Shutting down
+Waiting for application shutdown.
+{"ts":"2026-05-27T10:43:10.257Z","service":"trident-api","event":"api_stopped","session_id":"trident-session-dev"}
+Application shutdown complete.
+Finished server process [1]
+{"ts":"2026-05-27T10:43:12.484Z","service":"trident-api","event":"api_bootstrap","host":"0.0.0.0","port":8090,"config":"config/trident.yaml"}
+Started server process [1]
+Waiting for application startup.
+{"ts":"2026-05-27T10:43:12.501Z","service":"trident-api","event":"api_started","session_id":"trident-session-dev","redis_url":"redis://redis:6379/0","input_stream":"suricata:cic_flow","consumer_mode":"best_effort","clickhouse_dsn":"http://default:trident@clickhouse:8123/default","postgres_dsn":"postgresql://trident:trident@postgres:5432/trident"}
+Application startup complete.
+Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+Shutting down
+Waiting for application shutdown.
+{"ts":"2026-05-27T11:24:58.315Z","service":"trident-api","event":"api_stopped","session_id":"trident-session-dev"}
+Application shutdown complete.
+Finished server process [1]
+{"ts":"2026-05-27T11:25:00.562Z","service":"trident-api","event":"api_bootstrap","host":"0.0.0.0","port":8090,"config":"config/trident.yaml"}
+Started server process [1]
+Waiting for application startup.
+{"ts":"2026-05-27T11:25:00.580Z","service":"trident-api","event":"api_started","session_id":"trident-session-dev","redis_url":"redis://redis:6379/0","input_stream":"suricata:cic_flow","consumer_mode":"best_effort","clickhouse_dsn":"http://default:trident@clickhouse:8123/default","postgres_dsn":"postgresql://trident:trident@postgres:5432/trident"}
+Application startup complete.
+Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+Exception in ASGI application
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/protocols/http/h11_impl.py", line 415, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/middleware/proxy_headers.py", line 63, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 330, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/starlette/concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 2518, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 1002, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/api.py", line 137, in risks
+    return _ok(_pages(cfg).risk_list(limit=limit, offset=offset, name=name, subject_ip=subjectIp))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/page_queries.py", line 297, in risk_list
+    learner_row = learner_by_name.get(learner) or {}
+                  ^^^^^^^^^^^^^^^
+NameError: name 'learner_by_name' is not defined
+Exception in ASGI application
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/protocols/http/h11_impl.py", line 415, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/middleware/proxy_headers.py", line 63, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 330, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/starlette/concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 2518, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 1002, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/api.py", line 137, in risks
+    return _ok(_pages(cfg).risk_list(limit=limit, offset=offset, name=name, subject_ip=subjectIp))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/page_queries.py", line 297, in risk_list
+    learner_row = learner_by_name.get(learner) or {}
+                  ^^^^^^^^^^^^^^^
+NameError: name 'learner_by_name' is not defined
+Exception in ASGI application
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/protocols/http/h11_impl.py", line 415, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/middleware/proxy_headers.py", line 63, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 330, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/starlette/concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 2518, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 1002, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/api.py", line 137, in risks
+    return _ok(_pages(cfg).risk_list(limit=limit, offset=offset, name=name, subject_ip=subjectIp))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/page_queries.py", line 297, in risk_list
+    learner_row = learner_by_name.get(learner) or {}
+                  ^^^^^^^^^^^^^^^
+NameError: name 'learner_by_name' is not defined
+Exception in ASGI application
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/protocols/http/h11_impl.py", line 415, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/middleware/proxy_headers.py", line 63, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 330, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/starlette/concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 2518, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 1002, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/api.py", line 137, in risks
+    return _ok(_pages(cfg).risk_list(limit=limit, offset=offset, name=name, subject_ip=subjectIp))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/page_queries.py", line 297, in risk_list
+    learner_row = learner_by_name.get(learner) or {}
+                  ^^^^^^^^^^^^^^^
+NameError: name 'learner_by_name' is not defined
+Exception in ASGI application
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/protocols/http/h11_impl.py", line 415, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/middleware/proxy_headers.py", line 63, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 330, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/starlette/concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 2518, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 1002, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/api.py", line 137, in risks
+    return _ok(_pages(cfg).risk_list(limit=limit, offset=offset, name=name, subject_ip=subjectIp))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/page_queries.py", line 297, in risk_list
+    learner_row = learner_by_name.get(learner) or {}
+                  ^^^^^^^^^^^^^^^
+NameError: name 'learner_by_name' is not defined
+Exception in ASGI application
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/protocols/http/h11_impl.py", line 415, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/middleware/proxy_headers.py", line 63, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 330, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/starlette/concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 2518, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 1002, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/api.py", line 137, in risks
+    return _ok(_pages(cfg).risk_list(limit=limit, offset=offset, name=name, subject_ip=subjectIp))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/page_queries.py", line 297, in risk_list
+    learner_row = learner_by_name.get(learner) or {}
+                  ^^^^^^^^^^^^^^^
+NameError: name 'learner_by_name' is not defined
+Exception in ASGI application
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/protocols/http/h11_impl.py", line 415, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/middleware/proxy_headers.py", line 63, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 330, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/starlette/concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 2518, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 1002, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/api.py", line 137, in risks
+    return _ok(_pages(cfg).risk_list(limit=limit, offset=offset, name=name, subject_ip=subjectIp))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/page_queries.py", line 297, in risk_list
+    learner_row = learner_by_name.get(learner) or {}
+                  ^^^^^^^^^^^^^^^
+NameError: name 'learner_by_name' is not defined
+Exception in ASGI application
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/protocols/http/h11_impl.py", line 415, in run_asgi
+    result = await app(  # type: ignore[func-returns-value]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/uvicorn/middleware/proxy_headers.py", line 63, in __call__
+    return await self.app(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/applications.py", line 1159, in __call__
+    await super().__call__(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/applications.py", line 90, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 186, in __call__
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 660, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 680, in app
+    await route.handle(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/routing.py", line 276, in handle
+    await self.app(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 134, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/usr/local/lib/python3.11/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 120, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 674, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/fastapi/routing.py", line 330, in run_endpoint_function
+    return await run_in_threadpool(dependant.call, **values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/starlette/concurrency.py", line 32, in run_in_threadpool
+    return await anyio.to_thread.run_sync(func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/to_thread.py", line 63, in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 2518, in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+  File "/usr/local/lib/python3.11/site-packages/anyio/_backends/_asyncio.py", line 1002, in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/api.py", line 137, in risks
+    return _ok(_pages(cfg).risk_list(limit=limit, offset=offset, name=name, subject_ip=subjectIp))
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/app/page_queries.py", line 297, in risk_list
+    learner_row = learner_by_name.get(learner) or {}
+                  ^^^^^^^^^^^^^^^
+NameError: name 'learner_by_name' is not defined
+Shutting down
+Waiting for application shutdown.
+{"ts":"2026-05-27T11:29:13.123Z","service":"trident-api","event":"api_stopped","session_id":"trident-session-dev"}
+Application shutdown complete.
+Finished server process [1]
+{"ts":"2026-05-27T11:29:15.412Z","service":"trident-api","event":"api_bootstrap","host":"0.0.0.0","port":8090,"config":"config/trident.yaml"}
+Started server process [1]
+Waiting for application startup.
+{"ts":"2026-05-27T11:29:15.430Z","service":"trident-api","event":"api_started","session_id":"trident-session-dev","redis_url":"redis://redis:6379/0","input_stream":"suricata:cic_flow","consumer_mode":"best_effort","clickhouse_dsn":"http://default:trident@clickhouse:8123/default","postgres_dsn":"postgresql://trident:trident@postgres:5432/trident"}
+Application startup complete.
+Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+Shutting down
+Waiting for application shutdown.
+{"ts":"2026-05-27T11:33:25.912Z","service":"trident-api","event":"api_stopped","session_id":"trident-session-dev"}
+Application shutdown complete.
+Finished server process [1]
+{"ts":"2026-05-27T11:33:28.682Z","service":"trident-api","event":"api_bootstrap","host":"0.0.0.0","port":8090,"config":"config/trident.yaml"}
+Started server process [1]
+Waiting for application startup.
+{"ts":"2026-05-27T11:33:28.700Z","service":"trident-api","event":"api_started","session_id":"trident-session-dev","redis_url":"redis://redis:6379/0","input_stream":"suricata:cic_flow","consumer_mode":"best_effort","clickhouse_dsn":"http://default:trident@clickhouse:8123/default","postgres_dsn":"postgresql://trident:trident@postgres:5432/trident"}
+Application startup complete.
+Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+Shutting down
+Waiting for application shutdown.
+{"ts":"2026-05-27T11:37:18.709Z","service":"trident-api","event":"api_stopped","session_id":"trident-session-dev"}
+Application shutdown complete.
+Finished server process [1]
+{"ts":"2026-05-27T11:37:21.149Z","service":"trident-api","event":"api_bootstrap","host":"0.0.0.0","port":8090,"config":"config/trident.yaml"}
+Started server process [1]
+Waiting for application startup.
+{"ts":"2026-05-27T11:37:21.167Z","service":"trident-api","event":"api_started","session_id":"trident-session-dev","redis_url":"redis://redis:6379/0","input_stream":"suricata:cic_flow","consumer_mode":"best_effort","clickhouse_dsn":"http://default:trident@clickhouse:8123/default","postgres_dsn":"postgresql://trident:trident@postgres:5432/trident"}
+Application startup complete.
+Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+Shutting down
+Waiting for application shutdown.
+{"ts":"2026-05-27T11:38:27.029Z","service":"trident-api","event":"api_stopped","session_id":"trident-session-dev"}
+Application shutdown complete.
+Finished server process [1]
+{"ts":"2026-05-27T11:38:29.193Z","service":"trident-api","event":"api_bootstrap","host":"0.0.0.0","port":8090,"config":"config/trident.yaml"}
+Started server process [1]
+Waiting for application startup.
+{"ts":"2026-05-27T11:38:29.211Z","service":"trident-api","event":"api_started","session_id":"trident-session-dev","redis_url":"redis://redis:6379/0","input_stream":"suricata:cic_flow","consumer_mode":"best_effort","clickhouse_dsn":"http://default:trident@clickhouse:8123/default","postgres_dsn":"postgresql://trident:trident@postgres:5432/trident"}
+Application startup complete.
+Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+Shutting down
+Waiting for application shutdown.
+{"ts":"2026-05-27T11:41:09.088Z","service":"trident-api","event":"api_stopped","session_id":"trident-session-dev"}
+Application shutdown complete.
+Finished server process [1]
+{"ts":"2026-05-27T11:41:11.188Z","service":"trident-api","event":"api_bootstrap","host":"0.0.0.0","port":8090,"config":"config/trident.yaml"}
+Started server process [1]
+Waiting for application startup.
+{"ts":"2026-05-27T11:41:11.204Z","service":"trident-api","event":"api_started","session_id":"trident-session-dev","redis_url":"redis://redis:6379/0","input_stream":"suricata:cic_flow","consumer_mode":"best_effort","clickhouse_dsn":"http://default:trident@clickhouse:8123/default","postgres_dsn":"postgresql://trident:trident@postgres:5432/trident"}
+Application startup complete.
+Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
+Shutting down
+Waiting for application shutdown.
+{"ts":"2026-05-27T12:13:48.191Z","service":"trident-api","event":"api_stopped","session_id":"trident-session-dev"}
+Application shutdown complete.
+Finished server process [1]
