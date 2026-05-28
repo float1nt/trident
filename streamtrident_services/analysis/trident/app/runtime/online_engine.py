@@ -176,10 +176,18 @@ class OnlineEngine:
             self.learner_record_histories[learner_name].extend(learner_records)
             self.learner_record_histories[learner_name] = self.learner_record_histories[learner_name][-10000:]
 
-        new_learner_names = self._create_new_learners_from_unknown(window.window_index)
+        new_learner_names, promoted_flow_uids = self._create_new_learners_from_unknown(window.window_index)
         updated_learner_names = self._incremental_update(accepted_by_learner, window_index=window.window_index)
-        recluster_created = self._maybe_recluster_small_learners(window.window_index)
+        recluster_created, recluster_promoted = self._maybe_recluster_small_learners(window.window_index)
         new_learner_names.extend(recluster_created)
+        for learner_name, flow_uids in recluster_promoted.items():
+            promoted_flow_uids.setdefault(learner_name, set()).update(flow_uids)
+        assignments, promoted_assignment_count = self._patch_assignments_for_promoted_learners(
+            assignments,
+            promoted_flow_uids,
+        )
+        if promoted_assignment_count:
+            unknown_count -= promoted_assignment_count
         self._refresh_learner_overlap_snapshot()
         self._maybe_finalize_cold_start(window_flow_count=len(records))
 
@@ -254,8 +262,12 @@ class OnlineEngine:
             key=lambda learner_name: int(self.tsieve.learners[learner_name].train_sample_count),
         )
 
-    def _create_new_learners_from_unknown(self, window_index: int) -> list[str]:
+    def _create_new_learners_from_unknown(
+        self,
+        window_index: int,
+    ) -> tuple[list[str], dict[str, set[str]]]:
         created: list[str] = []
+        promoted_flow_uids: dict[str, set[str]] = {}
         clusters = self.tmagnifier.pop_new_class_clusters()
         for cluster_x, cluster_labels, cluster_meta in clusters:
             if self.cfg.cluster_purity_gate_enabled and not self._cluster_purity_gate(cluster_x):
@@ -273,7 +285,51 @@ class OnlineEngine:
                 self.learner_last_seen_windows[name] = window_index
                 self._append_history(name, cluster_x)
                 self._fit_increment_iforest_guard(name, cluster_x)
-        return created
+                flow_uids = {
+                    str(meta.get("flow_uid") or "").strip()
+                    for meta in cluster_meta
+                    if str(meta.get("flow_uid") or "").strip()
+                }
+                if flow_uids:
+                    promoted_flow_uids[name] = flow_uids
+        return created, promoted_flow_uids
+
+    def _patch_assignments_for_promoted_learners(
+        self,
+        assignments: list[FlowAssignment],
+        promoted_flow_uids: dict[str, set[str]],
+    ) -> tuple[list[FlowAssignment], int]:
+        if not promoted_flow_uids:
+            return assignments, 0
+        uid_to_learner = {
+            flow_uid: learner_name
+            for learner_name, flow_uids in promoted_flow_uids.items()
+            for flow_uid in flow_uids
+        }
+        patched: list[FlowAssignment] = []
+        promoted_count = 0
+        for assignment in assignments:
+            learner_name = uid_to_learner.get(assignment.flow_uid)
+            if learner_name and assignment.is_unknown:
+                meta = dict(assignment.assignment_meta)
+                meta["promoted_from_unknown"] = True
+                meta["promoted_learner"] = learner_name
+                patched.append(
+                    FlowAssignment(
+                        flow_uid=assignment.flow_uid,
+                        assigned_learner=learner_name,
+                        is_unknown=False,
+                        pred_loss=assignment.pred_loss,
+                        threshold=assignment.threshold,
+                        assignment_meta=meta,
+                        learner_snapshot_id=assignment.learner_snapshot_id,
+                        learner_snapshot_version=assignment.learner_snapshot_version,
+                    )
+                )
+                promoted_count += 1
+            else:
+                patched.append(assignment)
+        return patched, promoted_count
 
     def _incremental_update(self, accepted_by_learner: dict[str, list[np.ndarray]], *, window_index: int) -> list[str]:
         updated: list[str] = []
@@ -643,12 +699,12 @@ class OnlineEngine:
         idx = rng.choice(len(arr), size=max_keep, replace=False)
         return arr[idx]
 
-    def _maybe_recluster_small_learners(self, window_index: int) -> list[str]:
+    def _maybe_recluster_small_learners(self, window_index: int) -> tuple[list[str], dict[str, set[str]]]:
         if not self.cfg.small_learner_recluster_enabled:
-            return []
+            return [], {}
         self.small_recluster_counter += 1
         if self.small_recluster_counter < self.cfg.small_learner_recluster_count_trigger:
-            return []
+            return [], {}
         self.small_recluster_counter = 0
         candidates = [
             name
@@ -656,7 +712,7 @@ class OnlineEngine:
             if str(name).startswith("NEW_") and int(learner.train_sample_count) < self.cfg.small_learner_sample_threshold
         ]
         if not candidates:
-            return []
+            return [], {}
         for name in candidates:
             history = self.learner_histories.get(name, [])
             for sample in history:

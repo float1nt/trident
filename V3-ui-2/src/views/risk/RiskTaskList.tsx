@@ -92,7 +92,6 @@ const RiskTaskList = () => {
   );
   const { loading, run: runIpList } = useApi();
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
-  const [eventIpTotal, setEventIpTotal] = useState(0);
   const [eventLoadError, setEventLoadError] = useState<string | null>(null);
   const [eventPage, setEventPage] = useState(1);
 
@@ -113,7 +112,8 @@ const RiskTaskList = () => {
     eventTopology,
     loading: eventTopologyLoading,
     total: eventTopologyListTotal,
-    eventTopologyTotal,
+    eventTotal,
+    riskTypeTotal,
   } = useEventTopologyPagination(
     activeView === "event",
     eventPage,
@@ -145,32 +145,20 @@ const RiskTaskList = () => {
   }, [page, filters, activeView, getListData]);
 
   useEffect(() => {
-    if (activeView !== "event") return;
-    void (async () => {
-      const response = await RiskService.listRisks({
-        limit: 1,
-        offset: 0,
-        name: eventFilters.name || undefined,
-      });
-      setEventIpTotal(response.total);
-    })();
-  }, [activeView, eventFilters]);
-
-  useEffect(() => {
     if (activeView !== "event" || eventTopologyLoading) return;
-    if (eventTopologyTotal === 0 && eventFilters.triggerPeriod) {
+    if (eventTotal === 0 && eventFilters.triggerPeriod) {
       setEventLoadError(
         "当前触发时段内没有学习器，请点「重置」清空时段或扩大时间范围。",
       );
       return;
     }
-    if (eventTopologyTotal > 0) {
+    if (eventTotal > 0) {
       setEventLoadError(null);
     }
   }, [
     activeView,
     eventTopologyLoading,
-    eventTopologyTotal,
+    eventTotal,
     eventFilters.triggerPeriod,
   ]);
 
@@ -360,11 +348,10 @@ const RiskTaskList = () => {
                   <span className="risk-event-summary__bar" aria-hidden />
                   <p className="risk-event-summary__text">
                     总共
-                    <span className="risk-event-summary__num">{eventTopologyTotal}</span>
-                    类风险
-                    ，
-                    <span className="risk-event-summary__num">{eventIpTotal}</span>
-                    类风险事件
+                    <span className="risk-event-summary__num">{riskTypeTotal}</span>
+                    类风险，
+                    <span className="risk-event-summary__num">{eventTotal}</span>
+                    个事件
                   </p>
                 </div>
                 {/* <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
@@ -406,6 +393,7 @@ const RiskTaskList = () => {
                         setEventPage(nextPage);
                       },
                     })}
+                    showTotal={(t) => `共 ${t} 个事件`}
                   />
                 </div>
               ) : null}

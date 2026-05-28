@@ -48,6 +48,16 @@ class PageQueryService:
         }
         return resolve_session_baseline_learner(rows, flow_counts=flow_counts or None)
 
+    def _learner_display_sequence_map(
+        self,
+        learner_rows: list[dict[str, Any]] | None = None,
+        *,
+        session_id: str | None = None,
+    ) -> dict[str, int]:
+        sid = session_id or self.session_id
+        rows = learner_rows if learner_rows is not None else self.learners.list_learners(session_id=sid)
+        return _learner_display_sequence_map(rows)
+
     def dashboard_overview(
         self,
         *,
@@ -151,9 +161,19 @@ class PageQueryService:
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
         rows = self.learners.list_learners(session_id=sid)
+        session_baseline = self._session_baseline_learner(session_id=sid)
+        display_sequence_by_name = self._learner_display_sequence_map(rows, session_id=sid)
         items = [
-            _learner_event_item(index, row)
-            for index, row in enumerate(_filter_learner_rows(rows, name=name, risk_band=risk_band, time_from=time_from, time_to=time_to), start=1)
+            _learner_event_item(
+                index,
+                row,
+                session_baseline_learner=session_baseline,
+                display_sequence_by_name=display_sequence_by_name,
+            )
+            for index, row in enumerate(
+                _filter_learner_rows(rows, name=name, risk_band=risk_band, time_from=time_from, time_to=time_to),
+                start=1,
+            )
         ]
         top_ips = self.flows.top_subject_ips_by_learner(
             session_id=sid,
@@ -179,6 +199,7 @@ class PageQueryService:
         learner_by_name = {str(row.get("learner_name") or ""): row for row in learner_rows}
         risk_names = _risk_learner_names(learner_rows)
         risk_name_set = set(risk_names)
+        display_sequence_by_name = self._learner_display_sequence_map(learner_rows, session_id=sid)
         result = self.flows.risk_ip_view(
             session_id=sid,
             risk_learners=risk_names,
@@ -198,6 +219,7 @@ class PageQueryService:
                     row,
                     learner_by_name.get(learner_name),
                     is_risk_learner=True,
+                    display_sequence_by_name=display_sequence_by_name,
                 )
             )
         return {"items": items, "total": int(result["total"])}
@@ -302,7 +324,17 @@ class PageQueryService:
         sid = session_id or self.session_id
         learner = self.learners.get_learner(session_id=sid, learner_name=learner_name) or {}
         session_baseline = self._session_baseline_learner(session_id=sid)
-        event = _learner_event_item(1, learner, session_baseline_learner=session_baseline) if learner else _empty_event_item(learner_name)
+        display_sequence_by_name = self._learner_display_sequence_map(session_id=sid)
+        event = (
+            _learner_event_item(
+                1,
+                learner,
+                session_baseline_learner=session_baseline,
+                display_sequence_by_name=display_sequence_by_name,
+            )
+            if learner
+            else _empty_event_item(learner_name)
+        )
         primary_attack = _primary_attack_type(learner, session_baseline_learner=session_baseline)
         is_benign = primary_attack == "BENIGN_NORMAL"
         traffic_kind = "benign" if is_benign else "attack"
@@ -356,6 +388,7 @@ class PageQueryService:
         learner_by_name = {str(row.get("learner_name") or ""): row for row in learner_rows}
         risk_names = _risk_learner_names(learner_rows)
         risk_name_set = set(risk_names)
+        display_sequence_by_name = self._learner_display_sequence_map(learner_rows, session_id=sid)
         raw = self.flows.risk_ip_view(
             session_id=sid,
             risk_learners=risk_names,
@@ -371,8 +404,12 @@ class PageQueryService:
             if learner not in risk_name_set:
                 continue
             learner_row = learner_by_name.get(learner) or {}
-            attack_type = _primary_attack_type(learner_row)
-            display_name = _attack_display(attack_type)["name"] if attack_type else learner
+            display_name = _display_for_learner(
+                learner_row,
+                display_sequence_by_name=display_sequence_by_name,
+            )["name"]
+            if not display_name:
+                display_name = learner
             if not ip:
                 continue
             grouped.setdefault(ip, []).append(
@@ -422,7 +459,20 @@ class PageQueryService:
             include_all_bands=False,
         )
         rows = [row for row in rows if int(row.get("flow_count") or 0) > 0]
-        total = len(rows)
+        display_sequence_by_name = self._learner_display_sequence_map(rows, session_id=sid)
+        event_total = len(rows)
+        risk_type_total = len(
+            _distinct_risk_type_names(rows)
+        )
+        risk_names = _risk_learner_names(rows)
+        risk_ip_result = self.flows.risk_ip_view(
+            session_id=sid,
+            risk_learners=risk_names,
+            limit=1,
+            offset=0,
+            learner_name_like=name,
+        )
+        risk_ip_count = int(risk_ip_result.get("total") or 0)
         safe_offset = max(0, int(offset or 0))
         capped = max(1, min(int(limit), 50))
         page_rows = rows[safe_offset : safe_offset + capped]
@@ -438,7 +488,9 @@ class PageQueryService:
             views[learner_name] = view
         return {
             "version": 1,
-            "total": total,
+            "total": event_total,
+            "risk_type_total": risk_type_total,
+            "risk_ip_count": risk_ip_count,
             "learners": learners,
             "default_learner": learners[0] if learners else "",
             "views": views,
@@ -446,7 +498,12 @@ class PageQueryService:
 
     def risk_by_id(self, *, risk_id: int) -> dict[str, Any]:
         learner = self.learners.get_learner_by_id(session_id=self.session_id, learner_id=risk_id) or {}
-        item = _risk_item_from_learner(learner, subject_ip=_first_subject_ip(self, learner))
+        display_sequence_by_name = self._learner_display_sequence_map(session_id=self.session_id)
+        item = _risk_item_from_learner(
+            learner,
+            subject_ip=_first_subject_ip(self, learner),
+            display_sequence_by_name=display_sequence_by_name,
+        )
         learner_name = str(learner.get("learner_name") or "")
         item["riskIpCount"] = (
             self.flows.unique_src_ip_count_by_learner(
@@ -622,6 +679,21 @@ def _is_attack_learner(row: dict[str, Any]) -> bool:
     return _primary_attack_type(row) != "BENIGN_NORMAL"
 
 
+def _distinct_risk_type_names(
+    rows: list[dict[str, Any]],
+) -> set[str]:
+    names: set[str] = set()
+    for row in rows:
+        attack_type = _rule_attack_type(row)
+        if not attack_type or attack_type == "BENIGN_NORMAL":
+            continue
+        display = _attack_display(attack_type)
+        name = str(display.get("name") or row.get("learner_name") or "").strip()
+        if name:
+            names.add(name)
+    return names
+
+
 def _clean_trigger_bound(value: str | None) -> str | None:
     text = str(value or "").strip()
     if not text or text.lower() in {"undefined", "null", "invalid date"}:
@@ -675,12 +747,17 @@ def _learner_event_item(
     row: dict[str, Any],
     *,
     session_baseline_learner: str | None = None,
+    display_sequence_by_name: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     learner_name = str(row.get("learner_name") or "")
     risk_score = _float(row.get("risk_score"))
     risk_band = str(row.get("risk_band") or "low").lower()
     primary_attack = _primary_attack_type(row, session_baseline_learner=session_baseline_learner)
-    display = _attack_display(primary_attack)
+    display = _display_for_learner(
+        row,
+        session_baseline_learner=session_baseline_learner,
+        display_sequence_by_name=display_sequence_by_name,
+    )
     risk_name = display["name"] if primary_attack else learner_name
     confidence = _primary_attack_confidence(row)
     attack_desc = (
@@ -743,10 +820,11 @@ def _risk_ip_item(
     learner: dict[str, Any] | None,
     *,
     is_risk_learner: bool,
+    display_sequence_by_name: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     learner_name = str(row.get("assigned_learner") or "")
     attack_type = _primary_attack_type(learner or {})
-    display = _attack_display(attack_type)
+    display = _display_for_learner(learner or {}, display_sequence_by_name=display_sequence_by_name)
     risk_score = _float(learner.get("risk_score") if learner else None)
     risk_band = str((learner or {}).get("risk_band") or "low").lower()
     protocol = _protocol_name(row.get("top_protocol"))
@@ -910,9 +988,9 @@ def _risk_item_from_learner(
     *,
     subject_ip: str = "",
     include_count: bool = False,
+    display_sequence_by_name: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    attack_type = _primary_attack_type(learner)
-    display = _attack_display(attack_type)
+    display = _display_for_learner(learner, display_sequence_by_name=display_sequence_by_name)
     item = {
         "id": int(learner.get("id") or 0),
         "subjectIp": subject_ip or "-",
@@ -924,6 +1002,19 @@ def _risk_item_from_learner(
     if include_count:
         item["riskIpCount"] = int(learner.get("flow_count") or 0)
     return item
+
+
+def _rule_attack_type(learner: dict[str, Any]) -> str:
+    rule_json = learner.get("rule_json")
+    if isinstance(rule_json, dict):
+        attack_types = rule_json.get("attack_types")
+        if isinstance(attack_types, list):
+            for item in attack_types:
+                if isinstance(item, dict):
+                    attack_type = str(item.get("attack_type") or "").strip()
+                    if attack_type:
+                        return attack_type
+    return ""
 
 
 def _primary_attack_type(
@@ -959,11 +1050,56 @@ def _primary_attack_confidence(learner: dict[str, Any]) -> float:
     return 0.0
 
 
-def _attack_display(attack_type: str) -> dict[str, str]:
+def _attack_display(attack_type: str, *, sequence: int | None = None) -> dict[str, str]:
     key = str(attack_type or "").strip().upper()
     if key in ATTACK_TYPE_DISPLAY:
-        return ATTACK_TYPE_DISPLAY[key]
-    return {"name": key or "未知类型", "desc": "暂无该类型的语义化说明。"}
+        display = dict(ATTACK_TYPE_DISPLAY[key])
+        if sequence is not None and sequence > 0:
+            display["name"] = f"{display['name']}{sequence}"
+        return display
+    base_name = key or "未知类型"
+    if sequence is not None and sequence > 0:
+        base_name = f"{base_name}{sequence}"
+    return {"name": base_name, "desc": "暂无该类型的语义化说明。"}
+
+
+def _display_for_learner(
+    learner: dict[str, Any],
+    *,
+    session_baseline_learner: str | None = None,
+    display_sequence_by_name: dict[str, int] | None = None,
+) -> dict[str, str]:
+    rule_attack = _rule_attack_type(learner)
+    primary_attack = _primary_attack_type(learner, session_baseline_learner=session_baseline_learner)
+    display_type = rule_attack if rule_attack and rule_attack != "BENIGN_NORMAL" else primary_attack
+    sequence = None
+    if display_sequence_by_name:
+        sequence = display_sequence_by_name.get(str(learner.get("learner_name") or ""))
+    return _attack_display(display_type, sequence=sequence)
+
+
+def _learner_display_sequence_map(rows: list[dict[str, Any]]) -> dict[str, int]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        attack_type = _rule_attack_type(row)
+        if not attack_type or attack_type == "BENIGN_NORMAL":
+            continue
+        base_name = _attack_display(attack_type)["name"]
+        grouped.setdefault(base_name, []).append(row)
+    sequences: dict[str, int] = {}
+    for items in grouped.values():
+        if len(items) <= 1:
+            continue
+        items.sort(
+            key=lambda row: (
+                int(row.get("creation_window_index") or 0),
+                int(row.get("id") or 0),
+                str(row.get("learner_name") or ""),
+            )
+        )
+        for index, row in enumerate(items, start=1):
+            sequences[str(row.get("learner_name") or "")] = index
+    return sequences
 
 
 def _first_subject_ip(service: PageQueryService, learner: dict[str, Any]) -> str:
@@ -980,21 +1116,11 @@ def _first_subject_ip(service: PageQueryService, learner: dict[str, Any]) -> str
 
 def _learner_features(learner: dict[str, Any]) -> str:
     metric = learner.get("metric_json") if isinstance(learner.get("metric_json"), dict) else {}
-    attack_type = _primary_attack_type(learner)
-    display = _attack_display(attack_type)
-    parts = [
-        f"风险分级：{learner.get('risk_band') or 'low'}",
-        f"关联流量：{learner.get('flow_count') or 0}",
-    ]
-    confidence = _primary_attack_confidence(learner)
-    if confidence > 0:
-        parts.append(f"匹配置信度：{confidence:.3f}")
+    parts: list[str] = []
     if metric.get("top1_protocol_share") is not None:
         parts.append(
             f"主导协议占比：{float(metric.get('top1_protocol_share') or 0):.3f}"
         )
-    if display.get("desc"):
-        parts.append(f"解释：{display['desc']}")
     return "、".join(parts)
 
 

@@ -59,6 +59,7 @@ export function useEventTopologyPagination(
     eventTopology,
     loading,
     total,
-    eventTopologyTotal: eventTopology?.total ?? total,
+    eventTotal: eventTopology?.total ?? total,
+    riskTypeTotal: eventTopology?.risk_type_total ?? 0,
   };
 }
