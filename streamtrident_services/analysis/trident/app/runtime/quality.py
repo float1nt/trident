@@ -16,14 +16,14 @@ BASELINE_LEARNER_NAME = "0000|UNLABELED"
 BASELINE_BENIGN_RULE_ID = "learner_baseline_benign_fixed"
 BASELINE_BENIGN_CONFIDENCE = 0.35
 ATTACK_EXPLAIN: dict[str, str] = {
-    "PORT_SCAN": "端口维度高度展开，符合端口扫描模式。",
-    "HOST_SCAN": "存在明显出向 hub，符合主机扫描或横向探测模式。",
-    "DDOS_VICTIM": "固定目标服务被多源汇聚，符合分布式拒绝服务攻击特征。",
-    "DOS_ATTACKER": "固定目标集中且边复用高，符合 DoS 攻击源模式。",
-    "DRDOS_REFLECTION_FAMILY": "边分散且单向性强，符合反射放大型攻击族模式。",
-    "SLOW_DOS_SUSPECTED": "固定目标且低往返，符合慢速 DoS 嫌疑模式。",
-    "WEB_DDOS_SUSPECTED": "Web 端口主导且双向复杂，符合 Web DDoS 嫌疑模式。",
-    "BRUTE_FORCE_SUSPECTED": "目标端口集中且短时复用高，符合暴力破解嫌疑模式。",
+    "PORT_SCAN": "攻击源针对少量固定目标主机，批量试探大量不同端口，探测开放服务，为后续渗透做铺垫，整体端口分散、无固定访问服务。",
+    "HOST_SCAN": "攻击源依托固定常用服务端口，批量访问内网大量不同目标主机，探测存活资产，是典型的内网横向渗透前置行为。",
+    "DDOS_VICTIM": "海量分布式源IP集中冲击单一或少量目标主机的固定服务端口，通过流量洪泛消耗目标带宽与算力，可能造成服务瘫痪。",
+    "DOS_ATTACKER": "攻击源高频重复连接固定目标服务，依托高复用连接路径持续施压，耗尽目标资源实现单点打击。",
+    "DRDOS_REFLECTION_FAMILY": "攻击者伪造受害者地址利用第三方服务放大流量，具备端口极度分散、连接一次性、流量单向失衡的特征，对目标形成无差别洪泛冲击。",
+    "SLOW_DOS_SUSPECTED": "不依靠大流量洪泛，通过低速请求、长效弱连接持续占用目标Web及固定服务资源，缓慢耗尽服务端会话与算力导致服务失效。",
+    "WEB_DDOS_SUSPECTED": "海量访问源集中针对80、443等Web端口及业务接口发起复杂高频请求，依托多样业务访问路径施压，专门打击Web业务服务。",
+    "BRUTE_FORCE_SUSPECTED": "攻击源反复高频访问SSH、Web等固定登录端口，持续尝试账号密码组合，流量重复度高。",
     "BENIGN_NORMAL": "未命中攻击规则，行为更接近正常业务流量。",
     "UNKNOWN_SUSPECTED": "存在异常迹象，但尚未匹配到已命名攻击类型。",
 }

@@ -122,7 +122,9 @@ def test_risk_events_default_to_attack_type_learners() -> None:
 
     assert data["total"] == 1
     assert data["items"][0]["learner_name"] == "NEW_1"
-    assert data["items"][0]["risk_name"] == "分布式拒绝服务攻击"
+    assert data["items"][0]["risk_name"] == "DDoS攻击"
+    assert "风险类型=" not in data["items"][0]["risk_description"]
+    assert data["items"][0]["risk_description"].startswith("置信度=0.820; 说明=")
     assert data["items"][0]["subject_ips"] == ["10.0.0.8"]
 
 
@@ -154,7 +156,7 @@ def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
 
     assert data["total"] == 1
     assert data["items"][0]["subjectIp"] == "10.0.0.8"
-    assert data["items"][0]["name"] == "分布式拒绝服务攻击"
+    assert data["items"][0]["name"] == "DDoS攻击"
     assert data["items"][0]["id"] == 11
     assert "top_protocol=TLS" in data["items"][0]["description"]
 
