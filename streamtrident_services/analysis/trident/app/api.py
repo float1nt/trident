@@ -179,7 +179,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
         limit: int = Query(100, ge=1, le=1000),
         offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
-        return _ok(_pages(cfg).risk_traffic_logs(risk_id=risk_id, limit=limit, offset=offset))
+        result = _pages(cfg).risk_traffic_logs(risk_id=risk_id, limit=limit, offset=offset)
+        return _ok(FlowListData.model_validate(result).model_dump())
 
     @app.get("/risks/{risk_id}/protocol-distribution", response_model=ApiResponse)
     def risk_protocol_distribution(risk_id: int) -> dict[str, Any]:
@@ -218,7 +219,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
         limit: int = Query(100, ge=1, le=1000),
         offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
-        return _ok(_pages(cfg).ip_traffic_logs(ip=ip, limit=limit, offset=offset))
+        result = _pages(cfg).ip_traffic_logs(ip=ip, limit=limit, offset=offset)
+        return _ok(FlowListData.model_validate(result).model_dump())
 
     @app.get("/api/v1/flows", response_model=ApiResponse)
     def list_flows(

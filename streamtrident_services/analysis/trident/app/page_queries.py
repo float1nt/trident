@@ -591,13 +591,19 @@ class PageQueryService:
             return []
         return self.flows.top_subject_ip_counts_by_learner(session_id=self.session_id, learner_name=learner_name, limit=limit)
 
-    def risk_traffic_logs(self, *, risk_id: int, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def risk_traffic_logs(self, *, risk_id: int, limit: int = 100, offset: int = 0) -> dict[str, Any]:
         learner = self.learners.get_learner_by_id(session_id=self.session_id, learner_id=risk_id) or {}
         learner_name = str(learner.get("learner_name") or "")
         if not learner_name:
-            return []
+            return _traffic_logs_page(items=[], total=0, limit=limit, offset=offset)
         flows = self.flows.list_flows(session_id=self.session_id, learner_name=learner_name, limit=limit, offset=offset)
-        return [_traffic_log_item(row) for row in flows["items"]]
+        items = [_traffic_log_item(row) for row in flows["items"]]
+        return _traffic_logs_page(
+            items=items,
+            total=flows.get("total"),
+            limit=flows.get("limit", limit),
+            offset=flows.get("offset", offset),
+        )
 
     def risk_protocol_distribution(self, *, risk_id: int) -> list[dict[str, Any]]:
         learner = self.learners.get_learner_by_id(session_id=self.session_id, learner_id=risk_id) or {}
@@ -667,9 +673,15 @@ class PageQueryService:
             "views": views,
         }
 
-    def ip_traffic_logs(self, *, ip: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def ip_traffic_logs(self, *, ip: str, limit: int = 100, offset: int = 0) -> dict[str, Any]:
         flows = self.flows.list_flows(session_id=self.session_id, src_ip=ip, limit=limit, offset=offset)
-        return [_traffic_log_item(row) for row in flows["items"]]
+        items = [_traffic_log_item(row) for row in flows["items"]]
+        return _traffic_logs_page(
+            items=items,
+            total=flows.get("total"),
+            limit=flows.get("limit", limit),
+            offset=flows.get("offset", offset),
+        )
 
     def learner_detail(
         self,
@@ -1236,6 +1248,21 @@ def _learner_features(learner: dict[str, Any]) -> str:
             f"主导协议占比：{float(metric.get('top1_protocol_share') or 0):.3f}"
         )
     return "、".join(parts)
+
+
+def _traffic_logs_page(
+    *,
+    items: list[dict[str, Any]],
+    total: Any,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    return {
+        "items": items,
+        "total": int(total or 0),
+        "limit": int(limit or 0),
+        "offset": int(offset or 0),
+    }
 
 
 def _traffic_log_item(row: dict[str, Any]) -> dict[str, Any]:
