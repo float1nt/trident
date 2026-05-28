@@ -232,6 +232,47 @@ def test_risk_events_topology_filters_by_display_name_not_learner_name() -> None
     assert by_numbered_display["learners"] == ["NEW_2"]
 
 
+def test_risk_traffic_logs_returns_total_with_items() -> None:
+    class FlowListFakeFlows(FakeFlows):
+        def list_flows(self, **kwargs: Any) -> dict[str, Any]:
+            return {
+                "items": [
+                    {
+                        "flow_uid": "f-1",
+                        "src_ip": "10.0.0.8",
+                        "dst_ip": "203.0.113.17",
+                        "src_port": 12345,
+                        "dst_port": 443,
+                        "event_time": "2026-05-27 10:00:00",
+                        "total_bytes": 100,
+                        "app_proto": "unknown",
+                        "protocol": 6,
+                    }
+                ],
+                "total": 42,
+                "limit": kwargs.get("limit", 10),
+                "offset": kwargs.get("offset", 0),
+            }
+
+    class FlowListLearners(FakeLearners):
+        def get_learner_by_id(self, **_: Any) -> dict[str, Any]:
+            return FakeLearners().list_learners()[0]
+
+    service = PageQueryService(
+        session_id="s1",
+        flows=FlowListFakeFlows(),
+        learners=FlowListLearners(),
+    )
+
+    data = service.risk_traffic_logs(risk_id=11, limit=10, offset=0)
+
+    assert data["total"] == 42
+    assert data["limit"] == 10
+    assert data["offset"] == 0
+    assert len(data["items"]) == 1
+    assert data["items"][0]["protocol"] == "TCP"
+
+
 def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
     service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
 

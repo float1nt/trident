@@ -6,6 +6,12 @@ from typing import Any
 
 from .persistence.ch_flow_repository import ChFlowRepository
 from .persistence.learner_repository import LearnerRepository
+from .protocol_utils import (
+    is_meaningful_app_proto,
+    resolve_flow_protocol_from_row,
+    resolve_flow_protocol_name,
+    transport_protocol_name,
+)
 from .redis_consumer import RedisStreamConsumer
 from .runtime.quality import is_baseline_learner, resolve_session_baseline_learner
 
@@ -585,13 +591,19 @@ class PageQueryService:
             return []
         return self.flows.top_subject_ip_counts_by_learner(session_id=self.session_id, learner_name=learner_name, limit=limit)
 
-    def risk_traffic_logs(self, *, risk_id: int, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def risk_traffic_logs(self, *, risk_id: int, limit: int = 100, offset: int = 0) -> dict[str, Any]:
         learner = self.learners.get_learner_by_id(session_id=self.session_id, learner_id=risk_id) or {}
         learner_name = str(learner.get("learner_name") or "")
         if not learner_name:
-            return []
+            return _traffic_logs_page(items=[], total=0, limit=limit, offset=offset)
         flows = self.flows.list_flows(session_id=self.session_id, learner_name=learner_name, limit=limit, offset=offset)
-        return [_traffic_log_item(row) for row in flows["items"]]
+        items = [_traffic_log_item(row) for row in flows["items"]]
+        return _traffic_logs_page(
+            items=items,
+            total=flows.get("total"),
+            limit=flows.get("limit", limit),
+            offset=flows.get("offset", offset),
+        )
 
     def risk_protocol_distribution(self, *, risk_id: int) -> list[dict[str, Any]]:
         learner = self.learners.get_learner_by_id(session_id=self.session_id, learner_id=risk_id) or {}
@@ -661,9 +673,15 @@ class PageQueryService:
             "views": views,
         }
 
-    def ip_traffic_logs(self, *, ip: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def ip_traffic_logs(self, *, ip: str, limit: int = 100, offset: int = 0) -> dict[str, Any]:
         flows = self.flows.list_flows(session_id=self.session_id, src_ip=ip, limit=limit, offset=offset)
-        return [_traffic_log_item(row) for row in flows["items"]]
+        items = [_traffic_log_item(row) for row in flows["items"]]
+        return _traffic_logs_page(
+            items=items,
+            total=flows.get("total"),
+            limit=flows.get("limit", limit),
+            offset=flows.get("offset", offset),
+        )
 
     def learner_detail(
         self,
@@ -957,13 +975,22 @@ def _protocol_distribution_bucket(value: Any) -> str:
     return "其他"
 
 
-def _protocol_name(value: Any) -> str:
+def _protocol_name(value: Any, *, protocol: Any = None) -> str:
+    if protocol is not None:
+        return resolve_flow_protocol_name(app_proto=value, protocol=protocol)
+    if is_meaningful_app_proto(value):
+        return str(value).strip().upper()
     try:
         proto = int(value)
     except (TypeError, ValueError):
-        text = str(value or "UNKNOWN").strip()
-        return text.upper() if text else "UNKNOWN"
-    return {1: "ICMP", 6: "TCP", 17: "UDP"}.get(proto, str(proto))
+        text = str(value or "").strip()
+        if not text:
+            return "UNKNOWN"
+        lowered = text.lower()
+        if lowered in {"unknown", "none", "-"}:
+            return "UNKNOWN"
+        return text.upper()
+    return transport_protocol_name(proto) or "UNKNOWN"
 
 
 def _format_time(value: Any) -> str:
@@ -1223,6 +1250,21 @@ def _learner_features(learner: dict[str, Any]) -> str:
     return "、".join(parts)
 
 
+def _traffic_logs_page(
+    *,
+    items: list[dict[str, Any]],
+    total: Any,
+    limit: int,
+    offset: int,
+) -> dict[str, Any]:
+    return {
+        "items": items,
+        "total": int(total or 0),
+        "limit": int(limit or 0),
+        "offset": int(offset or 0),
+    }
+
+
 def _traffic_log_item(row: dict[str, Any]) -> dict[str, Any]:
     src_port = row.get("src_port")
     dst_port = row.get("dst_port")
@@ -1234,7 +1276,7 @@ def _traffic_log_item(row: dict[str, Any]) -> dict[str, Any]:
         "dstPort": int(dst_port) if dst_port is not None else 0,
         "accessTime": _format_time(row.get("event_time")) or "-",
         "traffic": int(row.get("total_bytes") or 0),
-        "protocol": _protocol_name(row.get("app_proto") or row.get("protocol")),
+        "protocol": resolve_flow_protocol_from_row(row),
     }
 
 
