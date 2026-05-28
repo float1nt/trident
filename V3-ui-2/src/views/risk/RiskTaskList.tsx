@@ -111,7 +111,7 @@ const RiskTaskList = () => {
     eventTopology,
     loading: eventTopologyLoading,
     total: eventTopologyListTotal,
-    eventTopologyTotal,
+    eventTopologyTypeTotal,
     eventTopologyRiskEventTotal,
   } = useEventTopologyPagination(
     activeView === "event",
@@ -145,19 +145,19 @@ const RiskTaskList = () => {
 
   useEffect(() => {
     if (activeView !== "event" || eventTopologyLoading) return;
-    if (eventTopologyTotal === 0 && eventFilters.triggerPeriod) {
+    if (eventTopologyRiskEventTotal === 0 && eventFilters.triggerPeriod) {
       setEventLoadError(
         "当前触发时段内没有学习器，请点「重置」清空时段或扩大时间范围。",
       );
       return;
     }
-    if (eventTopologyTotal > 0) {
+    if (eventTopologyRiskEventTotal > 0) {
       setEventLoadError(null);
     }
   }, [
     activeView,
     eventTopologyLoading,
-    eventTopologyTotal,
+    eventTopologyRiskEventTotal,
     eventFilters.triggerPeriod,
   ]);
 
@@ -347,7 +347,7 @@ const RiskTaskList = () => {
                   <span className="risk-event-summary__bar" aria-hidden />
                   <p className="risk-event-summary__text">
                     总共
-                    <span className="risk-event-summary__num">{eventTopologyTotal}</span>
+                    <span className="risk-event-summary__num">{eventTopologyTypeTotal}</span>
                     类风险
                     ，
                     <span className="risk-event-summary__num">

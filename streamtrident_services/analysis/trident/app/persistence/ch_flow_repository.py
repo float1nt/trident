@@ -686,7 +686,12 @@ def _time_filter(column: str, time_from: str | None, time_to: str | None) -> str
 
 
 def _main_protocol_sql() -> str:
-    return "if(app_proto != '', app_proto, multiIf(protocol = 1, 'ICMP', protocol = 6, 'TCP', protocol = 17, 'UDP', toString(protocol)))"
+    # Treat placeholder app_proto values as missing so numeric protocol wins.
+    return (
+        "if(app_proto != '' AND lower(app_proto) NOT IN ('unknown', 'none', '-'), "
+        "app_proto, "
+        "multiIf(protocol = 1, 'ICMP', protocol = 6, 'TCP', protocol = 17, 'UDP', toString(protocol)))"
+    )
 
 
 def _in_filter(column: str, values: list[str]) -> str | None:

@@ -16,7 +16,7 @@ export function useEventTopologyPagination(
     useState<LearnerNetworkTopologyJson | null>(null);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
-  const [riskEventTotal, setRiskEventTotal] = useState(0);
+  const [riskTypeTotal, setRiskTypeTotal] = useState(0);
   const requestSeqRef = useRef(0);
 
   const loadPage = useCallback(async () => {
@@ -30,15 +30,15 @@ export function useEventTopologyPagination(
       const result = await fetchPage(offset, pageSize);
       if (requestSeq !== requestSeqRef.current) return;
 
-      const resolvedTotal = result.total ?? result.learners.length;
-      const resolvedRiskEventTotal = result.risk_event_total ?? 0;
+      const resolvedEventTotal = result.total ?? result.learners.length;
+      const resolvedRiskTypeTotal = result.risk_type_total ?? resolvedEventTotal;
       setEventTopology({
         ...result,
-        total: resolvedTotal,
-        risk_event_total: resolvedRiskEventTotal,
+        total: resolvedEventTotal,
+        risk_type_total: resolvedRiskTypeTotal,
       });
-      setTotal(resolvedTotal);
-      setRiskEventTotal(resolvedRiskEventTotal);
+      setTotal(resolvedEventTotal);
+      setRiskTypeTotal(resolvedRiskTypeTotal);
     } finally {
       if (requestSeq !== requestSeqRef.current) return;
       setLoading(false);
@@ -49,7 +49,7 @@ export function useEventTopologyPagination(
     if (!enabled) {
       setEventTopology(null);
       setTotal(0);
-      setRiskEventTotal(0);
+      setRiskTypeTotal(0);
       setLoading(false);
       return;
     }
@@ -60,8 +60,7 @@ export function useEventTopologyPagination(
     eventTopology,
     loading,
     total,
-    eventTopologyTotal: eventTopology?.total ?? total,
-    eventTopologyRiskEventTotal:
-      eventTopology?.risk_event_total ?? riskEventTotal,
+    eventTopologyTypeTotal: eventTopology?.risk_type_total ?? riskTypeTotal,
+    eventTopologyRiskEventTotal: eventTopology?.total ?? total,
   };
 }

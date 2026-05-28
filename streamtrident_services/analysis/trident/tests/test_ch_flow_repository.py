@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from app.flow_loader import FlowLoader
-from app.persistence.ch_flow_repository import AssignmentUpdate, ChFlowRepository, _topology_node
+from app.persistence.ch_flow_repository import AssignmentUpdate, ChFlowRepository, _main_protocol_sql, _topology_node
 from app.redis_consumer import RedisStreamMessage
 from app.runtime.online_engine import FlowAssignment
+
+
+def test_main_protocol_sql_falls_back_when_app_proto_is_unknown() -> None:
+    sql = _main_protocol_sql()
+    assert "lower(app_proto) NOT IN ('unknown'" in sql
+    assert "protocol = 6, 'TCP'" in sql
 
 
 def test_assignment_update_preserves_base_row_and_increments_version() -> None:
