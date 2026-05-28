@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Button } from "antd";
+import { QuestionCircleOutlined } from "@ant-design/icons";
+import { Button, Tooltip } from "antd";
 import type { EChartsOption } from "echarts";
 import EChartsRingChart from "@/components/EChartsRingChart";
 import "./NetworkTopologyPanel.css";
@@ -11,6 +12,7 @@ import {
   CHART_TEXT_PRIMARY,
   chartTheme,
 } from "@/theme/chartTheme";
+import { formatMetricCount, formatMetricTimes } from "@/utils/formatTotalTraffic";
 
 export type TopologyNode = {
   id: string;
@@ -65,6 +67,9 @@ export type DatasetNetworkTopologyJson = {
 };
 
 export const GRID_CHART_HEIGHT = 280;
+
+const TOPOLOGY_NODE_LIMIT_HINT =
+  "IP/端口总数可能过大，拓扑示意图默认最多展示访问次数最多的50个IP/端口节点。";
 
 const COMPACT_MAX_NODES = 28;
 
@@ -354,12 +359,12 @@ function buildChartOption(
 function TopologyStatCard({
   label,
   value,
-  sub,
+  unit,
   compact = false,
 }: {
   label: string;
   value: string | number;
-  sub?: string;
+  unit?: string;
   compact?: boolean;
 }) {
   return (
@@ -372,17 +377,21 @@ function TopologyStatCard({
         {label}
       </div>
       <div
-        className={`truncate font-medium text-[#262626] ${
+        className={`flex min-w-0 items-baseline gap-1 truncate font-medium text-[#262626] ${
           compact ? "text-[16px]" : "text-[20px]"
         }`}
       >
-        {value}
+        <span className="min-w-0 truncate tabular-nums">{value}</span>
+        {unit ? (
+          <span
+            className={`shrink-0 font-normal text-[#8c8c8c] ${
+              compact ? "text-[11px]" : "text-[12px]"
+            }`}
+          >
+            {unit}
+          </span>
+        ) : null}
       </div>
-      {sub ? (
-        <div className={`truncate text-[#8c8c8c] ${compact ? "text-[10px]" : "text-[11px]"}`}>
-          {sub}
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -475,22 +484,38 @@ export function TopologyChartPane({
     [graphData, repulsion, viewIsBenign, compact],
   );
   const stats = activeGraph?.stats ?? {};
-  const renderedNodeCount = displayGraph?.nodes.length ?? activeGraph?.nodes.length ?? 0;
-  const renderedEdgeCount = displayGraph?.links.length ?? activeGraph?.links.length ?? 0;
   const totalNodeCount = activeGraph?.nodes.length ?? 0;
   const entityCount =
     graphMode === "endpoint" ? stats.unique_dst_port_count : stats.unique_ip_count;
   const entityCountLabel = graphMode === "endpoint" ? "端口数量" : "IP数量";
-  const renderedSub =
-    compact && totalNodeCount > renderedNodeCount
-      ? `当前绘制 ${renderedNodeCount}/${totalNodeCount} 节点 · ${renderedEdgeCount} 边`
-      : `当前绘制 ${renderedNodeCount} 节点 · ${renderedEdgeCount} 边`;
+  const entityCountFormatted = formatMetricCount(
+    Number(entityCount ?? totalNodeCount) || 0,
+  );
+  const flowCountFormatted = formatMetricTimes(
+    Number(activeGraph?.total_flow_count ?? activeGraph?.flow_count) || 0,
+  );
+  const topPortRatio =
+    stats.top_dst_port_ratio != null ? Number(stats.top_dst_port_ratio) : null;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-[#e8eaed] bg-white">
       <div className="shrink-0 border-b border-[#e8eaed] px-3 py-2">
         <div className="flex items-center justify-between gap-2">
-          <h4 className="text-sm font-medium text-[#333]">{title}</h4>
+          <div className="flex min-w-0 items-center gap-1.5">
+            {title.trim() ? (
+              <h4 className="m-0 shrink-0 text-sm font-medium leading-none text-[#333]">
+                {title}
+              </h4>
+            ) : null}
+            <Tooltip title={TOPOLOGY_NODE_LIMIT_HINT}>
+              <span className="inline-flex shrink-0 items-center leading-none">
+                <QuestionCircleOutlined
+                  className="cursor-help text-[12px] text-[#8c8c8c] hover:text-[#4368f0]"
+                  aria-label="拓扑展示说明"
+                />
+              </span>
+            </Tooltip>
+          </div>
           {hasDualGraph ? (
             <TopologyGraphModeToggle
               value={graphMode}
@@ -507,13 +532,14 @@ export function TopologyChartPane({
           >
             <TopologyStatCard
               label={entityCountLabel}
-              value={entityCount ?? totalNodeCount}
-              sub={renderedSub}
+              value={entityCountFormatted.value}
+              unit={entityCountFormatted.unit}
               compact={compact}
             />
             <TopologyStatCard
               label="访问次数"
-              value={activeGraph.total_flow_count ?? activeGraph.flow_count}
+              value={flowCountFormatted.value}
+              unit={flowCountFormatted.unit}
               compact={compact}
             />
             <TopologyStatCard
@@ -524,10 +550,9 @@ export function TopologyChartPane({
             <TopologyStatCard
               label="主目的端口访问占比"
               value={
-                stats.top_dst_port_ratio != null
-                  ? `${(Number(stats.top_dst_port_ratio) * 100).toFixed(1)}%`
-                  : "—"
+                topPortRatio != null ? (topPortRatio * 100).toFixed(1) : "—"
               }
+              unit={topPortRatio != null ? "%" : undefined}
               compact={compact}
             />
           </div>

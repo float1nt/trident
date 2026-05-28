@@ -21,8 +21,6 @@ type Props = {
   onRiskClick?: (riskId: number) => void;
   emptyHint?: string;
   loading?: boolean;
-  loadingMore?: boolean;
-  hasMore?: boolean;
 };
 
 class ChartPaneErrorBoundary extends Component<
@@ -87,8 +85,6 @@ export function LearnerInternalTopologyPanel({
   onRiskClick,
   emptyHint,
   loading = false,
-  loadingMore = false,
-  hasMore = false,
 }: Props) {
   const sortedOptions = useMemo(() => {
     if (!data) return [] as LearnerTopologyOption[];
@@ -205,14 +201,6 @@ export function LearnerInternalTopologyPanel({
           );
         })}
       </Row>
-      {loadingMore ? (
-        <div className="py-3 text-center">
-          <Spin size="small" />
-        </div>
-      ) : null}
-      {!hasMore && sortedOptions.length > 0 ? (
-        <div className="pb-1 text-center text-sm text-[#8c8c8c]">已加载全部</div>
-      ) : null}
     </div>
   );
 }
