@@ -354,10 +354,12 @@ function buildChartOption(
 function TopologyStatCard({
   label,
   value,
+  sub,
   compact = false,
 }: {
   label: string;
   value: string | number;
+  sub?: string;
   compact?: boolean;
 }) {
   return (
@@ -376,6 +378,11 @@ function TopologyStatCard({
       >
         {value}
       </div>
+      {sub ? (
+        <div className={`truncate text-[#8c8c8c] ${compact ? "text-[10px]" : "text-[11px]"}`}>
+          {sub}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -468,6 +475,16 @@ export function TopologyChartPane({
     [graphData, repulsion, viewIsBenign, compact],
   );
   const stats = activeGraph?.stats ?? {};
+  const renderedNodeCount = displayGraph?.nodes.length ?? activeGraph?.nodes.length ?? 0;
+  const renderedEdgeCount = displayGraph?.links.length ?? activeGraph?.links.length ?? 0;
+  const totalNodeCount = activeGraph?.nodes.length ?? 0;
+  const entityCount =
+    graphMode === "endpoint" ? stats.unique_dst_port_count : stats.unique_ip_count;
+  const entityCountLabel = graphMode === "endpoint" ? "端口数量" : "IP数量";
+  const renderedSub =
+    compact && totalNodeCount > renderedNodeCount
+      ? `当前绘制 ${renderedNodeCount}/${totalNodeCount} 节点 · ${renderedEdgeCount} 边`
+      : `当前绘制 ${renderedNodeCount} 节点 · ${renderedEdgeCount} 边`;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-[#e8eaed] bg-white">
@@ -489,12 +506,9 @@ export function TopologyChartPane({
             }`}
           >
             <TopologyStatCard
-              label={graphMode === "endpoint" ? "端口数量" : "IP数量"}
-              value={
-                compact && activeGraph.nodes.length > (displayGraph?.nodes.length ?? 0)
-                  ? `${displayGraph?.nodes.length ?? 0} / ${activeGraph.nodes.length}`
-                  : (displayGraph?.nodes.length ?? activeGraph.nodes.length)
-              }
+              label={entityCountLabel}
+              value={entityCount ?? totalNodeCount}
+              sub={renderedSub}
               compact={compact}
             />
             <TopologyStatCard

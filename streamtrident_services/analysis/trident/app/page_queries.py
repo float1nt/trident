@@ -435,8 +435,15 @@ class PageQueryService:
     def risk_by_id(self, *, risk_id: int) -> dict[str, Any]:
         learner = self.learners.get_learner_by_id(session_id=self.session_id, learner_id=risk_id) or {}
         item = _risk_item_from_learner(learner, subject_ip=_first_subject_ip(self, learner))
-        item["riskIpCount"] = len(self.risk_ips(risk_id=risk_id, limit=1000))
         learner_name = str(learner.get("learner_name") or "")
+        item["riskIpCount"] = (
+            self.flows.unique_src_ip_count_by_learner(
+                session_id=self.session_id,
+                learner_name=learner_name,
+            )
+            if learner_name
+            else 0
+        )
         item["riskPortCount"] = (
             self.flows.unique_dst_port_count_by_learner(
                 session_id=self.session_id,
