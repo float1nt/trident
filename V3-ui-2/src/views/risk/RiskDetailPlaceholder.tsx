@@ -160,15 +160,17 @@ export default function RiskDetailPlaceholder() {
                       ))}
                     </div>
                   ) : null}
-                  {risk?.triggerTime ? (
-                    <span className="shrink-0 whitespace-nowrap text-sm text-[#666]">
-                      [{risk.triggerTime}]
-                    </span>
-                  ) : null}
-                  {risk?.description ? (
-                    <p className="mb-0 mt-0 text-sm leading-[22px] text-[#666]">
-                      {risk.description}
-                    </p>
+                  {(risk?.triggerTime || risk?.description) ? (
+                    <div className="mb-0 mt-0 flex min-w-0 w-full flex-wrap items-center gap-1 text-sm leading-[22px] text-[#666]">
+                      {risk?.triggerTime ? (
+                        <span className="shrink-0 whitespace-nowrap">
+                          [{risk.triggerTime}]
+                        </span>
+                      ) : null}
+                      {risk?.description ? (
+                        <span className="min-w-0">{risk.description}</span>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
                 <div className="mr-[16px] flex items-center gap-[24px]">

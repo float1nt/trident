@@ -251,7 +251,7 @@ export default function IpDetailPlaceholder() {
                 />
               </div>
 
-              <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+              {/* <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
                 <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
                   与IP关联的风险事件列表（按触发时间从近到远排序）
                 </h3>
@@ -270,7 +270,7 @@ export default function IpDetailPlaceholder() {
                   }}
                   scroll={{ x: 1100, y: LIST_MAX_HEIGHT }}
                 />
-              </div>
+              </div> */}
 
               <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
                 <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
