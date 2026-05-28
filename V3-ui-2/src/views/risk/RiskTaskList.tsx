@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useApi } from "@/hooks/useApi";
-import { useEventTopologyInfiniteScroll } from "@/hooks/useEventTopologyInfiniteScroll";
+import { useEventTopologyPagination } from "@/hooks/useEventTopologyPagination";
 import { useNavigate } from "react-router-dom";
 import {
   Table,
@@ -13,6 +13,7 @@ import {
   Card,
   Spin,
   Typography,
+  Pagination,
 } from "antd";
 import PageTabs from "@/components/PageTabs";
 import type { Dayjs } from "dayjs";
@@ -20,7 +21,10 @@ import type { ColumnsType } from "antd/es/table";
 import type { IpRiskListItem } from "@/api/types";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
-import { RiskService } from "@/api/services/RiskService";
+import {
+  EVENT_TOPOLOGY_PAGE_SIZE,
+  RiskService,
+} from "@/api/services/RiskService";
 import { CHART_GREEN, CHART_RED } from "@/theme/chartTheme";
 import "./RiskTaskList.css";
 
@@ -83,7 +87,8 @@ const RiskTaskList = () => {
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
   const [eventIpTotal, setEventIpTotal] = useState(0);
   const [eventLoadError, setEventLoadError] = useState<string | null>(null);
-  const eventScrollRef = useRef<HTMLDivElement>(null);
+  const [eventPage, setEventPage] = useState(1);
+  const [eventPageSize] = useState(EVENT_TOPOLOGY_PAGE_SIZE);
 
   const fetchEventTopologyPage = useCallback(
     async (offset: number, limit: number) => {
@@ -100,13 +105,13 @@ const RiskTaskList = () => {
 
   const {
     eventTopology,
-    initialLoading: eventInitialLoading,
-    loadingMore: eventLoadingMore,
-    hasMore: eventTopologyHasMore,
+    loading: eventTopologyLoading,
+    total: eventTopologyListTotal,
     eventTopologyTotal,
-  } = useEventTopologyInfiniteScroll(
+  } = useEventTopologyPagination(
     activeView === "event",
-    eventScrollRef,
+    eventPage,
+    eventPageSize,
     fetchEventTopologyPage,
   );
 
@@ -146,7 +151,7 @@ const RiskTaskList = () => {
   }, [activeView, eventFilters]);
 
   useEffect(() => {
-    if (activeView !== "event" || eventInitialLoading) return;
+    if (activeView !== "event" || eventTopologyLoading) return;
     if (eventTopologyTotal === 0 && eventFilters.triggerPeriod) {
       setEventLoadError(
         "当前触发时段内没有学习器，请点「重置」清空时段或扩大时间范围。",
@@ -158,7 +163,7 @@ const RiskTaskList = () => {
     }
   }, [
     activeView,
-    eventInitialLoading,
+    eventTopologyLoading,
     eventTopologyTotal,
     eventFilters.triggerPeriod,
   ]);
@@ -194,12 +199,14 @@ const RiskTaskList = () => {
 
   const handleEventSearch = () => {
     setEventFilters({ ...eventSearchInputs });
+    setEventPage(1);
   };
 
   const handleEventReset = () => {
     setEventSearchInputs(EMPTY_EVENT_SEARCH);
     setEventFilters(EMPTY_EVENT_SEARCH);
     setEventLoadError(null);
+    setEventPage(1);
   };
 
   const handleViewChange = (key: string) => {
@@ -276,7 +283,10 @@ const RiskTaskList = () => {
     },
   ];
 
-  const pageLoading = activeView === "event" ? eventInitialLoading : loading;
+  const pageLoading =
+    activeView === "event"
+      ? eventTopologyLoading && !eventTopology
+      : loading;
 
   return (
     <div className="task-list-page bg-[#f6faff] p-[12px] h-full w-full rounded-[8px]">
@@ -340,10 +350,7 @@ const RiskTaskList = () => {
                 </div>
               </div>
             </Card>
-            <div
-              ref={eventScrollRef}
-              className="h-[calc(100vh-250px)] overflow-y-auto rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]"
-            >
+            <div className="flex min-h-0 flex-1 flex-col rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
               <div className="risk-event-summary-row">
                 <div className="risk-event-summary">
                   <span className="risk-event-summary__bar" aria-hidden />
@@ -367,13 +374,26 @@ const RiskTaskList = () => {
                   {eventLoadError}
                 </Paragraph>
               ) : null}
-              <LearnerInternalTopologyPanel
-                data={eventTopology}
-                onRiskClick={handleEventRiskClick}
-                emptyHint={eventLoadError ?? undefined}
-                loadingMore={eventLoadingMore}
-                hasMore={eventTopologyHasMore}
-              />
+              <div className="h-[calc(100vh-370px)] overflow-y-auto">
+                <LearnerInternalTopologyPanel
+                  data={eventTopology}
+                  onRiskClick={handleEventRiskClick}
+                  emptyHint={eventLoadError ?? undefined}
+                  loading={eventTopologyLoading && Boolean(eventTopology)}
+                />
+              </div>
+              {eventTopologyListTotal > 0 ? (
+                <div className="risk-event-pagination">
+                  <Pagination
+                    current={eventPage}
+                    pageSize={eventPageSize}
+                    total={eventTopologyListTotal}
+                    showTotal={(t) => `共 ${t} 条`}
+                    onChange={setEventPage}
+                    showSizeChanger={false}
+                  />
+                </div>
+              ) : null}
             </div>
           </>
         ) : (
