@@ -94,7 +94,7 @@ export function LearnerInternalTopologyPanel({
       <Empty
         description={
           emptyHint ??
-          "暂无学习器拓扑数据（build-debug-1908）。请点「重置」清空触发时段，或确认 /api/risk/events/topology 返回 learners/views 非空。"
+          "暂无学习器拓扑数据，请点「重置」刷新数据。"
         }
         className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10"
       />
@@ -118,9 +118,9 @@ export function LearnerInternalTopologyPanel({
       <Empty
         description={
           emptyHint ??
-          `暂无学习器拓扑数据（build-debug-1908，learners=${learnerNames.length}，views=${viewCount}）。请点「重置」清空触发时段，或确认 /api/risk/events/topology 返回 learners/views 非空。`
+          `当前筛选条件下暂无学习器拓扑数据`
         }
-        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10"
+        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] h-[calc(100vh-330px)] py-10"
       />
     );
   }
