@@ -6,6 +6,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Tag, Spin, Pagination } from "antd";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
 import { TrafficLogsTable } from "@/components/TrafficLogsTable";
+import { DetailMetricValue } from "@/components/DetailMetricValue";
 import OverflowTooltip from "@/components/OverflowTooltip";
 import { RiskService, type IpSummary } from "@/api/services/RiskService";
 import {
@@ -14,7 +15,6 @@ import {
   EVENT_TOPOLOGY_PAGE_SIZE_OPTIONS,
 } from "@/constants/tablePagination";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
-
 /** IP 详情页 */
 export default function IpDetailPlaceholder() {
   const navigate = useNavigate();
@@ -149,9 +149,13 @@ export default function IpDetailPlaceholder() {
                 <div className="flex items-center gap-[12px] mr-[16px]">
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险数</div>
-                    <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
-                      {summary?.riskEventCount ?? "-"}
-                    </div>
+                    {summary ? (
+                      <DetailMetricValue count={summary.riskEventCount} />
+                    ) : (
+                      <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
+                        -
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
