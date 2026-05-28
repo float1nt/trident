@@ -214,14 +214,14 @@ function buildGraphData(
 function getTrafficAnalysisText(
   viewIsBenign: boolean | null | undefined,
 ): string {
-  if (viewIsBenign === true) return "良性";
+  if (viewIsBenign === true) return "正常";
   if (viewIsBenign === false) return "异常";
   return "部分异常";
 }
 
 function formatTrafficAnalysisHtml(label: string): string {
-  if (label === "良性") {
-    return `流量分析:<span style="color:${CHART_GREEN}">良性</span>`;
+  if (label === "正常") {
+    return `流量分析:<span style="color:${CHART_GREEN}">正常</span>`;
   }
   if (label === "异常") {
     return `流量分析:<span style="color:${CHART_RED}">异常</span>`;
@@ -259,7 +259,7 @@ function getEdgeTrafficAnalysisText(
   edge: TopologyLink,
   viewIsBenign: boolean | null | undefined,
 ): string {
-  if (edge.is_benign === true) return "良性";
+  if (edge.is_benign === true) return "正常";
   if (edge.is_benign === false) return "异常";
   return getTrafficAnalysisText(viewIsBenign);
 }
