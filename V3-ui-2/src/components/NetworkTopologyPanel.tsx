@@ -504,7 +504,7 @@ export function TopologyChartPane({
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             {title.trim() ? (
-              <h4 className="m-0 shrink-0 text-sm font-medium leading-none text-[#333]">
+              <h4 className="m-0 shrink-0 text-[16px] font-medium leading-none text-[#333]">
                 {title}
               </h4>
             ) : null}
