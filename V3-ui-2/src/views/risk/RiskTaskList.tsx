@@ -29,7 +29,6 @@ import {
   DEFAULT_TABLE_PAGE_SIZE,
   EVENT_TOPOLOGY_PAGE_SIZE_OPTIONS,
 } from "@/constants/tablePagination";
-import { CHART_GREEN, CHART_RED } from "@/theme/chartTheme";
 import "./RiskTaskList.css";
 
 type RiskSearchForm = {
