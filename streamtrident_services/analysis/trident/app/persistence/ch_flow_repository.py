@@ -260,6 +260,7 @@ FORMAT JSONEachRow
         )
         return {
             "flow_count": sum(link["value"] for link in links) or total,
+            "total_flow_count": sum(link["value"] for link in links) or total,
             "node_mode": node_mode,
             "nodes": nodes,
             "links": links,

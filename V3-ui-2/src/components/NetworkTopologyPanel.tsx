@@ -36,6 +36,7 @@ export type TopologyLink = {
 
 export type TopologyGraph = {
   flow_count: number;
+  total_flow_count: number;
   node_mode: string;
   nodes: TopologyNode[];
   links: TopologyLink[];
@@ -484,7 +485,7 @@ export function TopologyChartPane({
             />
             <TopologyStatCard
               label="访问次数"
-              value={displayGraph?.links.length ?? activeGraph.links.length}
+              value={activeGraph.total_flow_count ?? activeGraph.flow_count}
               compact={compact}
             />
             <TopologyStatCard
