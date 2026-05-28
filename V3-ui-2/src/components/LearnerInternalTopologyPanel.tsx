@@ -126,18 +126,6 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
                   body: { padding: "8px 8px 4px" },
                 }}
               >
-                 <EventCardInfoItem label="">
-                  {option.triggerTime}
-                </EventCardInfoItem>
-                   <EventCardInfoItem label="">
-                  <span
-                    className="line-clamp-2 text-[11px] leading-[16px]"
-                    title={option.riskDescription}
-                  >
-                    {option.riskDescription}
-                  </span>
-                </EventCardInfoItem>
-               
                 <Text
                   type="secondary"
                   ellipsis={{ tooltip: metaText }}
@@ -154,6 +142,17 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
                   chartHeight={GRID_CHART_HEIGHT}
                   compact
                 />
+                <EventCardInfoItem label="风险说明">
+                  <span
+                    className="line-clamp-2 text-[11px] leading-[16px]"
+                    title={option.riskDescription}
+                  >
+                    {option.riskDescription}
+                  </span>
+                </EventCardInfoItem>
+                <EventCardInfoItem label="风险触发时间">
+                  {option.triggerTime}
+                </EventCardInfoItem>
               </Card>
             </Col>
           );
