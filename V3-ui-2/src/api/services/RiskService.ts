@@ -113,8 +113,12 @@ export type RiskIpListItem = {
 
 export type RiskTrafficLogItem = {
   id: string;
-  time: string;
-  ip: string;
+  srcIp: string;
+  srcPort: number;
+  dstIp: string;
+  dstPort: number;
+  accessTime: string;
+  traffic: number;
   protocol: string;
 };
 
@@ -180,7 +184,7 @@ export class RiskService {
 
   static async getRiskTrafficLogs(
     riskId: number,
-    limit = 100,
+    limit = 10,
     offset = 0,
   ): Promise<RiskTrafficLogItem[]> {
     const res = await get<RiskTrafficLogItem[]>(
@@ -222,7 +226,7 @@ export class RiskService {
 
   static async getIpTrafficLogs(
     ip: string,
-    limit = 100,
+    limit = 10,
     offset = 0,
   ): Promise<RiskTrafficLogItem[]> {
     const res = await get<RiskTrafficLogItem[]>(

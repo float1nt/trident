@@ -532,7 +532,7 @@ class PageQueryService:
 
     def ip_traffic_logs(self, *, ip: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         flows = self.flows.list_flows(session_id=self.session_id, src_ip=ip, limit=limit, offset=offset)
-        return [_traffic_log_item(row, subject_ip=ip) for row in flows["items"]]
+        return [_traffic_log_item(row) for row in flows["items"]]
 
     def learner_detail(
         self,
@@ -939,11 +939,17 @@ def _learner_features(learner: dict[str, Any]) -> str:
     return "、".join(parts)
 
 
-def _traffic_log_item(row: dict[str, Any], *, subject_ip: str | None = None) -> dict[str, Any]:
+def _traffic_log_item(row: dict[str, Any]) -> dict[str, Any]:
+    src_port = row.get("src_port")
+    dst_port = row.get("dst_port")
     return {
         "id": str(row.get("flow_uid") or row.get("mq_message_id") or ""),
-        "time": _format_time(row.get("event_time")) or "-",
-        "ip": str(row.get("dst_ip") if subject_ip else row.get("src_ip") or ""),
+        "srcIp": str(row.get("src_ip") or ""),
+        "srcPort": int(src_port) if src_port is not None else 0,
+        "dstIp": str(row.get("dst_ip") or ""),
+        "dstPort": int(dst_port) if dst_port is not None else 0,
+        "accessTime": _format_time(row.get("event_time")) or "-",
+        "traffic": int(row.get("total_bytes") or 0),
         "protocol": _protocol_name(row.get("app_proto") or row.get("protocol")),
     }
 

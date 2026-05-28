@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "@/hooks/useApi";
+import { useTrafficLogsInfiniteScroll } from "@/hooks/useTrafficLogsInfiniteScroll";
 import { useSearchParams } from "react-router-dom";
 import { Tag, Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { TopologyChartPane } from "@/components/NetworkTopologyPanel";
 import type { DatasetNetworkTopologyJson } from "@/components/NetworkTopologyPanel";
+import { TrafficLogsTable } from "@/components/TrafficLogsTable";
 import {
   RiskService,
   type RiskDetail,
   type RiskIpListItem,
-  type RiskTrafficLogItem,
 } from "@/api/services/RiskService";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
 
@@ -44,26 +45,6 @@ function buildRiskIpColumns(currentPage: number): ColumnsType<RiskIpListItem> {
   ];
 }
 
-const trafficLogColumns: ColumnsType<RiskTrafficLogItem> = [
-  {
-    title: "时间",
-    dataIndex: "time",
-    key: "time",
-    width: 180,
-  },
-  {
-    title: "IP",
-    dataIndex: "ip",
-    key: "ip",
-  },
-  {
-    title: "协议",
-    dataIndex: "protocol",
-    key: "protocol",
-    width: 340,
-  },
-];
-
 /** 风险详情页 */
 export default function RiskDetailPlaceholder() {
   const [searchParams] = useSearchParams();
@@ -79,17 +60,28 @@ export default function RiskDetailPlaceholder() {
   const [networkTopology, setNetworkTopology] =
     useState<DatasetNetworkTopologyJson | null>(null);
   const [riskIpList, setRiskIpList] = useState<RiskIpListItem[]>([]);
-  const [trafficLogs, setTrafficLogs] = useState<RiskTrafficLogItem[]>([]);
   const [riskIpPage, setRiskIpPage] = useState(1);
-  const [trafficLogPage, setTrafficLogPage] = useState(1);
   const requestSeqRef = useRef(0);
+
+  const trafficLogsEnabled =
+    loadState === "done" && !!risk && !Number.isNaN(numericId);
+  const fetchTrafficLogs = useCallback(
+    (offset: number, limit: number) =>
+      RiskService.getRiskTrafficLogs(numericId, limit, offset),
+    [numericId],
+  );
+  const {
+    trafficLogs,
+    loading: trafficLogsLoading,
+    hasMore: trafficLogsHasMore,
+    tableWrapperRef,
+  } = useTrafficLogsInfiniteScroll(trafficLogsEnabled, fetchTrafficLogs);
 
   useEffect(() => {
     if (!riskId || Number.isNaN(numericId)) {
       setRisk(null);
       setNetworkTopology(null);
       setRiskIpList([]);
-      setTrafficLogs([]);
       setLoadState("done");
       return;
     }
@@ -99,7 +91,6 @@ export default function RiskDetailPlaceholder() {
     setRisk(null);
     setNetworkTopology(null);
     setRiskIpList([]);
-    setTrafficLogs([]);
 
     const load = async () => {
       const detail = await run(async () => RiskService.getRiskById(numericId));
@@ -117,19 +108,15 @@ export default function RiskDetailPlaceholder() {
       void Promise.allSettled([
         RiskService.getRiskNetworkTopology(numericId),
         RiskService.getRiskIps(numericId),
-        RiskService.getRiskTrafficLogs(numericId),
       ]).then((results) => {
         if (requestSeq !== requestSeqRef.current) return;
 
-        const [topologyResult, ipsResult, logsResult] = results;
+        const [topologyResult, ipsResult] = results;
         if (topologyResult.status === "fulfilled") {
           setNetworkTopology(topologyResult.value);
         }
         if (ipsResult.status === "fulfilled") {
           setRiskIpList(ipsResult.value);
-        }
-        if (logsResult.status === "fulfilled") {
-          setTrafficLogs(logsResult.value);
         }
       });
     };
@@ -139,7 +126,6 @@ export default function RiskDetailPlaceholder() {
 
   useEffect(() => {
     setRiskIpPage(1);
-    setTrafficLogPage(1);
   }, [riskId]);
 
   const topologyView = networkTopology?.views.__combined__;
@@ -232,7 +218,8 @@ export default function RiskDetailPlaceholder() {
 
                 <div className="flex min-w-0 flex-[1] flex-col rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
                   <h3 className="mb-[12px] shrink-0 text-[14px] font-medium text-[#333]">
-                    风险 IP 列表（按每个 IP 的风险触发次数从多到少排序）
+                    风险 IP 列表
+                    {/* （按每个 IP 的风险触发次数从多到少排序） */}
                   </h3>
                   <Table<RiskIpListItem>
                     className="min-w-0"
@@ -257,20 +244,11 @@ export default function RiskDetailPlaceholder() {
                 <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
                   流量日志
                 </h3>
-                <Table<RiskTrafficLogItem>
-                  rowKey="id"
-                  size="middle"
-                  bordered
-                  columns={trafficLogColumns}
-                  dataSource={trafficLogs}
-                  pagination={{
-                    current: trafficLogPage,
-                    pageSize: LIST_PAGE_SIZE,
-                    total: trafficLogs.length,
-                    showTotal: (total) => `共 ${total} 条`,
-                    onChange: setTrafficLogPage,
-                  }}
-                  scroll={{ y: LIST_MAX_HEIGHT }}
+                <TrafficLogsTable
+                  trafficLogs={trafficLogs}
+                  loading={trafficLogsLoading}
+                  hasMore={trafficLogsHasMore}
+                  tableWrapperRef={tableWrapperRef}
                 />
               </div>
             </div>
