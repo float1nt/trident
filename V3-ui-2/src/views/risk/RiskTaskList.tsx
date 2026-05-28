@@ -25,7 +25,9 @@ import { RiskService } from "@/api/services/RiskService";
 import {
   createPaginationProps,
   createTablePagination,
+  DEFAULT_EVENT_TOPOLOGY_PAGE_SIZE,
   DEFAULT_TABLE_PAGE_SIZE,
+  EVENT_TOPOLOGY_PAGE_SIZE_OPTIONS,
 } from "@/constants/tablePagination";
 import { CHART_GREEN, CHART_RED } from "@/theme/chartTheme";
 import "./RiskTaskList.css";
@@ -85,6 +87,9 @@ const RiskTaskList = () => {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [eventPageSize, setEventPageSize] = useState(
+    DEFAULT_EVENT_TOPOLOGY_PAGE_SIZE,
+  );
   const { loading, run: runIpList } = useApi();
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
   const [eventIpTotal, setEventIpTotal] = useState(0);
@@ -112,7 +117,7 @@ const RiskTaskList = () => {
   } = useEventTopologyPagination(
     activeView === "event",
     eventPage,
-    pageSize,
+    eventPageSize,
     fetchEventTopologyPage,
   );
 
@@ -357,9 +362,9 @@ const RiskTaskList = () => {
                     总共
                     <span className="risk-event-summary__num">{eventTopologyTotal}</span>
                     类风险
-                    {/* ，涉及
+                    ，
                     <span className="risk-event-summary__num">{eventIpTotal}</span>
-                    个风险 IP */}
+                    类风险事件
                   </p>
                 </div>
                 {/* <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
@@ -387,13 +392,15 @@ const RiskTaskList = () => {
                   <Pagination
                     {...createPaginationProps({
                       current: eventPage,
-                      pageSize,
+                      pageSize: eventPageSize,
                       total: eventTopologyListTotal,
+                      pageSizeOptions: EVENT_TOPOLOGY_PAGE_SIZE_OPTIONS.map(
+                        String,
+                      ),
                       onChange: (nextPage, nextPageSize) => {
-                        if (nextPageSize !== pageSize) {
-                          setPageSize(nextPageSize);
+                        if (nextPageSize !== eventPageSize) {
+                          setEventPageSize(nextPageSize);
                           setEventPage(1);
-                          setPage(1);
                           return;
                         }
                         setEventPage(nextPage);

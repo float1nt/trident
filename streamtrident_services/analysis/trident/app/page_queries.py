@@ -532,8 +532,16 @@ class PageQueryService:
             for item in data["items"]
         ]
 
-    def ip_events_topology(self, *, ip: str, top_n: int = 50, limit: int = 6) -> dict[str, Any]:
-        data = self.risk_ip_view(limit=limit, offset=0, subject_ip=ip)
+    def ip_events_topology(
+        self, *, ip: str, top_n: int = 50, limit: int = 6, offset: int = 0
+    ) -> dict[str, Any]:
+        safe_offset = max(0, int(offset or 0))
+        capped = max(1, min(int(limit), 50))
+        data = self.risk_ip_view(
+            limit=capped,
+            offset=safe_offset,
+            subject_ip=ip,
+        )
         learners: list[str] = []
         views: dict[str, Any] = {}
         for item in data["items"]:
@@ -548,6 +556,7 @@ class PageQueryService:
             views[key] = view
         return {
             "version": 1,
+            "total": int(data["total"]),
             "learners": learners,
             "default_learner": learners[0] if learners else "",
             "views": views,
