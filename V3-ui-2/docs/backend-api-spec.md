@@ -243,7 +243,7 @@
 
 #### GET `/overview/network-topology`
 
-总览页网络拓扑（部分异常 / 良性 / 异常 三视图）。
+总览页网络拓扑（部分异常 / 正常 / 异常 三视图）。
 
 **Query：** `timeRange`（同上）
 
@@ -651,7 +651,7 @@
 | `source` | string | 源节点 `id` |
 | `target` | string | 目标节点 `id` |
 | `value` | number | 边权重/流量数 |
-| `is_benign` | boolean | 可选，良性为 `true`，异常为 `false`；影响连线颜色（绿/红） |
+| `is_benign` | boolean | 可选，正常为 `true`，异常为 `false`；影响连线颜色（绿/红） |
 
 #### TopologyGraph
 
@@ -663,7 +663,11 @@
   "links": [ /* TopologyLink[] */ ],
   "stats": {
     "top_dst_port": 443,
-    "top_dst_port_ratio": 0.42
+    "top_dst_port_ratio": 0.42,
+    "total_flow_count": 125000,
+    "unique_ip_count": 135,
+    "unique_endpoint_count": 2940,
+    "unique_dst_port_count": 717
   }
 }
 ```
@@ -674,7 +678,7 @@
 | `node_mode` | string | `"host"` 或 `"endpoint"` |
 | `nodes` | TopologyNode[] | 节点列表 |
 | `links` | TopologyLink[] | 边列表 |
-| `stats` | Record<string, number> | 统计扩展字段，键名自定义 |
+| `stats` | Record<string, number> | 统计扩展字段；`unique_*` 和 `total_flow_count` 为全量统计，不受拓扑绘图 `top_n` 限制 |
 
 #### TopologyLabelView
 
@@ -692,7 +696,7 @@
 |------|------|------|
 | `label` | string | 视图标识 |
 | `view_kind` | string | 可选，`"label"` \| `"aggregate"` |
-| `is_benign` | boolean \| null | `null`=部分异常，`true`=良性，`false`=异常 |
+| `is_benign` | boolean \| null | `null`=部分异常，`true`=正常，`false`=异常 |
 | `host` | TopologyGraph | IP（主机）拓扑 |
 | `endpoint` | TopologyGraph | IP:端口（服务）拓扑 |
 
@@ -773,7 +777,7 @@
 | `attack_ratio` | number | 是 | 异常占比 0~1，**卡片排序依据** |
 | `dominant_label` | string | 否 | 主导协议/标签 |
 | `dominant_ratio` | number | 否 | 主导占比 0~1 |
-| `is_benign` | boolean \| null | 否 | 良性标识 |
+| `is_benign` | boolean \| null | 否 | 正常标识 |
 | `host` | TopologyGraph | 是 | 主机拓扑 |
 | `endpoint` | TopologyGraph | 是 | 端口拓扑 |
 

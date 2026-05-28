@@ -1,39 +1,28 @@
 # 构建阶段
-FROM node:20-alpine AS builder
+FROM node:20.19-alpine AS builder
 
 WORKDIR /app
 
-# 设置 npm 镜像源为淘宝镜像
-RUN npm config set registry https://registry.npmmirror.com
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+RUN npm config set registry "${NPM_REGISTRY}"
 
-# 复制 package 文件
-COPY react-ui/package*.json ./
-
-# 安装依赖（切换 npm 镜像源并关闭严格 SSL 以规避自签名证书问题）
-# 替换 package-lock.json 中的 npm.sr.ok 为 registry.npmmirror.com
-RUN npm config set registry https://registry.npmmirror.com \
-    && npm config set strict-ssl false \
-    && sed -i 's|https://npm\.sr\.ok|https://registry.npmmirror.com|g' package-lock.json \
+COPY package.json package-lock.json ./
+# package-lock 中若残留内网源 npm.sr.ok，构建环境无法解析，统一替换为公共镜像
+RUN sed -i 's|https://npm\.sr\.ok|https://registry.npmmirror.com|g' package-lock.json \
     && npm ci
 
-# 复制源代码
-COPY react-ui/ ./
-
-# 构建应用
+COPY . .
 RUN npm run build
 
-# 生产阶段 - 使用 nginx 提供静态文件服务
+# 运行阶段：nginx 官方镜像会在启动时用环境变量渲染 /etc/nginx/templates/*.template
 FROM nginx:alpine
 
-# 复制构建产物到 nginx 目录
 COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 
-# 复制 nginx 配置文件
-COPY react-ui/nginx.conf /etc/nginx/conf.d/default.conf
+ENV API_AUTH_UPSTREAM=http://host.docker.internal:9080
+ENV API_TRIDENT_UPSTREAM=http://host.docker.internal:8090
 
-# 暴露端口
 EXPOSE 80
 
-# 启动 nginx
 CMD ["nginx", "-g", "daemon off;"]
-

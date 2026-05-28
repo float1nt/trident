@@ -115,7 +115,7 @@ def test_overview_traffic_trend_30d_uses_date_range_labels() -> None:
     assert all(len(item["label"].split("~")) == 2 for item in data)
 
 
-def test_risk_events_default_to_medium_and_high_learners() -> None:
+def test_risk_events_default_to_attack_type_learners() -> None:
     service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
 
     data = service.risk_events()
@@ -126,7 +126,7 @@ def test_risk_events_default_to_medium_and_high_learners() -> None:
     assert data["items"][0]["subject_ips"] == ["10.0.0.8"]
 
 
-def test_risk_events_topology_includes_all_learners() -> None:
+def test_risk_events_topology_includes_attack_type_learners_only() -> None:
     class TopologyFlows(FakeFlows):
         def topology_graph(self, **_: Any) -> dict[str, Any]:
             return {"flow_count": 1, "node_mode": "host", "nodes": [], "links": [], "stats": {}}
@@ -138,13 +138,13 @@ def test_risk_events_topology_includes_all_learners() -> None:
     service = PageQueryService(session_id="s1", flows=TopologyFlows(), learners=TopologyLearners())
     data = service.risk_events_topology()
 
-    assert data["total"] == 2
-    assert sorted(data["learners"]) == ["BASELINE_0", "NEW_1"]
+    assert data["total"] == 1
+    assert data["learners"] == ["NEW_1"]
 
     page = service.risk_events_topology(limit=1, offset=0)
-    assert page["total"] == 2
+    assert page["total"] == 1
     assert len(page["learners"]) == 1
-    assert page["learners"][0] in data["learners"]
+    assert page["learners"][0] == "NEW_1"
 
 
 def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
@@ -159,58 +159,120 @@ def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
     assert "top_protocol=TLS" in data["items"][0]["description"]
 
 
-def test_risk_ip_view_does_not_label_non_risk_learner_as_benign() -> None:
+def test_risk_ip_view_excludes_non_risk_unknown_learner() -> None:
     class UnknownFlows(FakeFlows):
-        def risk_ip_view(self, **_: Any) -> dict[str, Any]:
+        def risk_ip_view(self, **kwargs: Any) -> dict[str, Any]:
+            assert "BASELINE_0" not in kwargs["risk_learners"]
             return {
-                "total": 1,
-                "items": [
-                    {
-                        "subject_ip": "10.0.0.9",
-                        "assigned_learner": "BASELINE_0",
-                        "trigger_time": "2026-05-27 10:00:00",
-                        "flow_count": 4,
-                        "unknown_count": 2,
-                        "top_dst_ip": "203.0.113.18",
-                        "top_dst_port": 80,
-                        "top_protocol": "tcp",
-                    }
-                ],
+                "total": 0,
+                "items": [],
             }
 
     service = PageQueryService(session_id="s1", flows=UnknownFlows(), learners=FakeLearners())
 
     data = service.risk_ip_view()
 
-    assert data["items"][0]["name"] == "未命名攻击"
-    assert "风险类型=未命名攻击" in data["items"][0]["description"]
+    assert data["total"] == 0
+    assert data["items"] == []
 
 
-def test_risk_list_does_not_group_unknown_learner_as_benign() -> None:
+def test_risk_list_excludes_non_risk_unknown_learner() -> None:
     class UnknownFlows(FakeFlows):
-        def risk_ip_view(self, **_: Any) -> dict[str, Any]:
+        def risk_ip_view(self, **kwargs: Any) -> dict[str, Any]:
+            assert "BASELINE_0" not in kwargs["risk_learners"]
             return {
-                "total": 1,
-                "items": [
-                    {
-                        "subject_ip": "10.0.0.9",
-                        "assigned_learner": "BASELINE_0",
-                        "trigger_time": "2026-05-27 10:00:00",
-                        "flow_count": 4,
-                        "unknown_count": 2,
-                        "top_dst_ip": "203.0.113.18",
-                        "top_dst_port": 80,
-                        "top_protocol": "tcp",
-                    }
-                ],
+                "total": 0,
+                "items": [],
             }
 
     service = PageQueryService(session_id="s1", flows=UnknownFlows(), learners=FakeLearners())
 
     data = service.risk_list()
 
+    assert data["total"] == 0
+    assert data["risks"] == []
+
+
+def test_risk_list_counts_learners_not_deduped_risk_names() -> None:
+    class UnknownFlows(FakeFlows):
+        def risk_ip_view(self, **_: Any) -> dict[str, Any]:
+            return {
+                "total": 2,
+                "items": [
+                    {
+                        "subject_ip": "10.0.0.9",
+                        "assigned_learner": "NEW_1",
+                        "trigger_time": "2026-05-27 10:00:00",
+                        "flow_count": 4,
+                        "unknown_count": 2,
+                        "top_dst_ip": "203.0.113.18",
+                        "top_dst_port": 80,
+                        "top_protocol": "tcp",
+                    },
+                    {
+                        "subject_ip": "10.0.0.9",
+                        "assigned_learner": "NEW_2",
+                        "trigger_time": "2026-05-27 10:01:00",
+                        "flow_count": 3,
+                        "unknown_count": 3,
+                        "top_dst_ip": "203.0.113.19",
+                        "top_dst_port": 443,
+                        "top_protocol": "tls",
+                    },
+                ],
+            }
+
+    class RiskLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            return [
+                {
+                    "id": 11,
+                    "learner_name": "NEW_1",
+                    "risk_score": 0.82,
+                    "risk_band": "high",
+                    "risk_reason": "unknown family",
+                    "last_seen_at": "2026-05-27T10:00:00Z",
+                    "flow_count": 20,
+                    "rule_json": {
+                        "attack_types": [
+                            {"attack_type": "UNKNOWN_SUSPECTED", "confidence": 0.82},
+                        ]
+                    },
+                },
+                {
+                    "id": 12,
+                    "learner_name": "NEW_2",
+                    "risk_score": 0.72,
+                    "risk_band": "medium",
+                    "risk_reason": "unknown family",
+                    "last_seen_at": "2026-05-27T10:01:00Z",
+                    "flow_count": 12,
+                    "rule_json": {
+                        "attack_types": [
+                            {"attack_type": "UNKNOWN_SUSPECTED", "confidence": 0.72},
+                        ]
+                    },
+                },
+            ]
+
+    service = PageQueryService(session_id="s1", flows=UnknownFlows(), learners=RiskLearners())
+
+    data = service.risk_list()
+
     assert data["total"] == 1
-    assert data["risks"][0]["risks"][0]["name"] == "未命名攻击"
+    assert data["risks"][0]["riskCount"] == 2
+    assert [risk["learnerName"] for risk in data["risks"][0]["risks"]] == ["NEW_1", "NEW_2"]
+    assert [risk["name"] for risk in data["risks"][0]["risks"]] == ["未命名攻击", "未命名攻击"]
+
+
+def test_ip_events_returns_risk_learner_metadata() -> None:
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
+
+    data = service.ip_events(ip="10.0.0.8")
+
+    assert data[0]["learnerName"] == "NEW_1"
+    assert data[0]["riskBand"] == "high"
+    assert data[0]["riskScore"] == 0.82
 
 
 def test_learner_topology_marks_high_risk_view_as_attack() -> None:

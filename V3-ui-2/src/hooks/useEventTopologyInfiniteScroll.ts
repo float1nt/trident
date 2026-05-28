@@ -76,8 +76,12 @@ export function useEventTopologyInfiniteScroll(
         setEventTopology((prev) => mergeEventTopology(prev, page, reset));
         const loadedCount = page.learners.length;
         offsetRef.current = offset + loadedCount;
-        const total = page.total ?? offsetRef.current;
-        const nextHasMore = loadedCount >= EVENT_TOPOLOGY_PAGE_SIZE && offsetRef.current < total;
+        const total = page.total;
+        const nextHasMore =
+          loadedCount >= EVENT_TOPOLOGY_PAGE_SIZE &&
+          (typeof total === "number"
+            ? offsetRef.current < total
+            : loadedCount > 0);
         hasMoreRef.current = nextHasMore;
         setHasMore(nextHasMore);
       } finally {
@@ -105,25 +109,60 @@ export function useEventTopologyInfiniteScroll(
     void loadPage(true);
   }, [enabled, fetchPage, loadPage]);
 
+  const tryLoadNearBottom = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !enabled || loadingRef.current || !hasMoreRef.current) {
+      return;
+    }
+    const { scrollTop, clientHeight, scrollHeight } = container;
+    if (
+      scrollTop + clientHeight >=
+      scrollHeight - SCROLL_LOAD_THRESHOLD_PX
+    ) {
+      void loadPage(false);
+    }
+  }, [enabled, loadPage, scrollContainerRef]);
+
   useEffect(() => {
     if (!enabled) return;
 
-    const container = scrollContainerRef.current;
-    if (!container) return;
+    let cleanup: (() => void) | undefined;
+    let cancelled = false;
 
-    const onScroll = () => {
-      const { scrollTop, clientHeight, scrollHeight } = container;
-      if (
-        scrollTop + clientHeight >=
-        scrollHeight - SCROLL_LOAD_THRESHOLD_PX
-      ) {
-        void loadPage(false);
-      }
+    const attach = () => {
+      const container = scrollContainerRef.current;
+      if (!container) return false;
+
+      const onScroll = () => {
+        tryLoadNearBottom();
+      };
+
+      container.addEventListener("scroll", onScroll, { passive: true });
+      tryLoadNearBottom();
+      cleanup = () => container.removeEventListener("scroll", onScroll);
+      return true;
     };
 
-    container.addEventListener("scroll", onScroll, { passive: true });
-    return () => container.removeEventListener("scroll", onScroll);
-  }, [enabled, loadPage, scrollContainerRef, eventTopology?.learners.length]);
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      if (!attach()) {
+        requestAnimationFrame(() => {
+          if (!cancelled) attach();
+        });
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      cleanup?.();
+    };
+  }, [
+    enabled,
+    tryLoadNearBottom,
+    scrollContainerRef,
+    eventTopology?.learners.length,
+  ]);
 
   return {
     eventTopology,

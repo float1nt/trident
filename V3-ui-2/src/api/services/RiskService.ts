@@ -31,6 +31,7 @@ function normalizeEventTopology(value: LearnerNetworkTopologyJson): LearnerNetwo
       : Object.keys(views);
   return {
     version: value.version ?? 1,
+    total: typeof value.total === "number" ? value.total : undefined,
     learners,
     default_learner:
       value.default_learner && learners.includes(value.default_learner)
@@ -146,9 +147,12 @@ export type IpSummary = {
 export type IpRiskEventItem = {
   id: number;
   name: string;
+  learnerName?: string;
   triggerTime: string;
   description: string;
   features: string;
+  riskScore?: number;
+  riskBand?: string;
 };
 
 export type RiskDetail = RiskItem & {

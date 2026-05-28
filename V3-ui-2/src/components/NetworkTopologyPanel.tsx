@@ -17,6 +17,8 @@ export type TopologyNode = {
   ip: string;
   port: number | null;
   flow_count: number;
+  out_flow_count?: number;
+  in_flow_count?: number;
   is_internal: boolean;
   /** 节点关联协议列表（可选，后端扩展字段） */
   protocols?: string[];
@@ -86,6 +88,8 @@ type GraphNode = {
   name: string;
   value: number;
   flow_count: number;
+  out_flow_count?: number;
+  in_flow_count?: number;
   ip: string;
   port: number | null;
   is_internal: boolean;
@@ -163,6 +167,8 @@ function buildGraphData(
       name: n.id,
       value: n.flow_count,
       flow_count: n.flow_count,
+      out_flow_count: n.out_flow_count,
+      in_flow_count: n.in_flow_count,
       ip: n.ip,
       port: n.port,
       is_internal: n.is_internal,
@@ -214,14 +220,14 @@ function buildGraphData(
 function getTrafficAnalysisText(
   viewIsBenign: boolean | null | undefined,
 ): string {
-  if (viewIsBenign === true) return "良性";
+  if (viewIsBenign === true) return "正常";
   if (viewIsBenign === false) return "异常";
   return "部分异常";
 }
 
 function formatTrafficAnalysisHtml(label: string): string {
-  if (label === "良性") {
-    return `流量分析:<span style="color:${CHART_GREEN}">良性</span>`;
+  if (label === "正常") {
+    return `流量分析:<span style="color:${CHART_GREEN}">正常</span>`;
   }
   if (label === "异常") {
     return `流量分析:<span style="color:${CHART_RED}">异常</span>`;
@@ -247,9 +253,13 @@ function formatNodeTooltip(
   viewIsBenign: boolean | null | undefined,
 ): string {
   const ipLabel = node.port != null ? node.id : node.ip;
+  const outFlowCount = node.out_flow_count ?? 0;
+  const inFlowCount = node.in_flow_count ?? 0;
   return [
     ipLabel,
-    `访问次数:${node.flow_count.toLocaleString("zh-CN")}`,
+    `总关联次数:${node.flow_count.toLocaleString("zh-CN")}`,
+    `访问次数:${outFlowCount.toLocaleString("zh-CN")}`,
+    `被访问次数:${inFlowCount.toLocaleString("zh-CN")}`,
     formatTrafficAnalysisHtml(getTrafficAnalysisText(viewIsBenign)),
     `协议:${formatNodeProtocols(node)}`,
   ].join("<br/>");
@@ -259,7 +269,7 @@ function getEdgeTrafficAnalysisText(
   edge: TopologyLink,
   viewIsBenign: boolean | null | undefined,
 ): string {
-  if (edge.is_benign === true) return "良性";
+  if (edge.is_benign === true) return "正常";
   if (edge.is_benign === false) return "异常";
   return getTrafficAnalysisText(viewIsBenign);
 }
@@ -344,10 +354,12 @@ function buildChartOption(
 function TopologyStatCard({
   label,
   value,
+  sub,
   compact = false,
 }: {
   label: string;
   value: string | number;
+  sub?: string;
   compact?: boolean;
 }) {
   return (
@@ -366,6 +378,11 @@ function TopologyStatCard({
       >
         {value}
       </div>
+      {sub ? (
+        <div className={`truncate text-[#8c8c8c] ${compact ? "text-[10px]" : "text-[11px]"}`}>
+          {sub}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -458,6 +475,16 @@ export function TopologyChartPane({
     [graphData, repulsion, viewIsBenign, compact],
   );
   const stats = activeGraph?.stats ?? {};
+  const renderedNodeCount = displayGraph?.nodes.length ?? activeGraph?.nodes.length ?? 0;
+  const renderedEdgeCount = displayGraph?.links.length ?? activeGraph?.links.length ?? 0;
+  const totalNodeCount = activeGraph?.nodes.length ?? 0;
+  const entityCount =
+    graphMode === "endpoint" ? stats.unique_dst_port_count : stats.unique_ip_count;
+  const entityCountLabel = graphMode === "endpoint" ? "端口数量" : "IP数量";
+  const renderedSub =
+    compact && totalNodeCount > renderedNodeCount
+      ? `当前绘制 ${renderedNodeCount}/${totalNodeCount} 节点 · ${renderedEdgeCount} 边`
+      : `当前绘制 ${renderedNodeCount} 节点 · ${renderedEdgeCount} 边`;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col rounded-lg border border-[#e8eaed] bg-white">
@@ -479,12 +506,9 @@ export function TopologyChartPane({
             }`}
           >
             <TopologyStatCard
-              label={graphMode === "endpoint" ? "端口数量" : "IP数量"}
-              value={
-                compact && activeGraph.nodes.length > (displayGraph?.nodes.length ?? 0)
-                  ? `${displayGraph?.nodes.length ?? 0} / ${activeGraph.nodes.length}`
-                  : (displayGraph?.nodes.length ?? activeGraph.nodes.length)
-              }
+              label={entityCountLabel}
+              value={entityCount ?? totalNodeCount}
+              sub={renderedSub}
               compact={compact}
             />
             <TopologyStatCard

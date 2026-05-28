@@ -22,6 +22,11 @@ export type TrafficTrendPoint = {
   abnormal: number;
 };
 
+/** 按天 / 按周横轴日期：后端为 MM-DD，展示为 MM/DD（范围标签内 - 一并替换） */
+function formatTrafficTrendLabel(label: string): string {
+  return label.replace(/-/g, "/");
+}
+
 export function getTrafficTrendChartTitle(timeRange: TimeRange): string {
   switch (timeRange) {
     case "24h":
@@ -63,7 +68,14 @@ export class OverviewService {
     const res = await get<TrafficTrendPoint[]>("/overview/traffic-trend", {
       timeRange,
     });
-    return res.data ?? [];
+    const data = res.data ?? [];
+    if (timeRange === "7d" || timeRange === "30d") {
+      return data.map((point) => ({
+        ...point,
+        label: formatTrafficTrendLabel(point.label),
+      }));
+    }
+    return data;
   }
 
   static async getNetworkTopology(

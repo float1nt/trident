@@ -10,8 +10,6 @@ from .redis_consumer import RedisStreamConsumer
 from .runtime.quality import is_baseline_learner, resolve_session_baseline_learner
 
 
-RISK_BANDS = {"medium", "high"}
-
 ATTACK_TYPE_DISPLAY: dict[str, dict[str, str]] = {
     "PORT_SCAN": {"name": "端口扫描", "desc": "短时间探测大量目标端口，常用于资产发现。"},
     "HOST_SCAN": {"name": "主机扫描/横向探测", "desc": "单个来源连接大量主机，存在横向探测特征。"},
@@ -190,14 +188,18 @@ class PageQueryService:
             subject_ip_like=subject_ip,
             trigger_time_prefix=trigger_time,
         )
-        items = [
-            _risk_ip_item(
-                row,
-                learner_by_name.get(str(row.get("assigned_learner") or "")),
-                is_risk_learner=str(row.get("assigned_learner") or "") in risk_name_set,
+        items = []
+        for row in result["items"]:
+            learner_name = str(row.get("assigned_learner") or "")
+            if learner_name not in risk_name_set:
+                continue
+            items.append(
+                _risk_ip_item(
+                    row,
+                    learner_by_name.get(learner_name),
+                    is_risk_learner=True,
+                )
             )
-            for row in result["items"]
-        ]
         return {"items": items, "total": int(result["total"])}
 
     def dashboard_topology(
@@ -362,27 +364,31 @@ class PageQueryService:
             learner_name_like=name,
             subject_ip_like=subject_ip,
         )
-        grouped: dict[str, dict[str, int]] = {}
+        grouped: dict[str, list[dict[str, Any]]] = {}
         for row in raw["items"]:
             ip = str(row.get("subject_ip") or "")
             learner = str(row.get("assigned_learner") or "") or "UNKNOWN"
+            if learner not in risk_name_set:
+                continue
             learner_row = learner_by_name.get(learner) or {}
-            attack_type = _primary_attack_type(learner_row) if learner in risk_name_set else "UNKNOWN_SUSPECTED"
+            attack_type = _primary_attack_type(learner_row)
             display_name = _attack_display(attack_type)["name"] if attack_type else learner
             if not ip:
                 continue
-            grouped.setdefault(ip, {})
-            grouped[ip][display_name] = grouped[ip].get(display_name, 0) + int(row.get("flow_count") or 0)
+            grouped.setdefault(ip, []).append(
+                {
+                    "name": display_name,
+                    "learnerName": learner,
+                    "triggerCount": int(row.get("flow_count") or 0),
+                }
+            )
 
         ip_rows: list[dict[str, Any]] = []
-        for seq, (ip, name_counts) in enumerate(
-            sorted(grouped.items(), key=lambda item: (-sum(item[1].values()), item[0])),
+        for seq, (ip, learner_risks) in enumerate(
+            sorted(grouped.items(), key=lambda item: (-sum(risk["triggerCount"] for risk in item[1]), item[0])),
             start=1,
         ):
-            risks = [
-                {"name": risk_name, "triggerCount": count}
-                for risk_name, count in sorted(name_counts.items(), key=lambda item: (-item[1], item[0]))
-            ]
+            risks = sorted(learner_risks, key=lambda item: (-item["triggerCount"], item["name"], item["learnerName"]))
             ip_rows.append(
                 {
                     "id": seq,
@@ -413,7 +419,7 @@ class PageQueryService:
             risk_band=None,
             time_from=time_from,
             time_to=time_to,
-            include_all_bands=True,
+            include_all_bands=False,
         )
         rows = [row for row in rows if int(row.get("flow_count") or 0) > 0]
         total = len(rows)
@@ -441,8 +447,15 @@ class PageQueryService:
     def risk_by_id(self, *, risk_id: int) -> dict[str, Any]:
         learner = self.learners.get_learner_by_id(session_id=self.session_id, learner_id=risk_id) or {}
         item = _risk_item_from_learner(learner, subject_ip=_first_subject_ip(self, learner))
-        item["riskIpCount"] = len(self.risk_ips(risk_id=risk_id, limit=1000))
         learner_name = str(learner.get("learner_name") or "")
+        item["riskIpCount"] = (
+            self.flows.unique_src_ip_count_by_learner(
+                session_id=self.session_id,
+                learner_name=learner_name,
+            )
+            if learner_name
+            else 0
+        )
         item["riskPortCount"] = (
             self.flows.unique_dst_port_count_by_learner(
                 session_id=self.session_id,
@@ -521,9 +534,12 @@ class PageQueryService:
             {
                 "id": item["id"],
                 "name": item["name"],
+                "learnerName": item["learnerName"],
                 "triggerTime": item["triggerTime"],
                 "description": item["description"],
                 "features": item["features"],
+                "riskScore": item["riskScore"],
+                "riskBand": item["riskBand"],
             }
             for item in data["items"]
         ]
@@ -587,11 +603,14 @@ class PageQueryService:
 def _risk_learner_names(rows: list[dict[str, Any]]) -> list[str]:
     names: list[str] = []
     for row in rows:
-        band = str(row.get("risk_band") or "").lower()
         name = str(row.get("learner_name") or "")
-        if name and band in RISK_BANDS:
+        if name and _is_attack_learner(row):
             names.append(name)
     return names
+
+
+def _is_attack_learner(row: dict[str, Any]) -> bool:
+    return _primary_attack_type(row) != "BENIGN_NORMAL"
 
 
 def _clean_trigger_bound(value: str | None) -> str | None:
@@ -620,7 +639,7 @@ def _filter_learner_rows(
         if band_text:
             if row_band != band_text:
                 continue
-        elif not include_all_bands and row_band not in RISK_BANDS:
+        elif not include_all_bands and not _is_attack_learner(row):
             continue
         learner_name = str(row.get("learner_name") or "").lower()
         if name_text and name_text not in learner_name:
@@ -717,7 +736,7 @@ def _risk_ip_item(
     is_risk_learner: bool,
 ) -> dict[str, Any]:
     learner_name = str(row.get("assigned_learner") or "")
-    attack_type = _primary_attack_type(learner or {}) if is_risk_learner else "UNKNOWN_SUSPECTED"
+    attack_type = _primary_attack_type(learner or {})
     display = _attack_display(attack_type)
     risk_score = _float(learner.get("risk_score") if learner else None)
     risk_band = str((learner or {}).get("risk_band") or "low").lower()
@@ -918,13 +937,7 @@ def _primary_attack_type(
                     attack_type = str(item.get("attack_type") or "").strip()
                     if attack_type:
                         return attack_type
-    # 老数据兼容兜底：没有 attack_types 时，按低风险/良性标识归类为良性流量
-    risk_band = str(learner.get("risk_band") or "").strip().lower()
-    is_benign = bool(learner.get("is_benign"))
-    score = _float(learner.get("risk_score"))
-    if is_benign or risk_band == "low" or score <= 0.35:
-        return "BENIGN_NORMAL"
-    return "UNKNOWN_SUSPECTED"
+    return "BENIGN_NORMAL"
 
 
 def _primary_attack_confidence(learner: dict[str, Any]) -> float:

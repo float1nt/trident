@@ -184,24 +184,6 @@ FORMAT JSONEachRow
             source_expr = "src_ip"
             target_expr = "dst_ip"
         is_benign_expr = f"NOT ({abnormal})"
-        top_nodes_sql = f"""
-    SELECT node
-    FROM (
-        SELECT {source_expr} AS node, count() AS c FROM ch_flow FINAL {where} GROUP BY node
-        UNION ALL
-        SELECT {target_expr} AS node, count() AS c FROM ch_flow FINAL {where} GROUP BY node
-    )
-    GROUP BY node
-    ORDER BY sum(c) DESC, node ASC
-    LIMIT {top_n}
-"""
-        edge_where = _where(
-            [
-                *filters,
-                f"{source_expr} IN ({top_nodes_sql})",
-                f"{target_expr} IN ({top_nodes_sql})",
-            ]
-        )
         sql = f"""
 WITH edge_rows AS (
     SELECT
@@ -210,23 +192,38 @@ WITH edge_rows AS (
         count() AS value,
         min({is_benign_expr}) AS is_benign
     FROM ch_flow FINAL
-    {edge_where}
+    {where}
     GROUP BY source, target
+    ORDER BY value DESC, source ASC, target ASC
+    LIMIT {top_n}
+),
+selected_nodes AS (
+    SELECT node
+    FROM (
+        SELECT source AS node FROM edge_rows
+        UNION ALL
+        SELECT target AS node FROM edge_rows
+    )
+    GROUP BY node
 ),
 node_rows AS (
-    SELECT node AS id, sum(c) AS flow_count
+    SELECT
+        node AS id,
+        sum(out_count) AS out_flow_count,
+        sum(in_count) AS in_flow_count,
+        sum(out_count) + sum(in_count) AS flow_count
     FROM (
-        SELECT {source_expr} AS node, count() AS c FROM ch_flow FINAL {where} GROUP BY node
+        SELECT {source_expr} AS node, count() AS out_count, 0 AS in_count FROM ch_flow FINAL {where} GROUP BY node
         UNION ALL
-        SELECT {target_expr} AS node, count() AS c FROM ch_flow FINAL {where} GROUP BY node
+        SELECT {target_expr} AS node, 0 AS out_count, count() AS in_count FROM ch_flow FINAL {where} GROUP BY node
     )
-    WHERE node IN ({top_nodes_sql})
+    WHERE node IN (SELECT node FROM selected_nodes)
     GROUP BY node
 )
-SELECT 'node' AS row_type, id, '' AS source, '' AS target, flow_count AS value, 0 AS is_benign
+SELECT 'node' AS row_type, id, '' AS source, '' AS target, flow_count AS value, out_flow_count, in_flow_count, 0 AS is_benign
 FROM node_rows
 UNION ALL
-SELECT 'edge' AS row_type, '' AS id, source, target, value, is_benign
+SELECT 'edge' AS row_type, '' AS id, source, target, value, 0 AS out_flow_count, 0 AS in_flow_count, is_benign
 FROM edge_rows
 FORMAT JSONEachRow
 """
@@ -239,8 +236,18 @@ FORMAT JSONEachRow
             if row.get("row_type") == "node":
                 node_id = str(row.get("id") or "")
                 flow_count = int(row.get("value") or 0)
+                out_flow_count = int(row.get("out_flow_count") or 0)
+                in_flow_count = int(row.get("in_flow_count") or 0)
                 total += flow_count
-                nodes.append(_topology_node(node_id, flow_count, node_mode=node_mode))
+                nodes.append(
+                    _topology_node(
+                        node_id,
+                        flow_count,
+                        node_mode=node_mode,
+                        out_flow_count=out_flow_count,
+                        in_flow_count=in_flow_count,
+                    )
+                )
             elif row.get("row_type") == "edge":
                 links.append(
                     {
@@ -254,13 +261,16 @@ FORMAT JSONEachRow
             session_id=session_id,
             risk_learners=risk_names,
             learner_name=learner_name,
+            subject_ip=subject_ip,
             traffic_kind=traffic_kind,
             time_from=time_from,
             time_to=time_to,
         )
+        total_flow_count = int(stats.get("total_flow_count") or 0)
+        displayed_flow_count = sum(link["value"] for link in links) or total
         return {
-            "flow_count": sum(link["value"] for link in links) or total,
-            "total_flow_count": sum(link["value"] for link in links) or total,
+            "flow_count": total_flow_count or displayed_flow_count,
+            "total_flow_count": total_flow_count or displayed_flow_count,
             "node_mode": node_mode,
             "nodes": nodes,
             "links": links,
@@ -300,12 +310,40 @@ ports AS (
     GROUP BY dst_port
     ORDER BY port_count DESC, dst_port ASC
     LIMIT 1
+),
+ips AS (
+    SELECT uniqExact(ip) AS unique_ip_count
+    FROM (
+        SELECT src_ip AS ip FROM ch_flow FINAL {where}
+        UNION ALL
+        SELECT dst_ip AS ip FROM ch_flow FINAL {where}
+    )
+),
+endpoints AS (
+    SELECT uniqExact(endpoint) AS unique_endpoint_count
+    FROM (
+        SELECT concat(src_ip, ':', toString(src_port)) AS endpoint FROM ch_flow FINAL {where}
+        UNION ALL
+        SELECT concat(dst_ip, ':', toString(dst_port)) AS endpoint FROM ch_flow FINAL {where}
+    )
+),
+dst_ports AS (
+    SELECT uniqExact(dst_port) AS unique_dst_port_count
+    FROM ch_flow FINAL
+    {where}
 )
 SELECT
+    total.total_count AS total_flow_count,
     ifNull(any(ports.dst_port), 0) AS top_dst_port,
-    if(total.total_count = 0, 0, ifNull(any(ports.port_count), 0) / total.total_count) AS top_dst_port_ratio
+    if(total.total_count = 0, 0, ifNull(any(ports.port_count), 0) / total.total_count) AS top_dst_port_ratio,
+    any(ips.unique_ip_count) AS unique_ip_count,
+    any(endpoints.unique_endpoint_count) AS unique_endpoint_count,
+    any(dst_ports.unique_dst_port_count) AS unique_dst_port_count
 FROM total
 LEFT JOIN ports ON 1 = 1
+LEFT JOIN ips ON 1 = 1
+LEFT JOIN endpoints ON 1 = 1
+LEFT JOIN dst_ports ON 1 = 1
 GROUP BY total.total_count
 FORMAT JSONEachRow
 """
@@ -485,6 +523,32 @@ FORMAT JSONEachRow
             return int(row.get("port_count") or 0)
         return 0
 
+    def unique_src_ip_count_by_learner(
+        self,
+        *,
+        session_id: str,
+        learner_name: str,
+    ) -> int:
+        where = _where(
+            [
+                f"session_id = {_quote(session_id)}",
+                f"assigned_learner = {_quote(learner_name)}",
+            ]
+        )
+        sql = f"""
+SELECT uniqExact(src_ip) AS ip_count
+FROM ch_flow FINAL
+{where}
+FORMAT JSONEachRow
+"""
+        text = self.client.execute(sql)
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            row = _parse_json(line)
+            return int(row.get("ip_count") or 0)
+        return 0
+
     def top_subject_ips_by_learner(
         self,
         *,
@@ -533,10 +597,10 @@ FORMAT JSONEachRow
         subject_ip_like: str | None = None,
         trigger_time_prefix: str | None = None,
     ) -> dict[str, Any]:
-        abnormal = _abnormal_expr(risk_learners)
+        risk_learner_filter = _risk_learner_expr(risk_learners)
         filters = [
             f"session_id = {_quote(session_id)}",
-            abnormal,
+            risk_learner_filter,
             _contains_filter("assigned_learner", learner_name_like),
             _contains_filter("src_ip", subject_ip_like),
             _prefix_filter("toString(event_time)", trigger_time_prefix),
@@ -648,13 +712,21 @@ def _prefix_filter(expression: str, value: str | None) -> str | None:
 
 
 def _abnormal_expr(risk_learners: list[str]) -> str:
-    risk_filter = _in_filter("assigned_learner", risk_learners)
-    if risk_filter:
-        return f"(is_unknown = 1 OR {risk_filter})"
-    return "(is_unknown = 1)"
+    return _risk_learner_expr(risk_learners)
 
 
-def _topology_node(node_id: str, flow_count: int, *, node_mode: str) -> dict[str, Any]:
+def _risk_learner_expr(risk_learners: list[str]) -> str:
+    return _in_filter("assigned_learner", risk_learners) or "(0 = 1)"
+
+
+def _topology_node(
+    node_id: str,
+    flow_count: int,
+    *,
+    node_mode: str,
+    out_flow_count: int = 0,
+    in_flow_count: int = 0,
+) -> dict[str, Any]:
     ip = node_id
     port: int | None = None
     if node_mode == "endpoint" and ":" in node_id:
@@ -668,6 +740,8 @@ def _topology_node(node_id: str, flow_count: int, *, node_mode: str) -> dict[str
         "ip": ip,
         "port": port,
         "flow_count": flow_count,
+        "out_flow_count": out_flow_count,
+        "in_flow_count": in_flow_count,
         "is_internal": _is_internal_ip(ip),
     }
 

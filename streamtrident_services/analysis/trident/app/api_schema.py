@@ -24,6 +24,8 @@ class TopologyNode(BaseModel):
     ip: str
     port: int | None = None
     flow_count: int = 0
+    out_flow_count: int = 0
+    in_flow_count: int = 0
     is_internal: bool = False
 
 
