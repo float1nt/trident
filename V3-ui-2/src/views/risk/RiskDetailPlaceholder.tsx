@@ -18,40 +18,6 @@ const TOPOLOGY_REPULSION = 70;
 const TOPOLOGY_MIN_EDGE_FLOWS = 1;
 const LIST_PAGE_SIZE = 10;
 const LIST_MAX_HEIGHT = "200px";
-const NEW_LEARNER_PATTERN = /^NEW[_-]?\d+$/i;
-
-const RISK_NAME_FALLBACK: Record<string, string> = {
-  BENIGN_NORMAL: "良性流量",
-  UNKNOWN_SUSPECTED: "待观察流量",
-  DRDOS_REFLECTION_FAMILY: "反射放大攻击族",
-  DDOS_VICTIM: "DDoS受害目标",
-  DOS_ATTACKER: "DoS攻击源",
-  PORT_SCAN: "端口扫描",
-  HOST_SCAN: "主机扫描/横向探测",
-  SLOW_DOS_SUSPECTED: "慢速DoS嫌疑",
-  WEB_DDOS_SUSPECTED: "Web DDoS嫌疑",
-  BRUTE_FORCE_SUSPECTED: "暴力破解嫌疑",
-};
-
-const RISK_DESC_FALLBACK: Record<string, string> = {
-  良性流量: "当前窗口未命中攻击规则，行为接近正常业务流量。",
-  待观察流量: "当前窗口暂未形成明确攻击画像，建议结合后续窗口持续观察。",
-};
-
-function normalizeRiskName(name?: string): string {
-  const raw = (name ?? "").trim();
-  if (!raw) return "待观察流量";
-  const upper = raw.toUpperCase();
-  if (RISK_NAME_FALLBACK[upper]) return RISK_NAME_FALLBACK[upper];
-  if (NEW_LEARNER_PATTERN.test(raw)) return "待观察流量";
-  return raw;
-}
-
-function normalizeRiskDescription(name: string, description?: string): string {
-  const text = (description ?? "").trim();
-  if (text && !NEW_LEARNER_PATTERN.test(text)) return text;
-  return RISK_DESC_FALLBACK[name] ?? "该学习器尚未命中明确攻击规则，建议结合时间窗口继续观察。";
-}
 
 function buildRiskIpColumns(currentPage: number): ColumnsType<RiskIpListItem> {
   return [
@@ -182,9 +148,6 @@ export default function RiskDetailPlaceholder() {
   const featureTags = risk?.features
     ? risk.features.split("、").map((item) => item.trim()).filter(Boolean)
     : [];
-  const displayName = normalizeRiskName(risk?.name);
-  const displayDescription = normalizeRiskDescription(displayName, risk?.description);
-
   return (
     <div className="h-[calc(100vh-100px)] w-full rounded-[8px]">
       <Spin spinning={pageLoading}>
@@ -200,7 +163,7 @@ export default function RiskDetailPlaceholder() {
               <div className="mt-[10px] flex items-center justify-between gap-3">
                 <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                   <h2 className="m-0 shrink-0 text-lg font-medium text-[#333]">
-                    {risk ? displayName : "风险详情"}
+                    {risk?.name ?? "风险详情"}
                   </h2>
                   {featureTags.length > 0 ? (
                     <div className="flex flex-wrap items-center gap-[8px]">
@@ -218,7 +181,7 @@ export default function RiskDetailPlaceholder() {
                   ) : null}
                   {risk?.description ? (
                     <p className="mb-0 mt-0 text-sm leading-[22px] text-[#666]">
-                      {displayDescription}
+                      {risk.description}
                     </p>
                   ) : null}
                 </div>

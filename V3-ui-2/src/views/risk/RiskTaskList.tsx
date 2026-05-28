@@ -190,6 +190,7 @@ const RiskTaskList = () => {
   const handleEventReset = () => {
     setEventSearchInputs(EMPTY_EVENT_SEARCH);
     setEventFilters(EMPTY_EVENT_SEARCH);
+    setEventLoadError(null);
   };
 
   const handleViewChange = (key: string) => {
@@ -361,6 +362,7 @@ const RiskTaskList = () => {
               <LearnerInternalTopologyPanel
                 data={eventTopology}
                 onRiskClick={handleEventRiskClick}
+                emptyHint={eventLoadError ?? undefined}
               />
             </div>
           </>
