@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { Component, useMemo, type ErrorInfo, type ReactNode } from "react";
 import { Button, Card, Col, Empty, Row, Typography } from "antd";
 import {
   GRID_CHART_HEIGHT,
@@ -15,6 +15,33 @@ const TOPOLOGY_REPULSION = 70;
 const TOPOLOGY_MIN_EDGE_FLOWS = 1;
 
 export type { LearnerNetworkTopologyJson, LearnerTopologyOption };
+
+class ChartPaneErrorBoundary extends Component<
+  { children: ReactNode; title: string },
+  { hasError: boolean; message?: string }
+> {
+  state: { hasError: boolean; message?: string } = { hasError: false };
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, message: error.message };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(`[TopologyChartPane:${this.props.title}]`, error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="rounded border border-dashed border-[#ffd8bf] bg-[#fff7e6] p-2 text-[11px] text-[#ad6800]">
+          {this.props.title} 图渲染失败
+          {this.state.message ? `：${this.state.message}` : ""}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type Props = {
   data: LearnerNetworkTopologyJson | null;
@@ -47,21 +74,6 @@ function buildSortedLearnerOptions(
   );
 }
 
-function EventCardInfoItem({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="mb-1.5 last:mb-0">
-      <div className="text-[10px] leading-tight text-[#8c8c8c]">{label}</div>
-      <div className="text-[11px] leading-[16px] text-[#333]">{children}</div>
-    </div>
-  );
-}
-
 /** 事件视角 — 学习器网络拓扑网格 */
 export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
   const sortedOptions = useMemo(() => {
@@ -85,40 +97,48 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
         {sortedOptions.map((option) => {
           const gridView = data.views[option.name];
           if (!gridView) return null;
-          const itemFlowCount =
-            gridView.host?.flow_count ?? gridView.endpoint?.flow_count;
-          const itemAttackPct = `${(gridView.attack_ratio * 100).toFixed(2)}%`;
-          const itemDominant = gridView.dominant_label || option.dominantLabel || "—";
-          const metaText = `攻击 ${itemAttackPct} · ${itemDominant}${
-            itemFlowCount != null ? ` · ${itemFlowCount.toLocaleString()} 流` : ""
-          }`;
-
           return (
-            <Col key={`learner-topology-grid-${option.name}`} xs={24} sm={12} xl={6}>
+            <Col key={`learner-topology-grid-${option.name}`} xs={24} md={12}>
               <Card
                 size="small"
                 className="risk-event-topology-card"
                 title={
-                  <div className="flex items-center justify-between gap-2">
-                    <Text
-                      ellipsis={{ tooltip: option.riskName }}
-                      className="min-w-0 flex-1 text-[11px]"
-                    >
-                      {option.riskName}
-                    </Text>
-                    <Button
-                      type="link"
-                      size="small"
-                      className="!h-auto shrink-0 !p-0 text-[11px]"
-                      disabled={option.riskId <= 0}
-                      onClick={() => {
-                        if (option.riskId > 0) {
-                          onRiskClick?.(option.riskId);
-                        }
-                      }}
-                    >
-                      查看详情
-                    </Button>
+
+
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <Text
+                        ellipsis={{ tooltip: option.riskName }}
+                        className="min-w-0 flex-1 text-[11px]"
+                      >
+                        {option.riskName}
+                      </Text>
+                      <Button
+                        type="link"
+                        size="small"
+                        className="!h-auto shrink-0 !p-0 text-[11px]"
+                        disabled={option.riskId <= 0}
+                        onClick={() => {
+                          if (option.riskId > 0) {
+                            onRiskClick?.(option.riskId);
+                          }
+                        }}
+                      >
+                        查看详情
+                      </Button>
+
+                    </div>
+                    <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] font-normal leading-[16px]">
+                      <span className="shrink-0 whitespace-nowrap font-normal text-[#8c8c8c]">
+                        [{option.triggerTime}]
+                      </span>
+                      <span
+                        className="min-w-0 flex-1 truncate font-normal text-[#8c8c8c]"
+                        title={option.riskDescription}
+                      >
+                        {option.riskDescription}
+                      </span>
+                    </div>
                   </div>
                 }
                 styles={{
@@ -126,33 +146,25 @@ export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
                   body: { padding: "8px 8px 4px" },
                 }}
               >
-                <Text
+
+                {/* <Text
                   type="secondary"
                   ellipsis={{ tooltip: metaText }}
                   className="mb-1 mt-0.5 block text-[10px] leading-tight"
                 >
                   {metaText}
-                </Text>
-                <TopologyChartPane
-                  hostGraph={gridView.host}
-                  endpointGraph={gridView.endpoint}
-                  viewIsBenign={null}
-                  repulsion={TOPOLOGY_REPULSION}
-                  minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                  chartHeight={GRID_CHART_HEIGHT}
-                  compact
-                />
-                <EventCardInfoItem label="风险说明">
-                  <span
-                    className="line-clamp-2 text-[11px] leading-[16px]"
-                    title={option.riskDescription}
-                  >
-                    {option.riskDescription}
-                  </span>
-                </EventCardInfoItem>
-                <EventCardInfoItem label="风险触发时间">
-                  {option.triggerTime}
-                </EventCardInfoItem>
+                </Text> */}
+                <ChartPaneErrorBoundary title="拓扑图">
+                  <TopologyChartPane
+                    title=" "
+                    hostGraph={gridView.host}
+                    endpointGraph={gridView.endpoint}
+                    viewIsBenign={gridView.is_benign}
+                    repulsion={TOPOLOGY_REPULSION}
+                    minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+                    chartHeight={GRID_CHART_HEIGHT}
+                  />
+                </ChartPaneErrorBoundary>
               </Card>
             </Col>
           );

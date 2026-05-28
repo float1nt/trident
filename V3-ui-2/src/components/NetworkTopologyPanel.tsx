@@ -60,7 +60,24 @@ export type DatasetNetworkTopologyJson = {
   views: Record<string, TopologyLabelView>;
 };
 
-export const GRID_CHART_HEIGHT = 120;
+export const GRID_CHART_HEIGHT = 280;
+
+const COMPACT_MAX_NODES = 28;
+
+function trimGraphForCompactDisplay(
+  graph: TopologyGraph | undefined,
+  maxNodes = COMPACT_MAX_NODES,
+): TopologyGraph | undefined {
+  if (!graph || graph.nodes.length <= maxNodes) return graph;
+  const nodes = [...graph.nodes]
+    .sort((a, b) => b.flow_count - a.flow_count)
+    .slice(0, maxNodes);
+  const ids = new Set(nodes.map((n) => n.id));
+  const links = graph.links.filter(
+    (l) => ids.has(l.source) && ids.has(l.target),
+  );
+  return { ...graph, nodes, links };
+}
 
 type GraphNode = {
   id: string;
@@ -194,7 +211,7 @@ function getTrafficAnalysisText(
   viewIsBenign: boolean | null | undefined,
 ): string {
   if (viewIsBenign === true) return "良性";
-  if (viewIsBenign === false) return "攻击";
+  if (viewIsBenign === false) return "异常";
   return "混合";
 }
 
@@ -202,8 +219,8 @@ function formatTrafficAnalysisHtml(label: string): string {
   if (label === "良性") {
     return `流量分析:<span style="color:${CHART_GREEN}">良性</span>`;
   }
-  if (label === "攻击") {
-    return `流量分析:<span style="color:${CHART_RED}">攻击</span>`;
+  if (label === "异常") {
+    return `流量分析:<span style="color:${CHART_RED}">异常</span>`;
   }
   return `流量分析:${label}`;
 }
@@ -236,7 +253,7 @@ function getEdgeTrafficAnalysisText(
   viewIsBenign: boolean | null | undefined,
 ): string {
   if (edge.is_benign === true) return "良性";
-  if (edge.is_benign === false) return "攻击";
+  if (edge.is_benign === false) return "异常";
   return getTrafficAnalysisText(viewIsBenign);
 }
 
@@ -397,6 +414,7 @@ export function TopologyChartPane({
   minEdgeFlows,
   chartHeight = 320,
   compact = false,
+  fillContainer = false,
 }: {
   /** 标题文本，默认「拓扑图」 */
   title?: string;
@@ -410,6 +428,8 @@ export function TopologyChartPane({
   chartHeight?: number;
   /** 缩小节点与边，便于一屏展示更多结点 */
   compact?: boolean;
+  /** 画布占满父容器剩余高度（首页等大图区域）；否则使用固定 chartHeight */
+  fillContainer?: boolean;
 }) {
   const hasDualGraph = hostGraph !== undefined || endpointGraph !== undefined;
   const [graphMode, setGraphMode] = useState<TopologyGraphMode>("host");
@@ -449,7 +469,7 @@ export function TopologyChartPane({
             }`}
           >
             <TopologyStatCard
-              label="IP数量"
+              label={graphMode === "endpoint" ? "端口数量" : "IP数量"}
               value={
                 compact && activeGraph.nodes.length > (displayGraph?.nodes.length ?? 0)
                   ? `${displayGraph?.nodes.length ?? 0} / ${activeGraph.nodes.length}`
@@ -480,15 +500,30 @@ export function TopologyChartPane({
         ) : null}
       </div>
       <div
-        className="min-h-0 flex-1"
-        style={{ minHeight: chartHeight }}
+        className={
+          fillContainer
+            ? "min-h-0 w-full flex-1"
+            : "w-full shrink-0"
+        }
+        style={
+          fillContainer ? { minHeight: chartHeight } : { height: chartHeight }
+        }
       >
         {graphData.nodes.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-xs text-[#8c8c8c]">
+          <div
+            className="flex h-full w-full items-center justify-center text-xs text-[#8c8c8c]"
+            style={fillContainer ? undefined : { height: chartHeight }}
+          >
             暂无节点
           </div>
-        ) : (
+        ) : fillContainer ? (
           <EChartsRingChart option={option} className="h-full w-full" />
+        ) : (
+          <EChartsRingChart
+            option={option}
+            height={chartHeight}
+            className="w-full"
+          />
         )}
       </div>
     </div>

@@ -206,7 +206,7 @@
 | `totalTraffic` | number | 总流量 |
 | `protocolCount` | number | 协议数 |
 | `riskTypeCount` | number | 风险类型数 |
-| `suspiciousIpCount` | number | 疑似风险 IP 数 |
+| `suspiciousIpCount` | number | 风险 IP 数 |
 
 ---
 
@@ -222,7 +222,7 @@
 {
   "traffic": [
     { "name": "正常流量", "value": 7234, "color": "#52c41a" },
-    { "name": "疑似异常流量", "value": 2812, "color": "#ff7875" }
+    { "name": "异常流量", "value": 2812, "color": "#ff7875" }
   ],
   "protocol": [
     { "name": "HTTP", "value": 3520, "color": "#4368f0" },
@@ -243,7 +243,7 @@
 
 #### GET `/overview/network-topology`
 
-总览页网络拓扑（混合 / 良性 / 攻击 三视图）。
+总览页网络拓扑（混合 / 良性 / 异常 三视图）。
 
 **Query：** `timeRange`（同上）
 
@@ -251,7 +251,7 @@
 
 **视图要求：**
 
-- `views` 中需包含三个 key：`__combined__`（总拓扑）、`__benign__`（良性流量）、`__attack__`（攻击流量）
+- `views` 中需包含三个 key：`__combined__`（总拓扑）、`__benign__`（正常流量）、`__attack__`（异常流量）
 - 每个视图含 `host`（IP 主机图）与 `endpoint`（IP:端口 服务图）
 
 ---
@@ -651,7 +651,7 @@
 | `source` | string | 源节点 `id` |
 | `target` | string | 目标节点 `id` |
 | `value` | number | 边权重/流量数 |
-| `is_benign` | boolean | 可选，良性为 `true`，攻击为 `false`；影响连线颜色（绿/红） |
+| `is_benign` | boolean | 可选，良性为 `true`，异常为 `false`；影响连线颜色（绿/红） |
 
 #### TopologyGraph
 
@@ -692,7 +692,7 @@
 |------|------|------|
 | `label` | string | 视图标识 |
 | `view_kind` | string | 可选，`"label"` \| `"aggregate"` |
-| `is_benign` | boolean \| null | `null`=混合，`true`=良性，`false`=攻击 |
+| `is_benign` | boolean \| null | `null`=混合，`true`=良性，`false`=异常 |
 | `host` | TopologyGraph | IP（主机）拓扑 |
 | `endpoint` | TopologyGraph | IP:端口（服务）拓扑 |
 
@@ -770,7 +770,7 @@
 | `risk_name` | string | 否 | 卡片标题 |
 | `risk_description` | string | 否 | 卡片描述 |
 | `trigger_time` | string | 否 | 触发时间 |
-| `attack_ratio` | number | 是 | 攻击占比 0~1，**卡片排序依据** |
+| `attack_ratio` | number | 是 | 异常占比 0~1，**卡片排序依据** |
 | `dominant_label` | string | 否 | 主导协议/标签 |
 | `dominant_ratio` | number | 否 | 主导占比 0~1 |
 | `is_benign` | boolean \| null | 否 | 良性标识 |
