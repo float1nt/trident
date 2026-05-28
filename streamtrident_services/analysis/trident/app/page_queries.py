@@ -877,15 +877,12 @@ def _risk_item_from_learner(
 ) -> dict[str, Any]:
     attack_type = _primary_attack_type(learner)
     display = _attack_display(attack_type)
-    confidence = _primary_attack_confidence(learner)
-    risk_band = str(learner.get("risk_band") or "low").lower()
-    flow_count = int(learner.get("flow_count") or 0)
     item = {
         "id": int(learner.get("id") or 0),
         "subjectIp": subject_ip or "-",
         "name": display["name"],
         "triggerTime": _format_time(learner.get("last_seen_at")) or "-",
-        "description": f"{display['desc']}（置信度 {confidence:.3f}，风险分级 {risk_band}，关联流量 {flow_count}）",
+        "description": display["desc"],
         "features": _learner_features(learner),
     }
     if include_count:

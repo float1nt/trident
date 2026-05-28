@@ -70,7 +70,7 @@ export type DatasetNetworkTopologyJson = {
 export const GRID_CHART_HEIGHT = 280;
 
 const TOPOLOGY_NODE_LIMIT_HINT =
-  "IP/端口总数可能过大，拓扑示意图默认最多展示访问次数最多的50个IP/端口节点。";
+  "图例最多可展示访问次数TOP50 的IP/端口。";
 
 const COMPACT_MAX_NODES = 28;
 

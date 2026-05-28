@@ -21,10 +21,12 @@ import type { IpRiskListItem } from "@/api/types";
 import OverflowTooltip from "@/components/OverflowTooltip";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
+import { RiskService } from "@/api/services/RiskService";
 import {
-  EVENT_TOPOLOGY_PAGE_SIZE,
-  RiskService,
-} from "@/api/services/RiskService";
+  createPaginationProps,
+  createTablePagination,
+  DEFAULT_TABLE_PAGE_SIZE,
+} from "@/constants/tablePagination";
 import { CHART_GREEN, CHART_RED } from "@/theme/chartTheme";
 import "./RiskTaskList.css";
 
@@ -82,13 +84,12 @@ const RiskTaskList = () => {
     useState<EventSearchForm>(EMPTY_EVENT_SEARCH);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const { loading, run: runIpList } = useApi();
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
   const [eventIpTotal, setEventIpTotal] = useState(0);
   const [eventLoadError, setEventLoadError] = useState<string | null>(null);
   const [eventPage, setEventPage] = useState(1);
-  const [eventPageSize] = useState(EVENT_TOPOLOGY_PAGE_SIZE);
 
   const fetchEventTopologyPage = useCallback(
     async (offset: number, limit: number) => {
@@ -111,7 +112,7 @@ const RiskTaskList = () => {
   } = useEventTopologyPagination(
     activeView === "event",
     eventPage,
-    eventPageSize,
+    pageSize,
     fetchEventTopologyPage,
   );
 
@@ -355,17 +356,18 @@ const RiskTaskList = () => {
                   <p className="risk-event-summary__text">
                     总共
                     <span className="risk-event-summary__num">{eventTopologyTotal}</span>
-                    类风险，涉及
+                    类风险
+                    {/* ，涉及
                     <span className="risk-event-summary__num">{eventIpTotal}</span>
-                    个风险 IP
+                    个风险 IP */}
                   </p>
                 </div>
-                <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
+                {/* <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
                   <span style={{ color: CHART_GREEN ,fontSize: '18px'}}>→</span>
                   代表正常，
                   <span style={{ color: CHART_RED ,fontSize: '18px'}}>→</span>
                   代表异常。
-                </Paragraph>
+                </Paragraph> */}
               </div>
               {eventLoadError ? (
                 <Paragraph type="danger" className="!mb-3 text-xs">
@@ -383,12 +385,20 @@ const RiskTaskList = () => {
               {eventTopologyListTotal > 0 ? (
                 <div className="risk-event-pagination">
                   <Pagination
-                    current={eventPage}
-                    pageSize={eventPageSize}
-                    total={eventTopologyListTotal}
-                    showTotal={(t) => `共 ${t} 条`}
-                    onChange={setEventPage}
-                    showSizeChanger={false}
+                    {...createPaginationProps({
+                      current: eventPage,
+                      pageSize,
+                      total: eventTopologyListTotal,
+                      onChange: (nextPage, nextPageSize) => {
+                        if (nextPageSize !== pageSize) {
+                          setPageSize(nextPageSize);
+                          setEventPage(1);
+                          setPage(1);
+                          return;
+                        }
+                        setEventPage(nextPage);
+                      },
+                    })}
                   />
                 </div>
               ) : null}
@@ -429,13 +439,15 @@ const RiskTaskList = () => {
                 dataSource={listdata}
                 rowKey="id"
                 size="middle"
-                pagination={{
+                pagination={createTablePagination({
                   current: page,
-                  pageSize: pageSize,
-                  total: total,
-                  showTotal: (t) => `共 ${t} 条`,
-                  onChange: setPage,
-                }}
+                  pageSize,
+                  total,
+                  onChange: (nextPage, nextPageSize) => {
+                    setPage(nextPage);
+                    setPageSize(nextPageSize);
+                  },
+                })}
                 scroll={{ x: 710, y: "calc(100vh - 370px)" }}
                 bordered
               />

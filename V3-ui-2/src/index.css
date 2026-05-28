@@ -196,8 +196,8 @@ body {
     0 9px 28px 8px rgba(0, 0, 0, 0.05);
 }
 
-.ant-tooltip .ant-tooltip-arrow::before {
-  background: #ffffff !important;
+.ant-tooltip .ant-tooltip-arrow {
+  display: none !important;
 }
 
 /* 全局表格：表头浅蓝底、全部左对齐 */

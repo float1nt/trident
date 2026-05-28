@@ -4,9 +4,10 @@ import { CHART_AXIS_LINE, CHART_TEXT_PRIMARY, chartTheme } from "@/theme/chartTh
 /** 与 ECharts 图表 tooltip 一致的白底样式，供 Tooltip / Typography ellipsis 复用 */
 export const whiteTooltipProps: Pick<
   TooltipProps,
-  "color" | "overlayInnerStyle"
+  "color" | "overlayInnerStyle" | "arrow"
 > = {
   color: chartTheme.white,
+  arrow: false,
   overlayInnerStyle: {
     color: CHART_TEXT_PRIMARY,
     border: `1px solid ${CHART_AXIS_LINE}`,

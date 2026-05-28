@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Tag, Spin } from "antd";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
 import { TrafficLogsTable } from "@/components/TrafficLogsTable";
+import OverflowTooltip from "@/components/OverflowTooltip";
 import { RiskService, type IpSummary } from "@/api/services/RiskService";
 import type { LearnerNetworkTopologyJson } from "@/types/learnerTopology";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
@@ -82,10 +83,6 @@ export default function IpDetailPlaceholder() {
     void load();
   }, [ip, run]);
 
-  const featureTags = summary?.features
-    ? summary.features.split("、").map((item) => item.trim()).filter(Boolean)
-    : [];
-
   const handleViewRisk = (riskId: number) => {
     navigate({
       pathname: "/risk/detail",
@@ -107,34 +104,40 @@ export default function IpDetailPlaceholder() {
               aria-hidden
             />
             <div className="min-w-0 flex-1">
-              <div className="mt-[10px] flex items-center justify-between gap-3">
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                  <h2 className="m-0 shrink-0 text-lg font-medium text-[#333]">
-                    {summary?.ip ?? "IP 详情"}
-                  </h2>
-                  {summary ? (
-                    <Tag color={summary.isInternal ? "blue" : "orange"} className="!m-0">
-                      {summary.isInternal ? "内网 IP" : "外网 IP"}
-                    </Tag>
-                  ) : null}
-                  {featureTags.length > 0 ? (
-                    <div className="flex flex-wrap items-center gap-[8px]">
-                      {featureTags.map((tag) => (
-                        <Tag key={tag} className="!m-0">
-                          {tag}
-                        </Tag>
-                      ))}
-                    </div>
-                  ) : null}
+              <div className="mt-[10px] flex items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="m-0 text-lg font-medium text-[#333]">
+                      {summary?.ip ?? "IP 详情"}
+                    </h2>
+                    {summary ? (
+                      <Tag color={summary.isInternal ? "blue" : "orange"} className="!m-0">
+                        {summary.isInternal ? "内网 IP" : "外网 IP"}
+                      </Tag>
+                    ) : null}
+                    {/* {featureTags.length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-[8px]">
+                        {featureTags.map((tag) => (
+                          <Tag key={tag} className="!m-0">
+                            {tag}
+                          </Tag>
+                        ))}
+                      </div>
+                    ) : null} */}
+                  </div>
                   {(summary?.latestTriggerTime || summary?.description) ? (
-                    <div className="mb-0 mt-0 flex min-w-0 w-full flex-wrap items-center gap-1 text-sm leading-[22px] text-[#666]">
+                    <div className="flex min-w-0 flex-nowrap items-center gap-1 text-sm leading-[22px] text-[#666]">
                       {summary?.latestTriggerTime ? (
                         <span className="shrink-0 whitespace-nowrap">
                           [{summary.latestTriggerTime}]
                         </span>
                       ) : null}
                       {summary?.description ? (
-                        <span className="min-w-0">{summary.description}</span>
+                        <OverflowTooltip title={summary.description}>
+                          <span className="block min-w-0 truncate">
+                            {summary.description}
+                          </span>
+                        </OverflowTooltip>
                       ) : null}
                     </div>
                   ) : null}
