@@ -132,13 +132,6 @@ export function LearnerInternalTopologyPanel({
         {sortedOptions.map((option) => {
           const gridView = data.views[option.name];
           if (!gridView) return null;
-          const itemFlowCount =
-            gridView.host?.flow_count ?? gridView.endpoint?.flow_count;
-          const itemAttackPct = `${(gridView.attack_ratio * 100).toFixed(2)}%`;
-          const itemDominant = gridView.dominant_label || option.dominantLabel || "—";
-          const metaText = `异常 ${itemAttackPct} · ${itemDominant}${itemFlowCount != null ? ` · ${itemFlowCount.toLocaleString()} 流` : ""
-            }`;
-
           return (
             <Col key={`learner-topology-grid-${option.name}`} xs={24} md={12}>
               <Card
