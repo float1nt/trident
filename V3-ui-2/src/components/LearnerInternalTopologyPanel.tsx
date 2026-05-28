@@ -156,14 +156,14 @@ export function LearnerInternalTopologyPanel({
                             ...whiteTooltipProps,
                           },
                         }}
-                        className="min-w-0 flex-1 text-[11px]"
+                        className="min-w-0 flex-1 text-[16px]"
                       >
                         {option.riskName}
                       </Text>
                       <Button
                         type="link"
-                        size="small"
-                        className="!h-auto shrink-0 !p-0 text-[11px]"
+                       
+                        className="!h-auto shrink-0 !p-0 text-[16px]"
                         disabled={option.riskId <= 0}
                         onClick={() => {
                           if (option.riskId > 0) {

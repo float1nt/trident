@@ -7,6 +7,7 @@ import type { ColumnsType } from "antd/es/table";
 import { TopologyChartPane } from "@/components/NetworkTopologyPanel";
 import type { DatasetNetworkTopologyJson } from "@/components/NetworkTopologyPanel";
 import { TrafficLogsTable } from "@/components/TrafficLogsTable";
+import { DetailMetricValue } from "@/components/DetailMetricValue";
 import OverflowTooltip from "@/components/OverflowTooltip";
 import {
   RiskService,
@@ -175,15 +176,11 @@ export default function RiskDetailPlaceholder() {
                 <div className="mr-[16px] flex items-center gap-[24px]">
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险 IP 数</div>
-                    <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
-                      {risk?.riskIpCount ?? 0}
-                    </div>
+                    <DetailMetricValue count={risk?.riskIpCount ?? 0} />
                   </div>
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险端口数</div>
-                    <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
-                      {risk?.riskPortCount ?? 0}
-                    </div>
+                    <DetailMetricValue count={risk?.riskPortCount ?? 0} />
                   </div>
                 </div>
               </div>
