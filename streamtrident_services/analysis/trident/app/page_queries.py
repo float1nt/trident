@@ -6,6 +6,12 @@ from typing import Any
 
 from .persistence.ch_flow_repository import ChFlowRepository
 from .persistence.learner_repository import LearnerRepository
+from .protocol_utils import (
+    is_meaningful_app_proto,
+    resolve_flow_protocol_from_row,
+    resolve_flow_protocol_name,
+    transport_protocol_name,
+)
 from .redis_consumer import RedisStreamConsumer
 from .runtime.quality import is_baseline_learner, resolve_session_baseline_learner
 
@@ -957,13 +963,22 @@ def _protocol_distribution_bucket(value: Any) -> str:
     return "其他"
 
 
-def _protocol_name(value: Any) -> str:
+def _protocol_name(value: Any, *, protocol: Any = None) -> str:
+    if protocol is not None:
+        return resolve_flow_protocol_name(app_proto=value, protocol=protocol)
+    if is_meaningful_app_proto(value):
+        return str(value).strip().upper()
     try:
         proto = int(value)
     except (TypeError, ValueError):
-        text = str(value or "UNKNOWN").strip()
-        return text.upper() if text else "UNKNOWN"
-    return {1: "ICMP", 6: "TCP", 17: "UDP"}.get(proto, str(proto))
+        text = str(value or "").strip()
+        if not text:
+            return "UNKNOWN"
+        lowered = text.lower()
+        if lowered in {"unknown", "none", "-"}:
+            return "UNKNOWN"
+        return text.upper()
+    return transport_protocol_name(proto) or "UNKNOWN"
 
 
 def _format_time(value: Any) -> str:
@@ -1234,7 +1249,7 @@ def _traffic_log_item(row: dict[str, Any]) -> dict[str, Any]:
         "dstPort": int(dst_port) if dst_port is not None else 0,
         "accessTime": _format_time(row.get("event_time")) or "-",
         "traffic": int(row.get("total_bytes") or 0),
-        "protocol": _protocol_name(row.get("app_proto") or row.get("protocol")),
+        "protocol": resolve_flow_protocol_from_row(row),
     }
 
 
