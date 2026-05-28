@@ -389,6 +389,8 @@ class PageQueryService:
         trigger_start: str | None = None,
         trigger_end: str | None = None,
         top_n: int = 50,
+        limit: int = 6,
+        offset: int = 0,
     ) -> dict[str, Any]:
         sid = self.session_id
         time_from = _clean_trigger_bound(trigger_start)
@@ -402,9 +404,13 @@ class PageQueryService:
             include_all_bands=True,
         )
         rows = [row for row in rows if int(row.get("flow_count") or 0) > 0]
+        total = len(rows)
+        safe_offset = max(0, int(offset or 0))
+        capped = max(1, min(int(limit), 50))
+        page_rows = rows[safe_offset : safe_offset + capped]
         views: dict[str, Any] = {}
         learners: list[str] = []
-        for row in rows:
+        for row in page_rows:
             learner_name = str(row.get("learner_name") or "")
             if not learner_name:
                 continue
@@ -414,6 +420,7 @@ class PageQueryService:
             views[learner_name] = view
         return {
             "version": 1,
+            "total": total,
             "learners": learners,
             "default_learner": learners[0] if learners else "",
             "views": views,

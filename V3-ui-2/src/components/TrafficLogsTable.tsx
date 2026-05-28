@@ -12,6 +12,12 @@ function formatPort(port: number): string {
 
 const trafficLogColumns: ColumnsType<RiskTrafficLogItem> = [
   {
+    title: "访问时间",
+    dataIndex: "accessTime",
+    key: "accessTime",
+    width: 180,
+  },
+  {
     title: "源IP",
     dataIndex: "srcIp",
     key: "srcIp",
@@ -24,6 +30,12 @@ const trafficLogColumns: ColumnsType<RiskTrafficLogItem> = [
     width: 90,
     align: "center",
     render: (port: number) => formatPort(port),
+  },
+  {
+    title: "协议类型",
+    dataIndex: "protocol",
+    key: "protocol",
+    width: 120,
   },
   {
     title: "目的IP",
@@ -40,24 +52,12 @@ const trafficLogColumns: ColumnsType<RiskTrafficLogItem> = [
     render: (port: number) => formatPort(port),
   },
   {
-    title: "访问时间",
-    dataIndex: "accessTime",
-    key: "accessTime",
-    width: 180,
-  },
-  {
     title: "流量",
     dataIndex: "traffic",
     key: "traffic",
     width: 110,
     align: "right",
     render: (bytes: number) => formatTrafficVolumeText(bytes),
-  },
-  {
-    title: "协议类型",
-    dataIndex: "protocol",
-    key: "protocol",
-    width: 120,
   },
 ];
 

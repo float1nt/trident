@@ -128,7 +128,13 @@ def test_risk_events_topology_includes_all_learners() -> None:
     service = PageQueryService(session_id="s1", flows=TopologyFlows(), learners=TopologyLearners())
     data = service.risk_events_topology()
 
+    assert data["total"] == 2
     assert sorted(data["learners"]) == ["BASELINE_0", "NEW_1"]
+
+    page = service.risk_events_topology(limit=1, offset=0)
+    assert page["total"] == 2
+    assert len(page["learners"]) == 1
+    assert page["learners"][0] in data["learners"]
 
 
 def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:

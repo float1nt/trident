@@ -77,6 +77,7 @@ class LearnerTopologyView(BaseModel):
 
 class LearnerTopologyData(BaseModel):
     version: int = 1
+    total: int | None = None
     learners: list[str]
     default_learner: str
     views: dict[str, LearnerTopologyView]
