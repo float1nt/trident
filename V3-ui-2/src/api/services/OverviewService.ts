@@ -45,16 +45,17 @@ export class OverviewService {
       "/overview/network-topology",
       { timeRange },
     );
-    return (
-      res.data ?? {
-        version: 1,
-        total_flows: 0,
-        labels: [],
-        default_label: "__combined__",
-        default_node_mode: "host",
-        aggregate_views: [],
-        views: {},
-      }
-    );
+      return (
+        res.data ?? {
+          version: 1,
+          total_flows: 0,
+          labels: [],
+          default_label: "__combined__",
+          default_node_mode: "host",
+          aggregate_views: [],
+          views: {},
+          // fallback keeps shape compatible with backend response
+        }
+      );
   }
 }

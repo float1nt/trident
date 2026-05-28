@@ -36,6 +36,7 @@ class TopologyLink(BaseModel):
 
 class TopologyGraph(BaseModel):
     flow_count: int
+    total_flow_count: int = 0
     node_mode: str
     nodes: list[TopologyNode]
     links: list[TopologyLink]

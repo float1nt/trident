@@ -169,6 +169,7 @@ class PageQueryService:
         learner_rows = self.learners.list_learners(session_id=sid)
         learner_by_name = {str(row.get("learner_name") or ""): row for row in learner_rows}
         risk_names = _risk_learner_names(learner_rows)
+        risk_name_set = set(risk_names)
         result = self.flows.risk_ip_view(
             session_id=sid,
             risk_learners=risk_names,
@@ -178,7 +179,14 @@ class PageQueryService:
             subject_ip_like=subject_ip,
             trigger_time_prefix=trigger_time,
         )
-        items = [_risk_ip_item(row, learner_by_name.get(str(row.get("assigned_learner") or ""))) for row in result["items"]]
+        items = [
+            _risk_ip_item(
+                row,
+                learner_by_name.get(str(row.get("assigned_learner") or "")),
+                is_risk_learner=str(row.get("assigned_learner") or "") in risk_name_set,
+            )
+            for row in result["items"]
+        ]
         return {"items": items, "total": int(result["total"])}
 
     def dashboard_topology(
@@ -281,7 +289,8 @@ class PageQueryService:
         sid = session_id or self.session_id
         learner = self.learners.get_learner(session_id=sid, learner_name=learner_name) or {}
         event = _learner_event_item(1, learner) if learner else _empty_event_item(learner_name)
-        is_benign = event["risk_band"] == "low"
+        primary_attack = _primary_attack_type(learner)
+        is_benign = primary_attack == "BENIGN_NORMAL"
         traffic_kind = "benign" if is_benign else "attack"
         topology_risk_learners = [] if is_benign else [learner_name]
         view = {
@@ -332,6 +341,7 @@ class PageQueryService:
         learner_rows = self.learners.list_learners(session_id=sid)
         learner_by_name = {str(row.get("learner_name") or ""): row for row in learner_rows}
         risk_names = _risk_learner_names(learner_rows)
+        risk_name_set = set(risk_names)
         raw = self.flows.risk_ip_view(
             session_id=sid,
             risk_learners=risk_names,
@@ -345,7 +355,7 @@ class PageQueryService:
             ip = str(row.get("subject_ip") or "")
             learner = str(row.get("assigned_learner") or "") or "UNKNOWN"
             learner_row = learner_by_name.get(learner) or {}
-            attack_type = _primary_attack_type(learner_row)
+            attack_type = _primary_attack_type(learner_row) if learner in risk_name_set else "UNKNOWN_SUSPECTED"
             display_name = _attack_display(attack_type)["name"] if attack_type else learner
             if not ip:
                 continue
@@ -667,9 +677,14 @@ def _topology_view(
     }
 
 
-def _risk_ip_item(row: dict[str, Any], learner: dict[str, Any] | None) -> dict[str, Any]:
+def _risk_ip_item(
+    row: dict[str, Any],
+    learner: dict[str, Any] | None,
+    *,
+    is_risk_learner: bool,
+) -> dict[str, Any]:
     learner_name = str(row.get("assigned_learner") or "")
-    attack_type = _primary_attack_type(learner or {})
+    attack_type = _primary_attack_type(learner or {}) if is_risk_learner else "UNKNOWN_SUSPECTED"
     display = _attack_display(attack_type)
     risk_score = _float(learner.get("risk_score") if learner else None)
     risk_band = str((learner or {}).get("risk_band") or "low").lower()
@@ -925,7 +940,7 @@ def _traffic_log_item(row: dict[str, Any], *, subject_ip: str | None = None) -> 
 
 
 def _empty_graph(node_mode: str = "host") -> dict[str, Any]:
-    return {"flow_count": 0, "node_mode": node_mode, "nodes": [], "links": [], "stats": {}}
+    return {"flow_count": 0, "total_flow_count": 0, "node_mode": node_mode, "nodes": [], "links": [], "stats": {}}
 
 
 def _empty_dataset_topology() -> dict[str, Any]:
