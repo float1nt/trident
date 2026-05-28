@@ -6,6 +6,7 @@ import "./NetworkTopologyPanel.css";
 import {
   CHART_AXIS_LINE,
   CHART_GREEN,
+  CHART_ORANGE,
   CHART_RED,
   CHART_TEXT_PRIMARY,
   chartTheme,
@@ -112,11 +113,12 @@ function initialGraphZoom(nodeCount: number, compact = false): number {
   else if (nodeCount <= 75) z = 0.36;
   const base = Math.min(1, z * 2);
   if (!compact) return base;
+  // 紧凑模式 + 节点很多时提高 zoom，否则 50 个节点在 120px 里几乎看不见
   if (nodeCount <= 8) return base * 0.55;
   if (nodeCount <= 15) return base * 0.45;
-  if (nodeCount <= 30) return base * 0.36;
-  if (nodeCount <= 50) return base * 0.3;
-  return Math.max(0.08, base * 0.24);
+  if (nodeCount <= 30) return base * 0.38;
+  if (nodeCount <= 50) return Math.max(0.32, base * 0.22);
+  return Math.max(0.2, base * 0.15);
 }
 
 function compactForceParams(
@@ -127,9 +129,9 @@ function compactForceParams(
   const n = Math.max(nodeCount, 1);
   if (compact) {
     return {
-      repulsion: Math.min(repulsion * 0.55, 28 + n * 1.2),
-      edgeLength: [14, Math.min(56, 20 + n * 0.7)] as [number, number],
-      gravity: 0.24,
+      repulsion: Math.min(repulsion * 0.45, 24 + n * 0.8),
+      edgeLength: [20, Math.min(48, 16 + n * 0.5)] as [number, number],
+      gravity: 0.35,
     };
   }
   return {
@@ -150,11 +152,12 @@ function buildGraphData(
 
   const nodes: GraphNode[] = graph.nodes.map((n) => {
     const t = n.flow_count / maxFlow;
+    const nodeCount = graph.nodes.length;
     const size = compact
-      ? 4 + Math.sqrt(t) * 5
+      ? 8 + Math.sqrt(t) * 6
       : 6 + Math.sqrt(t) * 14;
-    const minSize = compact ? 3 : 5;
-    const maxSize = compact ? 10 : 22;
+    const minSize = compact ? (nodeCount > 25 ? 6 : nodeCount > 12 ? 5 : 3) : 5;
+    const maxSize = compact ? 18 : 22;
     return {
       id: n.id,
       name: n.id,
@@ -213,7 +216,7 @@ function getTrafficAnalysisText(
 ): string {
   if (viewIsBenign === true) return "良性";
   if (viewIsBenign === false) return "异常";
-  return "混合";
+  return "部分异常";
 }
 
 function formatTrafficAnalysisHtml(label: string): string {
@@ -222,6 +225,9 @@ function formatTrafficAnalysisHtml(label: string): string {
   }
   if (label === "异常") {
     return `流量分析:<span style="color:${CHART_RED}">异常</span>`;
+  }
+  if (label === "部分异常") {
+    return `流量分析:<span style="color:${CHART_ORANGE}">部分异常</span>`;
   }
   return `流量分析:${label}`;
 }
@@ -439,7 +445,10 @@ export function TopologyChartPane({
       ? hostGraph
       : endpointGraph
     : graph;
-  const displayGraph = activeGraph;
+  const displayGraph = useMemo(
+    () => (compact ? trimGraphForCompactDisplay(activeGraph) : activeGraph),
+    [activeGraph, compact],
+  );
   const graphData = useMemo(
     () => buildGraphData(displayGraph, viewIsBenign, minEdgeFlows, compact),
     [displayGraph, viewIsBenign, minEdgeFlows, compact],

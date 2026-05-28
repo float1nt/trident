@@ -6,8 +6,10 @@ import EChartsRingChart from "@/components/EChartsRingChart";
 import { TopologyChartPane } from "@/components/NetworkTopologyPanel";
 import {
   OverviewService,
+  getTrafficTrendChartTitle,
   type OverviewMetrics,
   type TimeRange,
+  type TrafficTrendPoint,
 } from "@/api/services/OverviewService";
 import {
   buildProtocolDistributionRingOption,
@@ -15,10 +17,6 @@ import {
   type DistributionItem,
 } from "@/utils/chartDistribution";
 import { buildTrafficTrendBarOption } from "@/utils/chartTrafficTrend";
-import {
-  getMockTrafficTrend,
-  getTrafficTrendChartTitle,
-} from "@/mock/overviewTrafficTrend";
 import type { DatasetNetworkTopologyJson } from "@/components/NetworkTopologyPanel";
 
 const CHART_HEIGHT = 280;
@@ -42,19 +40,22 @@ export default function HomeView() {
   const [protocolDist, setProtocolDist] = useState<DistributionItem[]>([]);
   const [networkTopology, setNetworkTopology] =
     useState<DatasetNetworkTopologyJson | null>(null);
+  const [trafficTrend, setTrafficTrend] = useState<TrafficTrendPoint[]>([]);
   const { loading, run } = useApi();
 
   const loadOverview = useCallback(async () => {
     await run(async () => {
-      const [metricsData, distributions, topology] = await Promise.all([
+      const [metricsData, distributions, topology, trend] = await Promise.all([
         OverviewService.getMetrics(timeRange),
         OverviewService.getDistributions(timeRange),
         OverviewService.getNetworkTopology(timeRange),
+        OverviewService.getTrafficTrend(timeRange),
       ]);
       setMetrics(metricsData);
       setTrafficDist(distributions.traffic);
       setProtocolDist(distributions.protocol);
       setNetworkTopology(topology);
+      setTrafficTrend(trend);
     });
   }, [timeRange, run]);
 
@@ -71,13 +72,9 @@ export default function HomeView() {
     [protocolDist],
   );
 
-  const trafficTrendData = useMemo(
-    () => getMockTrafficTrend(timeRange),
-    [timeRange],
-  );
   const trafficTrendChartOption = useMemo(
-    () => buildTrafficTrendBarOption(trafficTrendData),
-    [trafficTrendData],
+    () => buildTrafficTrendBarOption(trafficTrend),
+    [trafficTrend],
   );
   const trafficTrendChartTitle = useMemo(
     () => getTrafficTrendChartTitle(timeRange),

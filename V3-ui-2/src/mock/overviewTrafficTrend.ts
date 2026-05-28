@@ -1,10 +1,9 @@
-import type { TimeRange } from "@/api/services/OverviewService";
+import type {
+  TimeRange,
+  TrafficTrendPoint,
+} from "@/api/services/OverviewService";
 
-export type TrafficTrendPoint = {
-  label: string;
-  normal: number;
-  abnormal: number;
-};
+export type { TrafficTrendPoint };
 
 /** 生成带波动的 mock 数值（单位：GB） */
 function mockTrafficGb(
@@ -91,15 +90,4 @@ export function getMockTrafficTrend(timeRange: TimeRange): TrafficTrendPoint[] {
   }
 }
 
-export function getTrafficTrendChartTitle(timeRange: TimeRange): string {
-  switch (timeRange) {
-    case "24h":
-      return "流量趋势（按小时）";
-    case "7d":
-      return "流量趋势（按天）";
-    case "30d":
-      return "流量趋势（按周）";
-    default:
-      return "流量趋势";
-  }
-}
+export { getTrafficTrendChartTitle } from "@/api/services/OverviewService";

@@ -16,6 +16,25 @@ export type OverviewDistributions = {
 
 export type TimeRange = "24h" | "7d" | "30d";
 
+export type TrafficTrendPoint = {
+  label: string;
+  normal: number;
+  abnormal: number;
+};
+
+export function getTrafficTrendChartTitle(timeRange: TimeRange): string {
+  switch (timeRange) {
+    case "24h":
+      return "流量趋势（按小时）";
+    case "7d":
+      return "流量趋势（按天）";
+    case "30d":
+      return "流量趋势（按周）";
+    default:
+      return "流量趋势";
+  }
+}
+
 export class OverviewService {
   static async getMetrics(timeRange: TimeRange = "24h"): Promise<OverviewMetrics> {
     const res = await get<OverviewMetrics>("/overview/metrics", { timeRange });
@@ -36,6 +55,15 @@ export class OverviewService {
       timeRange,
     });
     return res.data ?? { traffic: [], protocol: [] };
+  }
+
+  static async getTrafficTrend(
+    timeRange: TimeRange = "24h",
+  ): Promise<TrafficTrendPoint[]> {
+    const res = await get<TrafficTrendPoint[]>("/overview/traffic-trend", {
+      timeRange,
+    });
+    return res.data ?? [];
   }
 
   static async getNetworkTopology(

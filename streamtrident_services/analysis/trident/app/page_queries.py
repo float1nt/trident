@@ -395,6 +395,8 @@ class PageQueryService:
         trigger_start: str | None = None,
         trigger_end: str | None = None,
         top_n: int = 50,
+        limit: int = 6,
+        offset: int = 0,
     ) -> dict[str, Any]:
         sid = self.session_id
         time_from = _clean_trigger_bound(trigger_start)
@@ -408,9 +410,13 @@ class PageQueryService:
             include_all_bands=False,
         )
         rows = [row for row in rows if int(row.get("flow_count") or 0) > 0]
+        total = len(rows)
+        safe_offset = max(0, int(offset or 0))
+        capped = max(1, min(int(limit), 50))
+        page_rows = rows[safe_offset : safe_offset + capped]
         views: dict[str, Any] = {}
         learners: list[str] = []
-        for row in rows:
+        for row in page_rows:
             learner_name = str(row.get("learner_name") or "")
             if not learner_name:
                 continue
@@ -420,6 +426,7 @@ class PageQueryService:
             views[learner_name] = view
         return {
             "version": 1,
+            "total": total,
             "learners": learners,
             "default_learner": learners[0] if learners else "",
             "views": views,
@@ -429,6 +436,15 @@ class PageQueryService:
         learner = self.learners.get_learner_by_id(session_id=self.session_id, learner_id=risk_id) or {}
         item = _risk_item_from_learner(learner, subject_ip=_first_subject_ip(self, learner))
         item["riskIpCount"] = len(self.risk_ips(risk_id=risk_id, limit=1000))
+        learner_name = str(learner.get("learner_name") or "")
+        item["riskPortCount"] = (
+            self.flows.unique_dst_port_count_by_learner(
+                session_id=self.session_id,
+                learner_name=learner_name,
+            )
+            if learner_name
+            else 0
+        )
         return item
 
     def risk_network_topology(self, *, risk_id: int, top_n: int = 50) -> dict[str, Any]:
@@ -532,7 +548,7 @@ class PageQueryService:
 
     def ip_traffic_logs(self, *, ip: str, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         flows = self.flows.list_flows(session_id=self.session_id, src_ip=ip, limit=limit, offset=offset)
-        return [_traffic_log_item(row, subject_ip=ip) for row in flows["items"]]
+        return [_traffic_log_item(row) for row in flows["items"]]
 
     def learner_detail(
         self,
@@ -936,11 +952,17 @@ def _learner_features(learner: dict[str, Any]) -> str:
     return "、".join(parts)
 
 
-def _traffic_log_item(row: dict[str, Any], *, subject_ip: str | None = None) -> dict[str, Any]:
+def _traffic_log_item(row: dict[str, Any]) -> dict[str, Any]:
+    src_port = row.get("src_port")
+    dst_port = row.get("dst_port")
     return {
         "id": str(row.get("flow_uid") or row.get("mq_message_id") or ""),
-        "time": _format_time(row.get("event_time")) or "-",
-        "ip": str(row.get("dst_ip") if subject_ip else row.get("src_ip") or ""),
+        "srcIp": str(row.get("src_ip") or ""),
+        "srcPort": int(src_port) if src_port is not None else 0,
+        "dstIp": str(row.get("dst_ip") or ""),
+        "dstPort": int(dst_port) if dst_port is not None else 0,
+        "accessTime": _format_time(row.get("event_time")) or "-",
+        "traffic": int(row.get("total_bytes") or 0),
         "protocol": _protocol_name(row.get("app_proto") or row.get("protocol")),
     }
 

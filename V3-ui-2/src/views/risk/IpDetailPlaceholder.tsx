@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "@/hooks/useApi";
+import { useTrafficLogsInfiniteScroll } from "@/hooks/useTrafficLogsInfiniteScroll";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Tag, Table, Button, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
+import { TrafficLogsTable } from "@/components/TrafficLogsTable";
 import {
   RiskService,
   type IpRiskEventItem,
   type IpSummary,
-  type RiskTrafficLogItem,
 } from "@/api/services/RiskService";
 import type { LearnerNetworkTopologyJson } from "@/types/learnerTopology";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
@@ -79,26 +80,6 @@ function buildIpRiskEventColumns(
   ];
 }
 
-const trafficLogColumns: ColumnsType<RiskTrafficLogItem> = [
-  {
-    title: "时间",
-    dataIndex: "time",
-    key: "time",
-    width: 180,
-  },
-  {
-    title: "IP",
-    dataIndex: "ip",
-    key: "ip",
-  },
-  {
-    title: "协议",
-    dataIndex: "protocol",
-    key: "protocol",
-    width: 340,
-  },
-];
-
 /** IP 详情页 */
 export default function IpDetailPlaceholder() {
   const navigate = useNavigate();
@@ -114,17 +95,27 @@ export default function IpDetailPlaceholder() {
   const [ipRiskEventTopology, setIpRiskEventTopology] =
     useState<LearnerNetworkTopologyJson | null>(null);
   const [riskEvents, setRiskEvents] = useState<IpRiskEventItem[]>([]);
-  const [trafficLogs, setTrafficLogs] = useState<RiskTrafficLogItem[]>([]);
   const [riskEventPage, setRiskEventPage] = useState(1);
-  const [trafficLogPage, setTrafficLogPage] = useState(1);
   const requestSeqRef = useRef(0);
+
+  const trafficLogsEnabled = loadState === "done" && !!summary && !!ip;
+  const fetchTrafficLogs = useCallback(
+    (offset: number, limit: number) =>
+      RiskService.getIpTrafficLogs(ip, limit, offset),
+    [ip],
+  );
+  const {
+    trafficLogs,
+    loading: trafficLogsLoading,
+    hasMore: trafficLogsHasMore,
+    tableWrapperRef,
+  } = useTrafficLogsInfiniteScroll(trafficLogsEnabled, fetchTrafficLogs);
 
   useEffect(() => {
     if (!ip) {
       setSummary(null);
       setIpRiskEventTopology(null);
       setRiskEvents([]);
-      setTrafficLogs([]);
       setLoadState("done");
       return;
     }
@@ -134,7 +125,6 @@ export default function IpDetailPlaceholder() {
     setSummary(null);
     setIpRiskEventTopology(null);
     setRiskEvents([]);
-    setTrafficLogs([]);
 
     const load = async () => {
       const summaryData = await run(async () => RiskService.getIpSummary(ip));
@@ -152,19 +142,15 @@ export default function IpDetailPlaceholder() {
       void Promise.allSettled([
         RiskService.getIpEventsTopology(ip),
         RiskService.getIpEvents(ip),
-        RiskService.getIpTrafficLogs(ip),
       ]).then((results) => {
         if (requestSeq !== requestSeqRef.current) return;
 
-        const [topologyResult, eventsResult, logsResult] = results;
+        const [topologyResult, eventsResult] = results;
         if (topologyResult.status === "fulfilled") {
           setIpRiskEventTopology(topologyResult.value);
         }
         if (eventsResult.status === "fulfilled") {
           setRiskEvents(eventsResult.value);
-        }
-        if (logsResult.status === "fulfilled") {
-          setTrafficLogs(logsResult.value);
         }
       });
     };
@@ -174,7 +160,6 @@ export default function IpDetailPlaceholder() {
 
   useEffect(() => {
     setRiskEventPage(1);
-    setTrafficLogPage(1);
   }, [ip]);
 
   const featureTags = summary?.features
@@ -291,20 +276,11 @@ export default function IpDetailPlaceholder() {
                 <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
                   流量日志
                 </h3>
-                <Table<RiskTrafficLogItem>
-                  rowKey="id"
-                  size="middle"
-                  bordered
-                  columns={trafficLogColumns}
-                  dataSource={trafficLogs}
-                  pagination={{
-                    current: trafficLogPage,
-                    pageSize: LIST_PAGE_SIZE,
-                    total: trafficLogs.length,
-                    showTotal: (total) => `共 ${total} 条`,
-                    onChange: setTrafficLogPage,
-                  }}
-                  scroll={{ y: LIST_MAX_HEIGHT }}
+                <TrafficLogsTable
+                  trafficLogs={trafficLogs}
+                  loading={trafficLogsLoading}
+                  hasMore={trafficLogsHasMore}
+                  tableWrapperRef={tableWrapperRef}
                 />
               </div>
             </div>
