@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import re
 from typing import Any
 
 import yaml
@@ -93,10 +95,26 @@ def _bool(value: Any, default: bool) -> bool:
     return bool(value)
 
 
+_ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def _expand_env(value: Any) -> Any:
+    if isinstance(value, str):
+        return _ENV_PATTERN.sub(
+            lambda match: os.getenv(match.group(1)) or (match.group(2) or ""),
+            value,
+        )
+    if isinstance(value, dict):
+        return {key: _expand_env(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_expand_env(item) for item in value]
+    return value
+
+
 def load_config(path: str | Path | None) -> TridentConfig:
     if path is None:
         return TridentConfig()
-    payload = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    payload = _expand_env(yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {})
     if not isinstance(payload, dict):
         raise ValueError(f"config must be a mapping: {path}")
     return TridentConfig(

@@ -14,12 +14,14 @@ RULE_SET_VERSION = "2026-05-27.v1"
 ATTACK_EXPLAIN: dict[str, str] = {
     "PORT_SCAN": "端口维度高度展开，符合端口扫描模式。",
     "HOST_SCAN": "存在明显出向 hub，符合主机扫描或横向探测模式。",
-    "DDOS_VICTIM": "固定目标服务被多源汇聚，符合 DDoS 受害模式。",
+    "DDOS_VICTIM": "固定目标服务被多源汇聚，符合分布式拒绝服务攻击特征。",
     "DOS_ATTACKER": "固定目标集中且边复用高，符合 DoS 攻击源模式。",
     "DRDOS_REFLECTION_FAMILY": "边分散且单向性强，符合反射放大型攻击族模式。",
     "SLOW_DOS_SUSPECTED": "固定目标且低往返，符合慢速 DoS 嫌疑模式。",
     "WEB_DDOS_SUSPECTED": "Web 端口主导且双向复杂，符合 Web DDoS 嫌疑模式。",
     "BRUTE_FORCE_SUSPECTED": "目标端口集中且短时复用高，符合暴力破解嫌疑模式。",
+    "BENIGN_NORMAL": "未命中攻击规则，行为更接近正常业务流量。",
+    "UNKNOWN_SUSPECTED": "存在异常迹象，但尚未匹配到已命名攻击类型。",
 }
 
 
@@ -535,6 +537,69 @@ def _match_attack_rules(
             }
         )
     attack_types.sort(key=lambda item: (-float(item["confidence"]), item["attack_type"]))
+
+    # 良性/未知兜底：确保每个学习器都能给出可解释的定性结果
+    if not attack_types:
+        benign_like = (
+            _m(metrics, "dst_port_top1_concentration") <= 65.0
+            and _m(metrics, "low_reciprocity") <= 65.0
+            and _m(metrics, "temporal_burst") <= 60.0
+            and _m(metrics, "edge_reuse_ratio") <= 60.0
+            and _m(metrics, "host_max_in_degree_ratio") <= 70.0
+            and _m(metrics, "host_max_out_degree_ratio") <= 70.0
+        )
+        if benign_like:
+            benign_confidence = min(
+                0.35,
+                max(0.18, 0.35 - _m(metrics, "temporal_burst") / 300.0),
+            )
+            attack_types = [
+                {
+                    "attack_type": "BENIGN_NORMAL",
+                    "confidence": round(benign_confidence, 6),
+                    "evidence_rules": ["learner_benign_fallback"],
+                    "explain": ATTACK_EXPLAIN["BENIGN_NORMAL"],
+                }
+            ]
+            rule_hits.append(
+                {
+                    "rule_id": "learner_benign_fallback",
+                    "rule_version": "v1",
+                    "target_attack_type": "BENIGN_NORMAL",
+                    "match": "strong",
+                    "source": "learner_metric_json",
+                    "metric": "temporal_burst",
+                    "value": _m(metrics, "temporal_burst"),
+                    "weak_threshold": 60.0,
+                    "strong_threshold": 45.0,
+                    "weight": 0.5,
+                    "explain": ATTACK_EXPLAIN["BENIGN_NORMAL"],
+                }
+            )
+        else:
+            attack_types = [
+                {
+                    "attack_type": "UNKNOWN_SUSPECTED",
+                    "confidence": 0.35,
+                    "evidence_rules": ["learner_unknown_fallback"],
+                    "explain": ATTACK_EXPLAIN["UNKNOWN_SUSPECTED"],
+                }
+            ]
+            rule_hits.append(
+                {
+                    "rule_id": "learner_unknown_fallback",
+                    "rule_version": "v1",
+                    "target_attack_type": "UNKNOWN_SUSPECTED",
+                    "match": "weak",
+                    "source": "learner_metric_json",
+                    "metric": "dst_port_entropy",
+                    "value": _m(metrics, "dst_port_entropy"),
+                    "weak_threshold": 0.0,
+                    "strong_threshold": 0.0,
+                    "weight": 0.3,
+                    "explain": ATTACK_EXPLAIN["UNKNOWN_SUSPECTED"],
+                }
+            )
     return attack_types, rule_hits
 
 

@@ -11,6 +11,19 @@ from .redis_consumer import RedisStreamConsumer
 
 RISK_BANDS = {"medium", "high"}
 
+ATTACK_TYPE_DISPLAY: dict[str, dict[str, str]] = {
+    "PORT_SCAN": {"name": "端口扫描", "desc": "短时间探测大量目标端口，常用于资产发现。"},
+    "HOST_SCAN": {"name": "主机扫描/横向探测", "desc": "单个来源连接大量主机，存在横向探测特征。"},
+    "DDOS_VICTIM": {"name": "分布式拒绝服务攻击", "desc": "目标被大量来源集中访问，呈现典型分布式拒绝服务攻击特征。"},
+    "DOS_ATTACKER": {"name": "DoS攻击源", "desc": "来源持续高频访问固定目标，疑似拒绝服务攻击发起端。"},
+    "DRDOS_REFLECTION_FAMILY": {"name": "反射放大攻击族", "desc": "流量呈单向扩散与反射放大特征，需重点关注。"},
+    "SLOW_DOS_SUSPECTED": {"name": "慢速DoS嫌疑", "desc": "连接行为更像慢速耗尽型攻击，建议持续观察。"},
+    "WEB_DDOS_SUSPECTED": {"name": "Web DDoS嫌疑", "desc": "Web服务端口压力异常，疑似应用层DDoS。"},
+    "BRUTE_FORCE_SUSPECTED": {"name": "暴力破解嫌疑", "desc": "固定端口反复尝试，疑似口令爆破。"},
+    "BENIGN_NORMAL": {"name": "正常流量", "desc": "当前窗口未命中攻击规则，行为接近正常业务。"},
+    "UNKNOWN_SUSPECTED": {"name": "未命名攻击", "desc": "当前流量存在异常迹象，但尚未匹配到已命名攻击类型。"},
+}
+
 
 class PageQueryService:
     def __init__(
@@ -53,13 +66,14 @@ class PageQueryService:
         return {
             "metrics": {
                 "total_flows": int(summary.get("total_flows") or 0),
+                "total_bytes": int(summary.get("total_bytes") or 0),
                 "protocol_count": int(summary.get("protocol_count") or 0),
                 "risk_learner_count": len(risk_names),
                 "risk_ip_count": int(summary.get("risk_ip_count") or 0),
             },
             "traffic_distribution": [
-                {"name": "正常流量", "value": int(summary.get("normal_flows") or 0)},
-                {"name": "疑似异常流量", "value": int(summary.get("risk_flows") or 0)},
+                {"name": "正常流量", "value": int(summary.get("normal_bytes") or 0)},
+                {"name": "疑似异常流量", "value": int(summary.get("risk_bytes") or 0)},
             ],
             "protocol_distribution": protocol_distribution,
             "runtime": {
@@ -75,7 +89,7 @@ class PageQueryService:
         overview = self.dashboard_overview(time_from=time_from)
         metrics = overview["metrics"]
         return {
-            "totalTraffic": int(metrics["total_flows"]),
+            "totalTraffic": int(metrics["total_bytes"]),
             "protocolCount": int(metrics["protocol_count"]),
             "riskTypeCount": int(metrics["risk_learner_count"]),
             "suspiciousIpCount": int(metrics["risk_ip_count"]),
@@ -88,6 +102,34 @@ class PageQueryService:
             "traffic": overview["traffic_distribution"],
             "protocol": overview["protocol_distribution"],
         }
+
+    def overview_traffic_trend(self, *, time_range: str = "24h") -> list[dict[str, Any]]:
+        sid = self.session_id
+        spec = _traffic_trend_spec(time_range)
+        learner_rows = self.learners.list_learners(session_id=sid)
+        risk_names = _risk_learner_names(learner_rows)
+        rows = self.flows.traffic_trend(
+            session_id=sid,
+            risk_learners=risk_names,
+            bucket=spec["bucket"],
+            time_from=spec["time_from"],
+            time_to=spec["time_to"],
+        )
+        by_bucket = {
+            str(row.get("bucket_start") or ""): {
+                "normal": int(row.get("normal") or 0),
+                "abnormal": int(row.get("abnormal") or 0),
+            }
+            for row in rows
+        }
+        return [
+            {
+                "label": item["label"],
+                "normal": by_bucket.get(item["key"], {}).get("normal", 0),
+                "abnormal": by_bucket.get(item["key"], {}).get("abnormal", 0),
+            }
+            for item in spec["buckets"]
+        ]
 
     def risk_events(
         self,
@@ -239,6 +281,9 @@ class PageQueryService:
         sid = session_id or self.session_id
         learner = self.learners.get_learner(session_id=sid, learner_name=learner_name) or {}
         event = _learner_event_item(1, learner) if learner else _empty_event_item(learner_name)
+        is_benign = event["risk_band"] == "low"
+        traffic_kind = "benign" if is_benign else "attack"
+        topology_risk_learners = [] if is_benign else [learner_name]
         view = {
             "learner": learner_name,
             "risk_id": event["risk_id"],
@@ -248,19 +293,23 @@ class PageQueryService:
             "attack_ratio": event["attack_ratio"],
             "dominant_label": event["dominant_label"],
             "dominant_ratio": event["risk_score"],
-            "is_benign": event["risk_band"] == "low",
+            "is_benign": is_benign,
             "host": self.flows.topology_graph(
                 session_id=sid,
                 node_mode="host",
+                risk_learners=topology_risk_learners,
                 learner_name=learner_name,
                 subject_ip=subject_ip,
+                traffic_kind=traffic_kind,
                 top_n=top_n,
             ),
             "endpoint": self.flows.topology_graph(
                 session_id=sid,
                 node_mode="endpoint",
+                risk_learners=topology_risk_learners,
                 learner_name=learner_name,
                 subject_ip=subject_ip,
+                traffic_kind=traffic_kind,
                 top_n=top_n,
             ),
         }
@@ -281,6 +330,7 @@ class PageQueryService:
     ) -> dict[str, Any]:
         sid = self.session_id
         learner_rows = self.learners.list_learners(session_id=sid)
+        learner_by_name = {str(row.get("learner_name") or ""): row for row in learner_rows}
         risk_names = _risk_learner_names(learner_rows)
         raw = self.flows.risk_ip_view(
             session_id=sid,
@@ -296,7 +346,7 @@ class PageQueryService:
             learner = str(row.get("assigned_learner") or "") or "UNKNOWN"
             learner_row = learner_by_name.get(learner) or {}
             attack_type = _primary_attack_type(learner_row)
-            display_name = attack_type or learner
+            display_name = _attack_display(attack_type)["name"] if attack_type else learner
             if not ip:
                 continue
             grouped.setdefault(ip, {})
@@ -559,17 +609,24 @@ def _learner_event_item(index: int, row: dict[str, Any]) -> dict[str, Any]:
     risk_score = _float(row.get("risk_score"))
     risk_band = str(row.get("risk_band") or "low").lower()
     primary_attack = _primary_attack_type(row)
-    risk_name = primary_attack or learner_name
+    display = _attack_display(primary_attack)
+    risk_name = display["name"] if primary_attack else learner_name
     confidence = _primary_attack_confidence(row)
-    attack_desc = f"attack_type={primary_attack}; confidence={confidence:.3f}" if primary_attack else ""
+    attack_desc = (
+        f"风险类型={display['name']}; 置信度={confidence:.3f}; 说明={display['desc']}"
+        if primary_attack
+        else ""
+    )
+    base_desc = str(row.get("risk_reason") or "暂无风险说明")
+    risk_description = attack_desc or base_desc
     return {
         "learner_name": learner_name,
         "risk_id": int(row.get("id") or index),
         "risk_name": risk_name,
-        "risk_description": "; ".join(part for part in [str(row.get("risk_reason") or "暂无风险说明"), attack_desc] if part),
+        "risk_description": risk_description,
         "trigger_time": _format_time(row.get("last_seen_at")) or "-",
         "attack_ratio": risk_score,
-        "dominant_label": primary_attack or risk_band,
+        "dominant_label": display["name"] if primary_attack else risk_band,
         "flow_count": int(row.get("flow_count") or 0),
         "risk_score": risk_score,
         "risk_band": risk_band,
@@ -578,14 +635,15 @@ def _learner_event_item(index: int, row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _empty_event_item(learner_name: str) -> dict[str, Any]:
+    benign_display = _attack_display("BENIGN_NORMAL")
     return {
         "learner_name": learner_name,
         "risk_id": 0,
-        "risk_name": learner_name,
-        "risk_description": "暂无风险说明",
+        "risk_name": benign_display["name"],
+        "risk_description": benign_display["desc"],
         "trigger_time": "-",
         "attack_ratio": 0.0,
-        "dominant_label": "low",
+        "dominant_label": benign_display["name"],
         "flow_count": 0,
         "risk_score": 0.0,
         "risk_band": "low",
@@ -612,6 +670,7 @@ def _topology_view(
 def _risk_ip_item(row: dict[str, Any], learner: dict[str, Any] | None) -> dict[str, Any]:
     learner_name = str(row.get("assigned_learner") or "")
     attack_type = _primary_attack_type(learner or {})
+    display = _attack_display(attack_type)
     risk_score = _float(learner.get("risk_score") if learner else None)
     risk_band = str((learner or {}).get("risk_band") or "low").lower()
     protocol = _protocol_name(row.get("top_protocol"))
@@ -622,9 +681,9 @@ def _risk_ip_item(row: dict[str, Any], learner: dict[str, Any] | None) -> dict[s
     return {
         "id": int((learner or {}).get("id") or 0),
         "subjectIp": str(row.get("subject_ip") or ""),
-        "name": attack_type or learner_name or "UNKNOWN",
+        "name": display["name"] if attack_type else learner_name or "UNKNOWN",
         "triggerTime": _format_time(row.get("trigger_time")) or "-",
-        "description": f"risk_band={risk_band}; learner={learner_name or 'UNKNOWN'}; attack_type={attack_type or 'UNKNOWN'}; top_protocol={protocol}; top_dst_port={top_dst_port}",
+        "description": f"risk_band={risk_band}; learner={learner_name or 'UNKNOWN'}; 风险类型={display['name'] if attack_type else '未知'}; 说明={display['desc'] if attack_type else '-'}; top_protocol={protocol}; top_dst_port={top_dst_port}",
         "features": f"flows={flow_count}; unknown={unknown_count}; top_dst_ip={top_dst_ip}",
         "riskScore": risk_score,
         "riskBand": risk_band,
@@ -697,18 +756,86 @@ def _time_range_start(value: str) -> str | None:
     return start.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def _traffic_trend_spec(value: str) -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    if value == "7d":
+        start = today - timedelta(days=6)
+        buckets = [
+            {
+                "key": _bucket_key(start + timedelta(days=index)),
+                "label": (start + timedelta(days=index)).strftime("%m-%d"),
+            }
+            for index in range(7)
+        ]
+        return {
+            "bucket": "day",
+            "time_from": _iso_z(start),
+            "time_to": _iso_z(now),
+            "buckets": buckets,
+        }
+
+    if value == "30d":
+        first_day = today - timedelta(days=29)
+        start = first_day - timedelta(days=first_day.weekday())
+        bucket_count = int(((today - start).days // 7) + 1)
+        buckets = [
+            {
+                "key": _bucket_key(start + timedelta(days=index * 7)),
+                "label": (start + timedelta(days=index * 7)).strftime("%m-%d"),
+            }
+            for index in range(bucket_count)
+        ]
+        return {
+            "bucket": "week",
+            "time_from": _iso_z(start),
+            "time_to": _iso_z(now),
+            "buckets": buckets,
+        }
+
+    start = current_hour - timedelta(hours=23)
+    buckets = [
+        {
+            "key": _bucket_key(start + timedelta(hours=index)),
+            "label": (start + timedelta(hours=index)).strftime("%H:00"),
+        }
+        for index in range(24)
+    ]
+    return {
+        "bucket": "hour",
+        "time_from": _iso_z(start),
+        "time_to": _iso_z(now),
+        "buckets": buckets,
+    }
+
+
+def _iso_z(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _bucket_key(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _risk_item_from_learner(
     learner: dict[str, Any],
     *,
     subject_ip: str = "",
     include_count: bool = False,
 ) -> dict[str, Any]:
+    attack_type = _primary_attack_type(learner)
+    display = _attack_display(attack_type)
+    confidence = _primary_attack_confidence(learner)
+    risk_band = str(learner.get("risk_band") or "low").lower()
+    flow_count = int(learner.get("flow_count") or 0)
     item = {
         "id": int(learner.get("id") or 0),
         "subjectIp": subject_ip or "-",
-        "name": str(learner.get("learner_name") or "UNKNOWN"),
+        "name": display["name"],
         "triggerTime": _format_time(learner.get("last_seen_at")) or "-",
-        "description": str(learner.get("risk_reason") or "暂无风险说明"),
+        "description": f"{display['desc']}（置信度 {confidence:.3f}，风险分级 {risk_band}，关联流量 {flow_count}）",
         "features": _learner_features(learner),
     }
     if include_count:
@@ -718,30 +845,41 @@ def _risk_item_from_learner(
 
 def _primary_attack_type(learner: dict[str, Any]) -> str:
     rule_json = learner.get("rule_json")
-    if not isinstance(rule_json, dict):
-        return ""
-    attack_types = rule_json.get("attack_types")
-    if not isinstance(attack_types, list):
-        return ""
-    for item in attack_types:
-        if isinstance(item, dict):
-            attack_type = str(item.get("attack_type") or "").strip()
-            if attack_type:
-                return attack_type
-    return ""
+    if isinstance(rule_json, dict):
+        attack_types = rule_json.get("attack_types")
+        if isinstance(attack_types, list):
+            for item in attack_types:
+                if isinstance(item, dict):
+                    attack_type = str(item.get("attack_type") or "").strip()
+                    if attack_type:
+                        return attack_type
+    # 老数据兼容兜底：没有 attack_types 时，按低风险/良性标识归类为良性流量
+    risk_band = str(learner.get("risk_band") or "").strip().lower()
+    is_benign = bool(learner.get("is_benign"))
+    score = _float(learner.get("risk_score"))
+    if is_benign or risk_band == "low" or score <= 0.35:
+        return "BENIGN_NORMAL"
+    return "UNKNOWN_SUSPECTED"
 
 
 def _primary_attack_confidence(learner: dict[str, Any]) -> float:
     rule_json = learner.get("rule_json")
-    if not isinstance(rule_json, dict):
-        return 0.0
-    attack_types = rule_json.get("attack_types")
-    if not isinstance(attack_types, list):
-        return 0.0
-    for item in attack_types:
-        if isinstance(item, dict):
-            return _float(item.get("confidence"))
+    if isinstance(rule_json, dict):
+        attack_types = rule_json.get("attack_types")
+        if isinstance(attack_types, list):
+            for item in attack_types:
+                if isinstance(item, dict):
+                    return _float(item.get("confidence"))
+    if _primary_attack_type(learner) == "BENIGN_NORMAL":
+        return 0.35
     return 0.0
+
+
+def _attack_display(attack_type: str) -> dict[str, str]:
+    key = str(attack_type or "").strip().upper()
+    if key in ATTACK_TYPE_DISPLAY:
+        return ATTACK_TYPE_DISPLAY[key]
+    return {"name": key or "未知类型", "desc": "暂无该类型的语义化说明。"}
 
 
 def _first_subject_ip(service: PageQueryService, learner: dict[str, Any]) -> str:
@@ -758,12 +896,22 @@ def _first_subject_ip(service: PageQueryService, learner: dict[str, Any]) -> str
 
 def _learner_features(learner: dict[str, Any]) -> str:
     metric = learner.get("metric_json") if isinstance(learner.get("metric_json"), dict) else {}
+    attack_type = _primary_attack_type(learner)
+    display = _attack_display(attack_type)
     parts = [
-        f"risk_band={learner.get('risk_band') or 'low'}",
-        f"flow_count={learner.get('flow_count') or 0}",
+        f"类型：{display['name']}",
+        f"风险分级：{learner.get('risk_band') or 'low'}",
+        f"关联流量：{learner.get('flow_count') or 0}",
     ]
+    confidence = _primary_attack_confidence(learner)
+    if confidence > 0:
+        parts.append(f"匹配置信度：{confidence:.3f}")
     if metric.get("top1_protocol_share") is not None:
-        parts.append(f"top1_protocol_share={float(metric.get('top1_protocol_share') or 0):.3f}")
+        parts.append(
+            f"主导协议占比：{float(metric.get('top1_protocol_share') or 0):.3f}"
+        )
+    if display.get("desc"):
+        parts.append(f"解释：{display['desc']}")
     return "、".join(parts)
 
 

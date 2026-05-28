@@ -2,7 +2,7 @@ COMPOSE ?= docker compose
 SERVICE ?=
 LOGS ?= trident-api trident-worker suricata-cic suricata-agent
 
-.PHONY: help up down ps build rebuild restart restart-trident restart-capture logs logs-all migrate worker api suricata suricata-agent clean
+.PHONY: help up down ps build rebuild capture-up trident-up capture-down trident-down restart restart-trident restart-capture logs logs-all migrate worker api suricata suricata-agent clean
 
 help:
 	@printf '%s\n' \
@@ -10,6 +10,10 @@ help:
 		'  make up                Start all default services' \
 		'  make build             Build service images' \
 		'  make rebuild           Build images and recreate containers' \
+		'  make capture-up        Start capture stack from capture/compose.yaml' \
+		'  make trident-up        Start Trident stack from analysis/compose.yaml' \
+		'  make capture-down      Stop capture stack' \
+		'  make trident-down      Stop Trident stack' \
 		'  make restart           Restart one service: make restart SERVICE=trident-api' \
 		'  make restart-trident   Rebuild/recreate trident-migrate, trident-worker, trident-api' \
 		'  make restart-capture   Rebuild/recreate Suricata CIC capture service' \
@@ -38,6 +42,18 @@ build:
 
 rebuild:
 	$(COMPOSE) up -d --build --force-recreate
+
+capture-up:
+	cd capture && ./start.sh
+
+trident-up:
+	cd analysis && ./start.sh
+
+capture-down:
+	cd capture && docker compose -f compose.yaml down
+
+trident-down:
+	cd analysis && docker compose -f compose.yaml down
 
 restart:
 	@if [ -z "$(SERVICE)" ]; then \

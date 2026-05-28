@@ -13,7 +13,7 @@
 ## Worker
 
 ```bash
-cd streamtrident_services/trident
+cd streamtrident_services/analysis/trident
 pip install -r requirements.txt
 python -m app.migrate --config config/trident.yaml
 python -m app.worker --config config/trident.yaml --once
@@ -75,7 +75,7 @@ learner 的 scaler、模型参数、阈值和 feature schema 会序列化进 `pg
 ## API
 
 ```bash
-cd streamtrident_services/trident
+cd streamtrident_services/analysis/trident
 python -m app.api --config config/trident.yaml --host 127.0.0.1 --port 8090
 ```
 

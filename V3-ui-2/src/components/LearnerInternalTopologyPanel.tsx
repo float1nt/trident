@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, useMemo, type ReactNode } from "react";
+import { Component, useMemo, type ErrorInfo, type ReactNode } from "react";
 import { Button, Card, Col, Empty, Row, Typography } from "antd";
 import {
   GRID_CHART_HEIGHT,
@@ -15,12 +15,6 @@ const TOPOLOGY_REPULSION = 70;
 const TOPOLOGY_MIN_EDGE_FLOWS = 1;
 
 export type { LearnerNetworkTopologyJson, LearnerTopologyOption };
-
-type Props = {
-  data: LearnerNetworkTopologyJson | null;
-  onRiskClick?: (riskId: number) => void;
-  emptyHint?: string;
-};
 
 class ChartPaneErrorBoundary extends Component<
   { children: ReactNode; title: string },
@@ -49,15 +43,17 @@ class ChartPaneErrorBoundary extends Component<
   }
 }
 
+type Props = {
+  data: LearnerNetworkTopologyJson | null;
+  onRiskClick?: (riskId: number) => void;
+};
+
 function buildSortedLearnerOptions(
   data: LearnerNetworkTopologyJson,
 ): LearnerTopologyOption[] {
-  // 以 views 为主，learners 作为补充，避免 learners 与 views 键名轻微不一致时被筛空
-  const viewKeys = Object.keys(data.views ?? {});
-  const learnerKeys = data.learners ?? [];
-  const names = Array.from(new Set([...viewKeys, ...learnerKeys])).filter(
-    (k) => Boolean(data.views[k]),
-  );
+  const names = data.learners?.length
+    ? data.learners.filter((k) => data.views[k])
+    : Object.keys(data.views);
 
   const items: LearnerTopologyOption[] = names.map((name) => {
     const fromView = data.views[name];
@@ -79,22 +75,17 @@ function buildSortedLearnerOptions(
 }
 
 /** 事件视角 — 学习器网络拓扑网格 */
-export function LearnerInternalTopologyPanel({
-  data,
-  onRiskClick,
-  emptyHint,
-}: Props) {
+export function LearnerInternalTopologyPanel({ data, onRiskClick }: Props) {
   const sortedOptions = useMemo(() => {
     if (!data) return [] as LearnerTopologyOption[];
     return buildSortedLearnerOptions(data);
   }, [data]);
 
-  if (!data) {
+  if (!data || sortedOptions.length === 0) {
     return (
       <Empty
         description={
-          emptyHint ??
-          "暂无学习器拓扑数据，请点「重置」刷新数据。"
+          "暂无学习器拓扑数据，请调整筛选条件后重试。"
         }
         className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10"
       />
@@ -126,7 +117,7 @@ export function LearnerInternalTopologyPanel({
   }
 
   return (
-    <div className="space-y-3 pb-2">
+    <div className="space-y-3">
 
       <Row gutter={[8, 8]}>
         {sortedOptions.map((option) => {
