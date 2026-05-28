@@ -193,11 +193,12 @@ class PageQueryService:
         name: str | None = None,
         subject_ip: str | None = None,
         trigger_time: str | None = None,
+        learner_names: list[str] | None = None,
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
         learner_rows = self.learners.list_learners(session_id=sid)
         learner_by_name = {str(row.get("learner_name") or ""): row for row in learner_rows}
-        risk_names = _risk_learner_names(learner_rows)
+        risk_names = learner_names if learner_names is not None else _risk_learner_names(learner_rows)
         risk_name_set = set(risk_names)
         display_sequence_by_name = self._learner_display_sequence_map(learner_rows, session_id=sid)
         result = self.flows.risk_ip_view(

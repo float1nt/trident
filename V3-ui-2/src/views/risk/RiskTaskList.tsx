@@ -29,7 +29,6 @@ import {
   DEFAULT_TABLE_PAGE_SIZE,
   EVENT_TOPOLOGY_PAGE_SIZE_OPTIONS,
 } from "@/constants/tablePagination";
-import { CHART_GREEN, CHART_RED } from "@/theme/chartTheme";
 import "./RiskTaskList.css";
 
 type RiskSearchForm = {
@@ -351,7 +350,7 @@ const RiskTaskList = () => {
                     <span className="risk-event-summary__num">{riskTypeTotal}</span>
                     类风险，
                     <span className="risk-event-summary__num">{eventTotal}</span>
-                    个事件
+                    类事件
                   </p>
                 </div>
                 {/* <Paragraph type="secondary" className="risk-event-summary__hint !mb-0">
