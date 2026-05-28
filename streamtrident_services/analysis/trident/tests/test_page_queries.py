@@ -105,6 +105,16 @@ def test_overview_traffic_trend_returns_filled_buckets() -> None:
     assert sum(item["normal"] + item["abnormal"] for item in data) == 0
 
 
+def test_overview_traffic_trend_30d_uses_date_range_labels() -> None:
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
+
+    data = service.overview_traffic_trend(time_range="30d")
+
+    assert len(data) >= 4
+    assert all("~" in item["label"] for item in data)
+    assert all(len(item["label"].split("~")) == 2 for item in data)
+
+
 def test_risk_events_default_to_medium_and_high_learners() -> None:
     service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
 

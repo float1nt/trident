@@ -90,3 +90,31 @@ def test_online_engine_learner_row_contains_audit_payloads(tmp_path) -> None:
     assert row["profile_json"]["model_ref"]["path"]
     assert "rules" in row["rule_json"]
     assert "top" in row["topology_json"]
+
+
+def test_online_engine_finalizes_cold_start_baseline_to_dominant_learner() -> None:
+    cfg = replace(
+        TridentConfig(),
+        algorithm_backend="iforest",
+        window_size=2,
+        min_class_samples=1,
+        increment_min_samples=100,
+        cluster_trigger_size=2,
+        new_learner_min_size=2,
+        dbscan_min_samples=1,
+        dbscan_eps=10.0,
+        max_train_per_class=100,
+    )
+    engine = OnlineEngine(session_id="s1", cfg=cfg)
+    engine.process_window(FlowWindow(window_index=1, items=[_flow("1-0", dst_port=80)]))
+    assert engine.baseline_learner_name == "0000|UNLABELED"
+    engine.tsieve.learners["0000|UNLABELED"].threshold = -1.0
+    result = engine.process_window(
+        FlowWindow(window_index=2, items=[_flow("2-0", dst_port=65000), _flow("3-0", dst_port=65001)])
+    )
+
+    assert result.metrics["new_learner_count"] == 1
+    new_name = result.new_learners[0]["learner_name"]
+    assert engine.cold_start_complete is True
+    assert engine.baseline_learner_name == new_name
+    assert result.new_learners[0]["rule_json"]["attack_types"][0]["attack_type"] == "BENIGN_NORMAL"

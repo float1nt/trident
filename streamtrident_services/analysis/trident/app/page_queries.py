@@ -7,6 +7,7 @@ from typing import Any
 from .persistence.ch_flow_repository import ChFlowRepository
 from .persistence.learner_repository import LearnerRepository
 from .redis_consumer import RedisStreamConsumer
+from .runtime.quality import is_baseline_learner, resolve_session_baseline_learner
 
 
 RISK_BANDS = {"medium", "high"}
@@ -38,6 +39,16 @@ class PageQueryService:
         self.flows = flows
         self.learners = learners
         self.redis = redis
+
+    def _session_baseline_learner(self, session_id: str | None = None) -> str | None:
+        sid = session_id or self.session_id
+        rows = self.learners.list_learners(session_id=sid)
+        flow_counts = {
+            str(row.get("learner_name") or ""): int(row.get("flow_count") or 0)
+            for row in rows
+            if str(row.get("learner_name") or "")
+        }
+        return resolve_session_baseline_learner(rows, flow_counts=flow_counts or None)
 
     def dashboard_overview(
         self,
@@ -288,8 +299,9 @@ class PageQueryService:
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
         learner = self.learners.get_learner(session_id=sid, learner_name=learner_name) or {}
-        event = _learner_event_item(1, learner) if learner else _empty_event_item(learner_name)
-        primary_attack = _primary_attack_type(learner)
+        session_baseline = self._session_baseline_learner(session_id=sid)
+        event = _learner_event_item(1, learner, session_baseline_learner=session_baseline) if learner else _empty_event_item(learner_name)
+        primary_attack = _primary_attack_type(learner, session_baseline_learner=session_baseline)
         is_benign = primary_attack == "BENIGN_NORMAL"
         traffic_kind = "benign" if is_benign else "attack"
         topology_risk_learners = [] if is_benign else [learner_name]
@@ -630,11 +642,16 @@ def _filter_learner_rows(
     )
 
 
-def _learner_event_item(index: int, row: dict[str, Any]) -> dict[str, Any]:
+def _learner_event_item(
+    index: int,
+    row: dict[str, Any],
+    *,
+    session_baseline_learner: str | None = None,
+) -> dict[str, Any]:
     learner_name = str(row.get("learner_name") or "")
     risk_score = _float(row.get("risk_score"))
     risk_band = str(row.get("risk_band") or "low").lower()
-    primary_attack = _primary_attack_type(row)
+    primary_attack = _primary_attack_type(row, session_baseline_learner=session_baseline_learner)
     display = _attack_display(primary_attack)
     risk_name = display["name"] if primary_attack else learner_name
     confidence = _primary_attack_confidence(row)
@@ -812,13 +829,16 @@ def _traffic_trend_spec(value: str) -> dict[str, Any]:
         first_day = today - timedelta(days=29)
         start = first_day - timedelta(days=first_day.weekday())
         bucket_count = int(((today - start).days // 7) + 1)
-        buckets = [
-            {
-                "key": _bucket_key(start + timedelta(days=index * 7)),
-                "label": (start + timedelta(days=index * 7)).strftime("%m-%d"),
-            }
-            for index in range(bucket_count)
-        ]
+        buckets = []
+        for index in range(bucket_count):
+            bucket_start = start + timedelta(days=index * 7)
+            bucket_end = min(bucket_start + timedelta(days=6), today)
+            buckets.append(
+                {
+                    "key": _bucket_key(bucket_start),
+                    "label": _format_chart_date_range(bucket_start, bucket_end),
+                }
+            )
         return {
             "bucket": "week",
             "time_from": _iso_z(start),
@@ -850,6 +870,13 @@ def _bucket_key(value: datetime) -> str:
     return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _format_chart_date_range(start: datetime, end: datetime) -> str:
+    """Chart x-axis label for weekly buckets, e.g. 05-01~05-07."""
+    start_day = start.astimezone(timezone.utc)
+    end_day = end.astimezone(timezone.utc)
+    return f"{start_day.strftime('%m-%d')}~{end_day.strftime('%m-%d')}"
+
+
 def _risk_item_from_learner(
     learner: dict[str, Any],
     *,
@@ -874,7 +901,14 @@ def _risk_item_from_learner(
     return item
 
 
-def _primary_attack_type(learner: dict[str, Any]) -> str:
+def _primary_attack_type(
+    learner: dict[str, Any],
+    *,
+    session_baseline_learner: str | None = None,
+) -> str:
+    learner_name = str(learner.get("learner_name") or "").strip()
+    if is_baseline_learner(learner_name, session_baseline_learner=session_baseline_learner):
+        return "BENIGN_NORMAL"
     rule_json = learner.get("rule_json")
     if isinstance(rule_json, dict):
         attack_types = rule_json.get("attack_types")
@@ -930,7 +964,6 @@ def _learner_features(learner: dict[str, Any]) -> str:
     attack_type = _primary_attack_type(learner)
     display = _attack_display(attack_type)
     parts = [
-        f"类型：{display['name']}",
         f"风险分级：{learner.get('risk_band') or 'low'}",
         f"关联流量：{learner.get('flow_count') or 0}",
     ]

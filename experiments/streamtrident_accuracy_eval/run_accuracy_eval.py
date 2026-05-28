@@ -6,6 +6,7 @@ import csv
 import json
 import math
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -15,7 +16,7 @@ import uuid
 from urllib import parse
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 SERVICE_ROOT = ROOT / "streamtrident_services"
 TRIDENT_ROOT = SERVICE_ROOT / "analysis" / "trident"
+DOCKER_TRIDENT_CONFIG = SERVICE_ROOT / "analysis" / "docker" / "trident.yaml"
 DEFAULT_OUT_ROOT = ROOT / "outputs" / "streamtrident_accuracy_eval"
 
 STREAM = "suricata:cic_flow"
@@ -256,6 +258,17 @@ def main() -> int:
         action="store_true",
         help="Round-robin interleave eval rows by label instead of label-block injection order",
     )
+    parser.add_argument(
+        "--hours-back",
+        type=float,
+        default=24.0,
+        help="Spread injected event_time over the last N hours (0 disables time shift)",
+    )
+    parser.add_argument(
+        "--sync-docker-config",
+        action="store_true",
+        help="After the run, write session_id into streamtrident_services/analysis/docker/trident.yaml",
+    )
     args = parser.parse_args()
     label_specs = eval_specs_for_plan(args.plan, LABEL_PLANS[args.plan], args.eval_benign)
 
@@ -272,6 +285,8 @@ def main() -> int:
         "benign_warmup": args.benign_warmup,
         "eval_benign": args.eval_benign,
         "interleave_eval": args.interleave_eval,
+        "hours_back": args.hours_back,
+        "sync_docker_config": args.sync_docker_config,
         "outputs": {},
     }
     write_json(run_root / "manifest.json", manifest)
@@ -288,10 +303,15 @@ def main() -> int:
             timeout=args.timeout,
             benign_warmup=args.benign_warmup,
             interleave_eval=args.interleave_eval,
+            hours_back=args.hours_back,
         )
         summaries = [summary]
         manifest["udp_drdos_tftp_summary"] = summary
         write_json(run_root / "manifest.json", manifest)
+        if args.sync_docker_config and summary.get("session_id"):
+            sync_docker_session_id(str(summary["session_id"]))
+            manifest["docker_session_id"] = summary["session_id"]
+            write_json(run_root / "manifest.json", manifest)
     else:
         plans = [ExperimentPlan("mixed_tcp_udp", None, label_specs)]
         mixed_summary = run_one(plans[0], run_root=run_root, timeout=args.timeout, benign_warmup=args.benign_warmup)
@@ -326,7 +346,15 @@ def eval_specs_for_plan(plan: str, base_specs: list[dict[str, Any]], eval_benign
     return [benign] + specs
 
 
-def run_one(plan: ExperimentPlan, *, run_root: Path, timeout: int, benign_warmup: int, interleave_eval: bool = False) -> dict[str, Any]:
+def run_one(
+    plan: ExperimentPlan,
+    *,
+    run_root: Path,
+    timeout: int,
+    benign_warmup: int,
+    interleave_eval: bool = False,
+    hours_back: float = 0.0,
+) -> dict[str, Any]:
     exp_root = run_root / plan.name
     exp_root.mkdir(parents=True, exist_ok=True)
     session_id = f"accuracy-{plan.name}-{uuid.uuid4().hex[:10]}"
@@ -355,6 +383,13 @@ def run_one(plan: ExperimentPlan, *, run_root: Path, timeout: int, benign_warmup
     dataset_summary = build_dataset(plan, metadata_path, interleave=interleave_eval)
     if interleave_eval:
         dataset_summary["interleave"] = "round_robin_by_label"
+    time_shift_summary: dict[str, Any] | None = None
+    if float(hours_back) > 0:
+        time_shift_summary = shift_injection_times(
+            warmup_path,
+            metadata_path,
+            hours_back=float(hours_back),
+        )
     expected = int(dataset_summary["total_rows"])
     if expected == 0:
         summary = {
@@ -399,6 +434,8 @@ def run_one(plan: ExperimentPlan, *, run_root: Path, timeout: int, benign_warmup
         exp_root=exp_root,
         redis_before_id=before_id,
     )
+    if time_shift_summary is not None:
+        summary["time_shift"] = time_shift_summary
     write_json(exp_root / "summary.json", summary)
     return summary
 
@@ -1063,6 +1100,75 @@ def write_markdown_report(path: Path, summaries: list[dict[str, Any]], manifest:
 
 def quote(value: str) -> str:
     return "'" + str(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def _read_metadata_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
+    with path.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        fieldnames = list(reader.fieldnames or [])
+        rows = list(reader)
+    return fieldnames, rows
+
+
+def _write_metadata_csv(path: Path, *, fieldnames: list[str], rows: list[dict[str, str]]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def shift_injection_times(
+    warmup_path: Path,
+    eval_path: Path,
+    *,
+    hours_back: float,
+) -> dict[str, Any]:
+    """Spread warmup+eval rows across [now-hours_back, now], preserving injection order."""
+    warmup_fields, warmup_rows = _read_metadata_csv(warmup_path)
+    eval_fields, eval_rows = _read_metadata_csv(eval_path)
+    combined = warmup_rows + eval_rows
+    if not combined:
+        return {
+            "hours_back": float(hours_back),
+            "warmup_rows": len(warmup_rows),
+            "eval_rows": len(eval_rows),
+            "total_rows": 0,
+        }
+    now = datetime.now(timezone.utc)
+    span = timedelta(hours=float(hours_back))
+    total = len(combined)
+    for index, row in enumerate(combined):
+        offset = span * ((total - 1 - index) / max(total - 1, 1))
+        ts = now - offset
+        row["event_time"] = ts.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    _write_metadata_csv(warmup_path, fieldnames=warmup_fields, rows=combined[: len(warmup_rows)])
+    _write_metadata_csv(eval_path, fieldnames=eval_fields, rows=combined[len(warmup_rows) :])
+    return {
+        "hours_back": float(hours_back),
+        "warmup_rows": len(warmup_rows),
+        "eval_rows": len(eval_rows),
+        "total_rows": total,
+        "event_time_min": combined[0]["event_time"],
+        "event_time_max": combined[-1]["event_time"],
+    }
+
+
+def sync_docker_session_id(session_id: str) -> None:
+    if not DOCKER_TRIDENT_CONFIG.exists():
+        raise FileNotFoundError(f"docker trident config not found: {DOCKER_TRIDENT_CONFIG}")
+    text = DOCKER_TRIDENT_CONFIG.read_text(encoding="utf-8")
+    updated, count = re.subn(
+        r"(?m)^session_id:\s*.+$",
+        f"session_id: {session_id}",
+        text,
+        count=1,
+    )
+    if count == 0:
+        payload = yaml.safe_load(text) or {}
+        payload["session_id"] = str(session_id)
+        updated = yaml.safe_dump(payload, sort_keys=False, allow_unicode=True)
+    DOCKER_TRIDENT_CONFIG.write_text(updated, encoding="utf-8")
+    print(json.dumps({"event": "sync_docker_session_id", "path": str(DOCKER_TRIDENT_CONFIG), "session_id": session_id}, ensure_ascii=False))
 
 
 def normalize_event_time(value: Any) -> str:

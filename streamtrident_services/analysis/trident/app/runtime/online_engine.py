@@ -17,7 +17,7 @@ from ..window_buffer import FlowWindow
 from .model_store import ModelStore
 from .learner_overlap import LearnerOverlapConfig, LearnerOverlapSnapshot, build_learner_overlap_snapshot
 from .preprocessing import preprocess_records
-from .quality import build_learner_audit, feature_drift_score
+from .quality import SESSION_BASELINE_PROFILE_KEY, build_learner_audit, feature_drift_score
 from .trident_algorithms import Learner, TMagnifier, TScissors, TSieve
 
 
@@ -93,6 +93,8 @@ class OnlineEngine:
         self.gate_stats: dict[str, int] = defaultdict(int)
         self.learner_overlap_snapshot: LearnerOverlapSnapshot | None = None
         self.learner_overlap_config = LearnerOverlapConfig()
+        self.baseline_learner_name: str | None = None
+        self.cold_start_complete = False
         self._load_learners(learner_rows or [])
 
     def process_window(self, window: FlowWindow) -> WindowResult:
@@ -179,6 +181,7 @@ class OnlineEngine:
         recluster_created = self._maybe_recluster_small_learners(window.window_index)
         new_learner_names.extend(recluster_created)
         self._refresh_learner_overlap_snapshot()
+        self._maybe_finalize_cold_start(window_flow_count=len(records))
 
         snapshot_names = list(dict.fromkeys([*new_learner_names, *updated_learner_names]))
         snapshot_requests = [
@@ -234,8 +237,22 @@ class OnlineEngine:
         else:
             self.tsieve.add_learner(name, x, epochs=self.cfg.init_epochs)
         if name in self.tsieve.learners:
+            self.baseline_learner_name = name
             self.learner_creation_windows[name] = window_index
             self.learner_last_seen_windows[name] = window_index
+
+    def _maybe_finalize_cold_start(self, *, window_flow_count: int) -> None:
+        if self.cold_start_complete:
+            return
+        if window_flow_count < self.cfg.window_size and len(self.tsieve.learners) <= 1:
+            return
+        self.cold_start_complete = True
+        if not self.tsieve.learners:
+            return
+        self.baseline_learner_name = max(
+            self.tsieve.learners.keys(),
+            key=lambda learner_name: int(self.tsieve.learners[learner_name].train_sample_count),
+        )
 
     def _create_new_learners_from_unknown(self, window_index: int) -> list[str]:
         created: list[str] = []
@@ -369,6 +386,7 @@ class OnlineEngine:
             flow_count=int(learner.train_sample_count),
             unknown_buffer_size=len(self.tmagnifier.unknown_buffer),
             threshold=float(learner.threshold),
+            session_baseline_learner=self.baseline_learner_name,
         )
         profile_json = {
             "algorithm": "trident_core_replicated",
@@ -377,6 +395,7 @@ class OnlineEngine:
             "feature_columns": self.feature_columns,
             "threshold": float(learner.threshold),
             "backend": learner.classifier_backend,
+            SESSION_BASELINE_PROFILE_KEY: self.baseline_learner_name,
             "quality_gates": {
                 "benign_confidence_filter": True,
                 "cluster_purity_gate": self.cfg.cluster_purity_gate_enabled,
@@ -499,6 +518,11 @@ class OnlineEngine:
             )
             self.learner_creation_windows[learner.name] = int(row.get("creation_window_index") or 0)
             self.learner_last_seen_windows[learner.name] = int(row.get("last_seen_window_index") or 0)
+            profile = row.get("profile_json") if isinstance(row.get("profile_json"), dict) else {}
+            stored_baseline = str(profile.get(SESSION_BASELINE_PROFILE_KEY) or "").strip()
+            if stored_baseline:
+                self.baseline_learner_name = stored_baseline
+                self.cold_start_complete = True
 
     def _cluster_purity_gate(self, samples: np.ndarray) -> bool:
         benign_names = [name for name in self.tsieve.learners if self.tsieve.is_benign_learner(name)]

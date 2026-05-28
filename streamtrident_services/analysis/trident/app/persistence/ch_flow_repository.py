@@ -382,7 +382,7 @@ FORMAT JSONEachRow
         abnormal = _abnormal_expr(risk_learners)
         sql = f"""
 SELECT
-    formatDateTime(bucket_start, '%Y-%m-%d %H:%M:%S') AS bucket_start,
+    formatDateTime(bucket_start, '%Y-%m-%d %H:%i:%S') AS bucket_start,
     sumIf(total_bytes, NOT ({abnormal})) AS normal,
     sumIf(total_bytes, {abnormal}) AS abnormal
 FROM (

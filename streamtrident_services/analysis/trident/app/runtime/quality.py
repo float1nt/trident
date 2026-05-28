@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -11,6 +12,9 @@ from ..flow_loader import FlowRecord
 
 RULE_SET_ID = "learner_attack_rules"
 RULE_SET_VERSION = "2026-05-27.v1"
+BASELINE_LEARNER_NAME = "0000|UNLABELED"
+BASELINE_BENIGN_RULE_ID = "learner_baseline_benign_fixed"
+BASELINE_BENIGN_CONFIDENCE = 0.35
 ATTACK_EXPLAIN: dict[str, str] = {
     "PORT_SCAN": "端口维度高度展开，符合端口扫描模式。",
     "HOST_SCAN": "存在明显出向 hub，符合主机扫描或横向探测模式。",
@@ -23,6 +27,87 @@ ATTACK_EXPLAIN: dict[str, str] = {
     "BENIGN_NORMAL": "未命中攻击规则，行为更接近正常业务流量。",
     "UNKNOWN_SUSPECTED": "存在异常迹象，但尚未匹配到已命名攻击类型。",
 }
+BASELINE_BENIGN_EXPLAIN = "冷启动结束后的 baseline 学习器，规则层固定标记为正常业务流量。"
+SESSION_BASELINE_PROFILE_KEY = "session_baseline_learner"
+COLD_START_ABSORBED_SHARE_THRESHOLD = 0.10
+
+
+def is_baseline_learner(
+    learner_name: str,
+    *,
+    session_baseline_learner: str | None = None,
+) -> bool:
+    name = str(learner_name).strip()
+    baseline = str(session_baseline_learner or "").strip()
+    if baseline:
+        return name == baseline
+    return name == BASELINE_LEARNER_NAME
+
+
+def _profile_json(row: dict[str, Any]) -> dict[str, Any]:
+    profile = row.get("profile_json")
+    if isinstance(profile, dict):
+        return profile
+    if isinstance(profile, str) and profile.strip():
+        try:
+            parsed = json.loads(profile)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _learner_flow_count(row: dict[str, Any], flow_counts: dict[str, int] | None) -> int:
+    name = str(row.get("learner_name") or "").strip()
+    if flow_counts and name in flow_counts:
+        return int(flow_counts[name])
+    return int(row.get("flow_count") or 0)
+
+
+def resolve_session_baseline_learner(
+    learners: list[dict[str, Any]],
+    *,
+    flow_counts: dict[str, int] | None = None,
+) -> str | None:
+    rows = [row for row in learners if str(row.get("learner_name") or "").strip()]
+    if not rows:
+        return None
+
+    for row in rows:
+        stored = str(_profile_json(row).get(SESSION_BASELINE_PROFILE_KEY) or "").strip()
+        if stored:
+            return stored
+
+    sorted_by_creation = sorted(
+        rows,
+        key=lambda row: (int(row.get("creation_window_index") or 0), str(row.get("learner_name") or "")),
+    )
+    first_name = str(sorted_by_creation[0].get("learner_name") or "")
+    total_flows = sum(_learner_flow_count(row, flow_counts) for row in sorted_by_creation)
+    first_flows = _learner_flow_count(sorted_by_creation[0], flow_counts)
+    if (
+        first_name == BASELINE_LEARNER_NAME
+        and len(sorted_by_creation) > 1
+        and total_flows > 0
+        and first_flows / total_flows < COLD_START_ABSORBED_SHARE_THRESHOLD
+    ):
+        successors = [row for row in sorted_by_creation if str(row.get("learner_name") or "") != BASELINE_LEARNER_NAME]
+        if successors:
+            return str(
+                max(
+                    successors,
+                    key=lambda row: _learner_flow_count(row, flow_counts),
+                ).get("learner_name")
+                or ""
+            ).strip() or None
+
+    if first_name:
+        return first_name
+    names = [str(row.get("learner_name") or "").strip() for row in rows]
+    if BASELINE_LEARNER_NAME in names:
+        return BASELINE_LEARNER_NAME
+    return names[0]
 
 
 def feature_drift_score(history: np.ndarray, samples: np.ndarray) -> float:
@@ -42,20 +127,31 @@ def build_learner_audit(
     flow_count: int,
     unknown_buffer_size: int,
     threshold: float,
+    session_baseline_learner: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], float, str, str]:
     metrics = _build_v4_metrics(records, flow_count=flow_count, unknown_buffer_size=unknown_buffer_size, threshold=threshold)
     topology_json = _build_topology_json(learner_name, records)
     host_evidence_json = _build_host_evidence_json(learner_name, records)
-    attack_types, rule_hits = _match_attack_rules(metrics, host_evidence_json)
-    risk_score = float(max((item["confidence"] for item in attack_types), default=0.0))
-    risk_band = risk_band_for_score(risk_score)
-    dominant = attack_types[0]["attack_type"] if attack_types else "NONE"
-    risk_reason = (
-        f"dominant_attack={dominant},risk_score={risk_score:.3f},"
-        f"dst_port_entropy={_m(metrics, 'dst_port_entropy'):.1f},"
-        f"dst_port_top1_concentration={_m(metrics, 'dst_port_top1_concentration'):.1f},"
-        f"unknown_buffer={unknown_buffer_size}"
-    )
+    if is_baseline_learner(learner_name, session_baseline_learner=session_baseline_learner):
+        attack_types, rule_hits = _baseline_benign_rule(metrics)
+        risk_score = BASELINE_BENIGN_CONFIDENCE
+        risk_band = "low"
+        risk_reason = (
+            f"baseline_learner={learner_name},fixed_benign=1,risk_score={risk_score:.3f},"
+            f"flow_count={int(metrics.get('flow_count') or flow_count)},"
+            f"unknown_buffer={unknown_buffer_size}"
+        )
+    else:
+        attack_types, rule_hits = _match_attack_rules(metrics, host_evidence_json)
+        risk_score = float(max((item["confidence"] for item in attack_types), default=0.0))
+        risk_band = risk_band_for_score(risk_score)
+        dominant = attack_types[0]["attack_type"] if attack_types else "NONE"
+        risk_reason = (
+            f"dominant_attack={dominant},risk_score={risk_score:.3f},"
+            f"dst_port_entropy={_m(metrics, 'dst_port_entropy'):.1f},"
+            f"dst_port_top1_concentration={_m(metrics, 'dst_port_top1_concentration'):.1f},"
+            f"unknown_buffer={unknown_buffer_size}"
+        )
     rule_json = {
         "version": 1,
         "rule_set": {"id": RULE_SET_ID, "version": RULE_SET_VERSION},
@@ -233,6 +329,33 @@ def _host_subset_metrics(records: list[FlowRecord]) -> dict[str, float]:
         "low_reciprocity",
     ]
     return {key: float(learner_like.get(key) or 0.0) for key in keys}
+
+
+def _baseline_benign_rule(metrics: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    attack_types = [
+        {
+            "attack_type": "BENIGN_NORMAL",
+            "confidence": BASELINE_BENIGN_CONFIDENCE,
+            "evidence_rules": [BASELINE_BENIGN_RULE_ID],
+            "explain": BASELINE_BENIGN_EXPLAIN,
+        }
+    ]
+    rule_hits = [
+        {
+            "rule_id": BASELINE_BENIGN_RULE_ID,
+            "rule_version": "v1",
+            "target_attack_type": "BENIGN_NORMAL",
+            "match": "strong",
+            "source": "baseline_policy",
+            "metric": "flow_count",
+            "value": round(float(metrics.get("flow_count") or 0), 6),
+            "weak_threshold": 0.0,
+            "strong_threshold": 0.0,
+            "weight": 1.0,
+            "explain": BASELINE_BENIGN_EXPLAIN,
+        }
+    ]
+    return attack_types, rule_hits
 
 
 def _host_evidence_types(metrics: dict[str, float], *, source_mode: bool) -> list[str]:
