@@ -28,7 +28,6 @@ const trafficLogColumns: ColumnsType<RiskTrafficLogItem> = [
     dataIndex: "srcPort",
     key: "srcPort",
     width: 90,
-    align: "center",
     render: (port: number) => formatPort(port),
   },
   {
@@ -48,7 +47,6 @@ const trafficLogColumns: ColumnsType<RiskTrafficLogItem> = [
     dataIndex: "dstPort",
     key: "dstPort",
     width: 90,
-    align: "center",
     render: (port: number) => formatPort(port),
   },
   {
@@ -56,7 +54,6 @@ const trafficLogColumns: ColumnsType<RiskTrafficLogItem> = [
     dataIndex: "traffic",
     key: "traffic",
     width: 110,
-    align: "right",
     render: (bytes: number) => formatTrafficVolumeText(bytes),
   },
 ];

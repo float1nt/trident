@@ -20,6 +20,7 @@ type Props = {
   data: LearnerNetworkTopologyJson | null;
   onRiskClick?: (riskId: number) => void;
   emptyHint?: string;
+  loading?: boolean;
   loadingMore?: boolean;
   hasMore?: boolean;
 };
@@ -85,6 +86,7 @@ export function LearnerInternalTopologyPanel({
   data,
   onRiskClick,
   emptyHint,
+  loading = false,
   loadingMore = false,
   hasMore = false,
 }: Props) {
@@ -92,6 +94,14 @@ export function LearnerInternalTopologyPanel({
     if (!data) return [] as LearnerTopologyOption[];
     return buildSortedLearnerOptions(data);
   }, [data]);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10">
+        <Spin />
+      </div>
+    );
+  }
 
   if (!data) {
     return (
