@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Tag, Table, Button, Spin } from "antd";
@@ -105,37 +105,68 @@ export default function IpDetailPlaceholder() {
   const [searchParams] = useSearchParams();
   const ip = searchParams.get("ip")?.trim() ?? "";
 
-  const { loading, run } = useApi();
+  const { loading, run } = useApi({
+    successMessage: false,
+    initialLoading: true,
+  });
   const [summary, setSummary] = useState<IpSummary | null>(null);
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "done">("loading");
   const [ipRiskEventTopology, setIpRiskEventTopology] =
     useState<LearnerNetworkTopologyJson | null>(null);
   const [riskEvents, setRiskEvents] = useState<IpRiskEventItem[]>([]);
   const [trafficLogs, setTrafficLogs] = useState<RiskTrafficLogItem[]>([]);
   const [riskEventPage, setRiskEventPage] = useState(1);
   const [trafficLogPage, setTrafficLogPage] = useState(1);
+  const requestSeqRef = useRef(0);
 
   useEffect(() => {
     if (!ip) {
       setSummary(null);
+      setIpRiskEventTopology(null);
+      setRiskEvents([]);
+      setTrafficLogs([]);
+      setLoadState("done");
       return;
     }
 
+    const requestSeq = ++requestSeqRef.current;
+    setLoadState("loading");
+    setSummary(null);
+    setIpRiskEventTopology(null);
+    setRiskEvents([]);
+    setTrafficLogs([]);
+
     const load = async () => {
-      const ok = await run(async () => {
-        const [summaryData, topology, events, logs] = await Promise.all([
-          RiskService.getIpSummary(ip),
-          RiskService.getIpEventsTopology(ip),
-          RiskService.getIpEvents(ip),
-          RiskService.getIpTrafficLogs(ip),
-        ]);
-        setSummary(summaryData);
-        setIpRiskEventTopology(topology);
-        setRiskEvents(events);
-        setTrafficLogs(logs);
-      });
-      if (ok === undefined) {
+      const summaryData = await run(async () => RiskService.getIpSummary(ip));
+      if (requestSeq !== requestSeqRef.current) return;
+
+      if (!summaryData) {
         setSummary(null);
+        setLoadState("done");
+        return;
       }
+
+      setSummary(summaryData);
+      setLoadState("done");
+
+      void Promise.allSettled([
+        RiskService.getIpEventsTopology(ip),
+        RiskService.getIpEvents(ip),
+        RiskService.getIpTrafficLogs(ip),
+      ]).then((results) => {
+        if (requestSeq !== requestSeqRef.current) return;
+
+        const [topologyResult, eventsResult, logsResult] = results;
+        if (topologyResult.status === "fulfilled") {
+          setIpRiskEventTopology(topologyResult.value);
+        }
+        if (eventsResult.status === "fulfilled") {
+          setRiskEvents(eventsResult.value);
+        }
+        if (logsResult.status === "fulfilled") {
+          setTrafficLogs(logsResult.value);
+        }
+      });
     };
 
     void load();
@@ -157,9 +188,11 @@ export default function IpDetailPlaceholder() {
     });
   };
 
+  const pageLoading = loading || loadState === "loading";
+
   return (
     <div className="h-[calc(100vh-100px)] w-full rounded-[8px]">
-      <Spin spinning={loading}>
+      <Spin spinning={pageLoading}>
         <div className="rounded-[8px] bg-[#f6faff] px-[12px] py-[7px]">
           <div className="flex items-start gap-[12px]">
             <img
@@ -188,25 +221,26 @@ export default function IpDetailPlaceholder() {
                       ))}
                     </div>
                   ) : null}
-                  {summary?.description ? (
-                    <p className="mb-0 mt-0 w-full text-sm leading-[22px] text-[#666]">
-                      {summary.description}
-                    </p>
+                  {(summary?.latestTriggerTime || summary?.description) ? (
+                    <div className="mb-0 mt-0 flex min-w-0 w-full flex-wrap items-center gap-1 text-sm leading-[22px] text-[#666]">
+                      {summary?.latestTriggerTime ? (
+                        <span className="shrink-0 whitespace-nowrap">
+                          [{summary.latestTriggerTime}]
+                        </span>
+                      ) : null}
+                      {summary?.description ? (
+                        <span className="min-w-0">{summary.description}</span>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
-                <div className="flex items-center gap-[12px]">
+                <div className="flex items-center gap-[12px] mr-[16px]">
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险数</div>
                     <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
                       {summary?.riskEventCount ?? "-"}
                     </div>
                   </div>
-
-                  {summary?.latestTriggerTime ? (
-                    <span className="shrink-0 whitespace-nowrap text-sm text-[#666]">
-                      {summary.latestTriggerTime}
-                    </span>
-                  ) : null}
                 </div>
               </div>
             </div>
@@ -216,11 +250,11 @@ export default function IpDetailPlaceholder() {
         <div className="h-[16px] w-full bg-[#fff]" />
 
         <div className=" w-full rounded-[8px] bg-[#f6faff] p-[12px]">
-          {!summary ? (
+          {loadState === "done" && !summary ? (
             <p className="text-sm text-[#666]">
               {ip ? `未找到 IP：${ip}` : "未指定 IP"}
             </p>
-          ) : (
+          ) : summary ? (
             <div className="flex flex-col gap-[12px]">
               <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
                 <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
@@ -274,7 +308,7 @@ export default function IpDetailPlaceholder() {
                 />
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       </Spin>
     </div>

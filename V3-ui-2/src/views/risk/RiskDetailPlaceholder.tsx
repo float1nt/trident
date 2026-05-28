@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { useSearchParams } from "react-router-dom";
 import { Tag, Table, Spin } from "antd";
@@ -104,37 +104,68 @@ export default function RiskDetailPlaceholder() {
   const riskId = searchParams.get("id");
   const numericId = riskId ? Number(riskId) : NaN;
 
-  const { loading, run } = useApi();
+  const { loading, run } = useApi({
+    successMessage: false,
+    initialLoading: true,
+  });
   const [risk, setRisk] = useState<RiskDetail | null>(null);
+  const [loadState, setLoadState] = useState<"idle" | "loading" | "done">("loading");
   const [networkTopology, setNetworkTopology] =
     useState<DatasetNetworkTopologyJson | null>(null);
   const [riskIpList, setRiskIpList] = useState<RiskIpListItem[]>([]);
   const [trafficLogs, setTrafficLogs] = useState<RiskTrafficLogItem[]>([]);
   const [riskIpPage, setRiskIpPage] = useState(1);
   const [trafficLogPage, setTrafficLogPage] = useState(1);
+  const requestSeqRef = useRef(0);
 
   useEffect(() => {
     if (!riskId || Number.isNaN(numericId)) {
       setRisk(null);
+      setNetworkTopology(null);
+      setRiskIpList([]);
+      setTrafficLogs([]);
+      setLoadState("done");
       return;
     }
 
+    const requestSeq = ++requestSeqRef.current;
+    setLoadState("loading");
+    setRisk(null);
+    setNetworkTopology(null);
+    setRiskIpList([]);
+    setTrafficLogs([]);
+
     const load = async () => {
-      const ok = await run(async () => {
-        const [detail, topology, ips, logs] = await Promise.all([
-          RiskService.getRiskById(numericId),
-          RiskService.getRiskNetworkTopology(numericId),
-          RiskService.getRiskIps(numericId),
-          RiskService.getRiskTrafficLogs(numericId),
-        ]);
-        setRisk(detail);
-        setNetworkTopology(topology);
-        setRiskIpList(ips);
-        setTrafficLogs(logs);
-      });
-      if (ok === undefined) {
+      const detail = await run(async () => RiskService.getRiskById(numericId));
+      if (requestSeq !== requestSeqRef.current) return;
+
+      if (!detail) {
         setRisk(null);
+        setLoadState("done");
+        return;
       }
+
+      setRisk(detail);
+      setLoadState("done");
+
+      void Promise.allSettled([
+        RiskService.getRiskNetworkTopology(numericId),
+        RiskService.getRiskIps(numericId),
+        RiskService.getRiskTrafficLogs(numericId),
+      ]).then((results) => {
+        if (requestSeq !== requestSeqRef.current) return;
+
+        const [topologyResult, ipsResult, logsResult] = results;
+        if (topologyResult.status === "fulfilled") {
+          setNetworkTopology(topologyResult.value);
+        }
+        if (ipsResult.status === "fulfilled") {
+          setRiskIpList(ipsResult.value);
+        }
+        if (logsResult.status === "fulfilled") {
+          setTrafficLogs(logsResult.value);
+        }
+      });
     };
 
     void load();
@@ -146,6 +177,7 @@ export default function RiskDetailPlaceholder() {
   }, [riskId]);
 
   const topologyView = networkTopology?.views.__combined__;
+  const pageLoading = loading || loadState === "loading";
 
   const featureTags = risk?.features
     ? risk.features.split("、").map((item) => item.trim()).filter(Boolean)
@@ -155,7 +187,7 @@ export default function RiskDetailPlaceholder() {
 
   return (
     <div className="h-[calc(100vh-100px)] w-full rounded-[8px]">
-      <Spin spinning={loading}>
+      <Spin spinning={pageLoading}>
         <div className="rounded-[8px] bg-[#f6faff] px-[12px] py-[7px]">
           <div className="flex items-start gap-[12px]">
             <img
@@ -179,25 +211,24 @@ export default function RiskDetailPlaceholder() {
                       ))}
                     </div>
                   ) : null}
-                  {risk ? (
+                  {risk?.triggerTime ? (
+                    <span className="shrink-0 whitespace-nowrap text-sm text-[#666]">
+                      [{risk.triggerTime}]
+                    </span>
+                  ) : null}
+                  {risk?.description ? (
                     <p className="mb-0 mt-0 text-sm leading-[22px] text-[#666]">
                       {displayDescription}
                     </p>
                   ) : null}
                 </div>
-                <div className="flex items-center gap-[12px]">
+                <div className="flex items-center gap-[12px] mr-[16px]">
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险 IP 数</div>
                     <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
                       {risk?.riskIpCount ?? 0}
                     </div>
                   </div>
-
-                  {risk?.triggerTime ? (
-                    <span className="shrink-0 whitespace-nowrap text-sm text-[#666]">
-                      {risk.triggerTime}
-                    </span>
-                  ) : null}
                 </div>
               </div>
             </div>
@@ -207,11 +238,11 @@ export default function RiskDetailPlaceholder() {
         <div className="h-[16px] w-full bg-[#fff]" />
 
         <div className=" w-full rounded-[8px] bg-[#f6faff] p-[12px]">
-          {!risk ? (
+          {loadState === "done" && !risk ? (
             <p className="text-sm text-[#666]">
               {riskId ? `未找到风险 ID：${riskId}` : "未指定风险 ID"}
             </p>
-          ) : (
+          ) : risk ? (
             <div className="flex flex-col gap-[12px]">
               <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
                 <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
@@ -273,7 +304,7 @@ export default function RiskDetailPlaceholder() {
                 />
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       </Spin>
     </div>

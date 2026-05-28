@@ -88,5 +88,5 @@ export const OVERVIEW_CHART_GRADIENTS: OverviewChartGradient[] = [
 /** 正常流量系列渐变 */
 export const TRAFFIC_NORMAL_GRADIENT = OVERVIEW_CHART_GRADIENTS[2];
 
-/** 疑似异常流量系列渐变 */
+/** 异常流量系列渐变 */
 export const TRAFFIC_ABNORMAL_GRADIENT = OVERVIEW_CHART_GRADIENTS[6];

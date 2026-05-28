@@ -158,7 +158,9 @@ export class RiskService {
 
   static async getRiskById(riskId: number): Promise<RiskDetail | null> {
     const res = await get<RiskDetail>(`/risks/${riskId}`);
-    return res.data ?? null;
+    const data = res.data;
+    if (!data?.id) return null;
+    return data;
   }
 
   static async getRiskNetworkTopology(
@@ -189,7 +191,9 @@ export class RiskService {
 
   static async getIpSummary(ip: string): Promise<IpSummary | null> {
     const res = await get<IpSummary>(`/risk/ips/${encodeURIComponent(ip)}/summary`);
-    return res.data ?? null;
+    const data = res.data;
+    if (!data?.ip) return null;
+    return data;
   }
 
   static async getIpEventsTopology(

@@ -13,7 +13,7 @@ import { toEChartsLinearGradient } from "@/utils/chartGradient";
 const TRAFFIC_NORMAL_FILL = toEChartsLinearGradient(TRAFFIC_NORMAL_GRADIENT);
 const TRAFFIC_ABNORMAL_FILL = toEChartsLinearGradient(TRAFFIC_ABNORMAL_GRADIENT);
 
-/** 构建正常 / 疑似异常流量堆叠柱状图 */
+/** 构建正常 / 异常流量堆叠柱状图 */
 export function buildTrafficTrendBarOption(
   data: TrafficTrendPoint[],
 ): EChartsOption {
