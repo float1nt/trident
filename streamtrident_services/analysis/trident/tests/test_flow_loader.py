@@ -57,6 +57,41 @@ def test_bad_features_json_falls_back_to_empty_object() -> None:
     assert record.total_bytes == 0
 
 
+def test_loads_suricata_eve_json_field() -> None:
+    loader = FlowLoader(session_id="s1", feature_profile="compact")
+    eve = {
+        "timestamp": "2026-05-12T09:50:35.026084+0000",
+        "flow_id": 956456353660882,
+        "event_type": "cic_flow",
+        "src_ip": "192.168.117.2",
+        "src_port": 44422,
+        "dest_ip": "119.147.128.50",
+        "dest_port": 80,
+        "proto": "TCP",
+        "total_bytes": 32878,
+        "cic": {
+            "totlen_fwd_pkts": 221,
+            "totlen_bwd_pkts": 32657,
+        },
+    }
+    message = RedisStreamMessage(
+        stream="suricata:cic_flow",
+        message_id="1779958685129-2",
+        fields={"eve": json.dumps(eve)},
+    )
+
+    record = loader.load(message)
+
+    assert record.src_ip == "192.168.117.2"
+    assert record.dst_ip == "119.147.128.50"
+    assert record.src_port == 44422
+    assert record.dst_port == 80
+    assert record.protocol == 6
+    assert record.total_bytes == 32878
+    assert record.source_flow_id == "956456353660882"
+    assert record.raw_event == json.dumps(eve)
+
+
 def test_total_bytes_falls_back_to_cic_lengths() -> None:
     loader = FlowLoader(session_id="s1", feature_profile="compact")
     message = RedisStreamMessage(
