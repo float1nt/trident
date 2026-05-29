@@ -102,9 +102,14 @@ export function buildTrafficDistributionRingOption(
 /** 构建协议分布环形图（按背景色系列循环配色） */
 export function buildProtocolDistributionRingOption(
   data: DistributionItem[],
+  options: { compactTransport?: boolean } = {},
 ): EChartsOption {
+  const chartData =
+    options.compactTransport === false
+      ? data
+      : normalizeProtocolDistribution(data);
   return buildDistributionRingOption(
-    normalizeProtocolDistribution(data),
+    chartData,
     (_name, index) =>
       toEChartsLinearGradient(
         pickOverviewChartGradient(OVERVIEW_CHART_GRADIENTS, index),

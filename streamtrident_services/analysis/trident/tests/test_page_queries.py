@@ -3,7 +3,12 @@ from __future__ import annotations
 import copy
 from typing import Any
 
-from app.page_queries import PageQueryService, _compact_protocol_distribution, _protocol_distribution_bucket
+from app.page_queries import (
+    PageQueryService,
+    _compact_application_protocol_distribution,
+    _compact_protocol_distribution,
+    _protocol_distribution_bucket,
+)
 
 
 class FakeFlows:
@@ -21,6 +26,12 @@ class FakeFlows:
         }
 
     def protocol_distribution(self, **_: Any) -> list[dict[str, Any]]:
+        return [{"protocol": "tls", "value": 8}, {"protocol": "dns", "value": 2}]
+
+    def transport_protocol_distribution(self, **_: Any) -> list[dict[str, Any]]:
+        return [{"protocol": 6, "value": 7}, {"protocol": 17, "value": 3}]
+
+    def application_protocol_distribution(self, **_: Any) -> list[dict[str, Any]]:
         return [{"protocol": "tls", "value": 8}, {"protocol": "dns", "value": 2}]
 
     def traffic_trend(self, **_: Any) -> list[dict[str, Any]]:
@@ -96,7 +107,14 @@ def test_dashboard_overview_maps_database_rows_to_page_shape() -> None:
     assert data["metrics"]["risk_learner_count"] == 1
     assert data["metrics"]["risk_type_count"] == 1
     assert data["traffic_distribution"][1] == {"name": "疑似异常流量", "value": 3000}
-    assert data["protocol_distribution"] == [{"name": "其他", "value": 10}]
+    assert data["protocol_distribution"] == [
+        {"name": "TCP", "value": 7},
+        {"name": "UDP", "value": 3},
+    ]
+    assert data["application_protocol_distribution"] == [
+        {"name": "TLS", "value": 8},
+        {"name": "DNS", "value": 2},
+    ]
 
 
 def test_overview_metrics_reports_total_traffic_bytes() -> None:
@@ -631,4 +649,19 @@ def test_compact_protocol_distribution_groups_non_tcp_udp_into_other() -> None:
         {"name": "TCP", "value": 44572},
         {"name": "UDP", "value": 42915},
         {"name": "其他", "value": 160},
+    ]
+
+
+def test_compact_application_protocol_distribution_preserves_app_names() -> None:
+    rows = [
+        {"protocol": "tls", "value": 8},
+        {"protocol": "dns", "value": 2},
+        {"protocol": "unknown", "value": 3},
+        {"protocol": "", "value": 1},
+    ]
+
+    assert _compact_application_protocol_distribution(rows) == [
+        {"name": "TLS", "value": 8},
+        {"name": "UNKNOWN", "value": 4},
+        {"name": "DNS", "value": 2},
     ]

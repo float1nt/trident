@@ -490,6 +490,72 @@ FORMAT JSONEachRow
         text = self.client.execute(sql)
         return [row for line in text.splitlines() if line.strip() for row in [_parse_json(line)]]
 
+    def transport_protocol_distribution(
+        self,
+        *,
+        session_id: str,
+        learner_name: str | None = None,
+        src_ip: str | None = None,
+        time_from: str | None = None,
+        time_to: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        where = _where(
+            [
+                f"session_id = {_quote(session_id)}",
+                f"assigned_learner = {_quote(learner_name)}" if learner_name else None,
+                f"src_ip = {_quote(src_ip)}" if src_ip else None,
+                _time_filter("event_time", time_from, time_to),
+            ]
+        )
+        capped = max(1, min(int(limit), 1000))
+        sql = f"""
+SELECT protocol, count() AS value
+FROM ch_flow
+{where}
+GROUP BY protocol
+ORDER BY value DESC, protocol ASC
+LIMIT {capped}
+FORMAT JSONEachRow
+"""
+        text = self.client.execute(sql)
+        return [row for line in text.splitlines() if line.strip() for row in [_parse_json(line)]]
+
+    def application_protocol_distribution(
+        self,
+        *,
+        session_id: str,
+        learner_name: str | None = None,
+        src_ip: str | None = None,
+        time_from: str | None = None,
+        time_to: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        where = _where(
+            [
+                f"session_id = {_quote(session_id)}",
+                f"assigned_learner = {_quote(learner_name)}" if learner_name else None,
+                f"src_ip = {_quote(src_ip)}" if src_ip else None,
+                _time_filter("event_time", time_from, time_to),
+            ]
+        )
+        capped = max(1, min(int(limit), 1000))
+        app_protocol = (
+            "if(app_proto != '' AND lower(app_proto) NOT IN ('unknown', 'none', '-'), "
+            "app_proto, 'UNKNOWN')"
+        )
+        sql = f"""
+SELECT {app_protocol} AS protocol, count() AS value
+FROM ch_flow
+{where}
+GROUP BY protocol
+ORDER BY value DESC, protocol ASC
+LIMIT {capped}
+FORMAT JSONEachRow
+"""
+        text = self.client.execute(sql)
+        return [row for line in text.splitlines() if line.strip() for row in [_parse_json(line)]]
+
     def top_subject_ip_counts_by_learner(
         self,
         *,

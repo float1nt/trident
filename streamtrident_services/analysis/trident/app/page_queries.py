@@ -83,13 +83,30 @@ class PageQueryService:
             time_from=time_from,
             time_to=time_to,
         )
-        protocol_rows = self.flows.protocol_distribution(
+        transport_protocol_rows = _call_protocol_distribution(
+            self.flows,
+            method_name="transport_protocol_distribution",
+            fallback_name="protocol_distribution",
             session_id=sid,
             time_from=time_from,
             time_to=time_to,
             limit=100,
         )
-        protocol_distribution = _compact_protocol_distribution(protocol_rows)
+        application_protocol_rows = _call_protocol_distribution(
+            self.flows,
+            method_name="application_protocol_distribution",
+            fallback_name="protocol_distribution",
+            session_id=sid,
+            time_from=time_from,
+            time_to=time_to,
+            limit=100,
+        )
+        transport_protocol_distribution = _compact_protocol_distribution(
+            transport_protocol_rows
+        )
+        application_protocol_distribution = _compact_application_protocol_distribution(
+            application_protocol_rows
+        )
 
         return {
             "metrics": {
@@ -104,7 +121,8 @@ class PageQueryService:
                 {"name": "正常流量", "value": int(summary.get("normal_bytes") or 0)},
                 {"name": "疑似异常流量", "value": int(summary.get("risk_bytes") or 0)},
             ],
-            "protocol_distribution": protocol_distribution,
+            "protocol_distribution": transport_protocol_distribution,
+            "application_protocol_distribution": application_protocol_distribution,
             "runtime": {
                 "session_id": sid,
                 "current_window_index": int(summary.get("current_window_index") or 0),
@@ -130,6 +148,7 @@ class PageQueryService:
         return {
             "traffic": overview["traffic_distribution"],
             "protocol": overview["protocol_distribution"],
+            "applicationProtocol": overview["application_protocol_distribution"],
         }
 
     def overview_traffic_trend(self, *, time_range: str = "24h") -> list[dict[str, Any]]:
@@ -1043,6 +1062,41 @@ def _compact_protocol_distribution(rows: list[dict[str, Any]], *, visible: int =
     ]
 
 
+def _compact_application_protocol_distribution(
+    rows: list[dict[str, Any]],
+    *,
+    visible: int = 11,
+) -> list[dict[str, Any]]:
+    totals: dict[str, int] = {}
+    for row in rows:
+        count = int(row.get("value") or 0)
+        if count <= 0:
+            continue
+        name = _application_protocol_name(row.get("protocol"))
+        totals[name] = totals.get(name, 0) + count
+
+    sorted_items = sorted(totals.items(), key=lambda item: (-item[1], item[0]))
+    if len(sorted_items) <= visible:
+        return [{"name": name, "value": value} for name, value in sorted_items]
+
+    visible_items = sorted_items[: max(0, visible - 1)]
+    other_value = sum(value for _, value in sorted_items[max(0, visible - 1):])
+    return [
+        *[{"name": name, "value": value} for name, value in visible_items],
+        {"name": "其他", "value": other_value},
+    ]
+
+
+def _application_protocol_name(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return "UNKNOWN"
+    lowered = text.lower()
+    if lowered in {"unknown", "none", "-"}:
+        return "UNKNOWN"
+    return text.upper()
+
+
 def _protocol_distribution_bucket(value: Any) -> str:
     if value is None:
         return "其他"
@@ -1081,6 +1135,19 @@ def _protocol_name(value: Any, *, protocol: Any = None) -> str:
             return "UNKNOWN"
         return text.upper()
     return transport_protocol_name(proto) or "UNKNOWN"
+
+
+def _call_protocol_distribution(
+    flows: Any,
+    *,
+    method_name: str,
+    fallback_name: str,
+    **kwargs: Any,
+) -> list[dict[str, Any]]:
+    method = getattr(flows, method_name, None)
+    if method is None:
+        method = getattr(flows, fallback_name)
+    return method(**kwargs)
 
 
 def _format_time(value: Any) -> str:
