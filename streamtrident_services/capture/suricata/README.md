@@ -58,6 +58,12 @@ host port (`127.0.0.1:${REDIS_HOST_PORT}`), not through the compose service name
 
 ```bash
 docker logs -f streamtrident-suricata-cic
+cd .. && ./check-redis-flow.sh
+```
+
+Or manually:
+
+```bash
 redis-cli -h 127.0.0.1 -p 16379 LLEN suricata:cic_flow
-redis-cli -h 127.0.0.1 -p 16379 LRANGE suricata:cic_flow 0 0
+redis-cli -h 127.0.0.1 -p 16379 LRANGE suricata:cic_flow -1 -1
 ```

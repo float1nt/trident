@@ -28,26 +28,27 @@ streamtrident_services/
 
 ## Split Deployment
 
-On the capture host:
+当前推荐拓扑（采集 `172.16.88.12` / `ens35`，分析在本机 test 栈）见 [docs/SPLIT_DEPLOY.md](docs/SPLIT_DEPLOY.md)。
+
+On the capture host (`172.16.88.12`):
 
 ```bash
 cd streamtrident_services/capture
-cp .env.example .env
+cp .env.split .env
 ./start.sh
 ```
 
-On the analysis host:
+On the analysis host (local):
 
 ```bash
 cd streamtrident_services/analysis
-cp .env.example .env
-./start.sh
+./start-test.sh
 ```
 
-For real deployment, set these in `analysis/.env`:
+For other hosts, set these in `analysis/.env` or `analysis/.env.test`:
 
-- `CAPTURE_REDIS_HOST`: capture host IP
-- `TRIDENT_SURICATA_AGENT_URLS`: capture host agent URL, for example `http://10.0.0.11:19100`
+- `CAPTURE_REDIS_HOST`: capture host IP (e.g. `172.16.88.12`)
+- `TRIDENT_SURICATA_AGENT_URLS`: capture host agent URL (e.g. `http://172.16.88.12:19100`)
 
 ## Local Compose
 
@@ -91,8 +92,14 @@ After startup, verify that flow data is being written:
 
 ```bash
 docker compose logs -f suricata-cic
+cd capture && ./check-redis-flow.sh
+```
+
+Manual checks:
+
+```bash
 redis-cli -p 16379 LLEN suricata:cic_flow
-redis-cli -p 16379 LRANGE suricata:cic_flow 0 0
+redis-cli -p 16379 LRANGE suricata:cic_flow -1 -1
 ```
 
 ## Local Commands

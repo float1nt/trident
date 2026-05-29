@@ -14,16 +14,14 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 5175,
     proxy: {
-      // 认证（backend-service）
+      // 认证与业务 API：streamtrident analysis 测试栈（start-test.sh → TRIDENT_API_HOST_PORT=9090）
       "/api/auth": {
-        target: "http://127.0.0.1:8090",
+        target: "http://127.0.0.1:9090",
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/api/, ""),
       },
-      // 总览、风险、采集配置（streamtrident trident-api）
       "/api": {
-        target: "http://127.0.0.1:8090",
-        // target: "http://172.16.2.110:18090/",
+        target: "http://127.0.0.1:9090",
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/api/, ""),
       },

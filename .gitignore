@@ -13,6 +13,9 @@ trident_demo/stress_outputs/*
 # Raw CIC datasets (large CSVs; avoid Cursor/git diff scanning)
 cic2017/
 cicids2019/
+# PCAP captures (multi-GB binaries)
+experiments/streamtrident_pcap_replay/pcaps/
+*.pcap
 trident_stream/__pycache__/*
 __pycache__/*
 streamtrident_services/capture/.env

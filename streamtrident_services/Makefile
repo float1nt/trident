@@ -2,7 +2,7 @@ COMPOSE ?= docker compose
 SERVICE ?=
 LOGS ?= trident-api trident-worker suricata-cic suricata-agent
 
-.PHONY: help up down ps build rebuild capture-up trident-up capture-down trident-down restart restart-trident restart-capture logs logs-all migrate worker api suricata suricata-agent clean
+.PHONY: help up down ps build rebuild capture-up capture-check-redis trident-up trident-test-up trident-test-down capture-down trident-down restart restart-trident restart-capture logs logs-all migrate worker api suricata suricata-agent clean
 
 help:
 	@printf '%s\n' \
@@ -11,9 +11,12 @@ help:
 		'  make build             Build service images' \
 		'  make rebuild           Build images and recreate containers' \
 		'  make capture-up        Start capture stack from capture/compose.yaml' \
+		'  make capture-check-redis  Verify Redis flow ingest on capture host' \
 		'  make trident-up        Start Trident stack from analysis/compose.yaml' \
+		'  make trident-test-up   Start isolated analysis test stack (analysis/start-test.sh)' \
 		'  make capture-down      Stop capture stack' \
 		'  make trident-down      Stop Trident stack' \
+		'  make trident-test-down Stop analysis test stack' \
 		'  make restart           Restart one service: make restart SERVICE=trident-api' \
 		'  make restart-trident   Rebuild/recreate trident-migrate, trident-worker, trident-api' \
 		'  make restart-capture   Rebuild/recreate Suricata CIC capture service' \
@@ -46,8 +49,17 @@ rebuild:
 capture-up:
 	cd capture && ./start.sh
 
+capture-check-redis:
+	cd capture && ./check-redis-flow.sh
+
 trident-up:
 	cd analysis && ./start.sh
+
+trident-test-up:
+	cd analysis && ./start-test.sh
+
+trident-test-down:
+	cd analysis && ./stop-test.sh
 
 capture-down:
 	cd capture && docker compose -f compose.yaml down
