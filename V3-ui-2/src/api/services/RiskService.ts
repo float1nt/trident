@@ -1,4 +1,5 @@
 import { get, type ResponseData } from "@/utils/request";
+import { normalizeApiList } from "@/utils/normalizeApiList";
 import type { IpRiskListItem, RiskItem } from "@/api/types";
 import type { DatasetNetworkTopologyJson } from "@/components/NetworkTopologyPanel";
 import type { LearnerNetworkTopologyJson } from "@/types/learnerTopology";
@@ -182,8 +183,18 @@ export type RiskDetail = RiskItem & {
 
 export class RiskService {
   static async listRisks(query: RiskListQuery): Promise<RiskListResponse> {
-    const res = await get<RiskListResponse>("/risks", query);
-    return res.data ?? { total: 0, risks: [] };
+    const res = await get<RiskListResponse | IpRiskListItem[]>("/risks", query);
+    const data = res.data;
+    if (!data) return { total: 0, risks: [] };
+    if (Array.isArray(data)) {
+      return { total: data.length, risks: data };
+    }
+    const risks = normalizeApiList<IpRiskListItem>(data);
+    const total =
+      typeof (data as RiskListResponse).total === "number"
+        ? (data as RiskListResponse).total
+        : risks.length;
+    return { total, risks };
   }
 
   static async getEventTopology(
@@ -214,8 +225,10 @@ export class RiskService {
   }
 
   static async getRiskIps(riskId: number): Promise<RiskIpListItem[]> {
-    const res = await get<RiskIpListItem[]>(`/risks/${riskId}/ips`);
-    return res.data ?? [];
+    const res = await get<RiskIpListItem[] | { items?: RiskIpListItem[] }>(
+      `/risks/${riskId}/ips`,
+    );
+    return normalizeApiList<RiskIpListItem>(res.data);
   }
 
   static async getRiskTrafficLogs(
@@ -223,11 +236,11 @@ export class RiskService {
     limit = 10,
     offset = 0,
   ): Promise<RiskTrafficLogItem[]> {
-    const res = await get<RiskTrafficLogItem[]>(
+    const res = await get<RiskTrafficLogItem[] | { items?: RiskTrafficLogItem[] }>(
       `/risks/${riskId}/traffic-logs`,
       { limit, offset },
     );
-    return res.data ?? [];
+    return normalizeApiList<RiskTrafficLogItem>(res.data);
   }
 
   static async getIpSummary(ip: string): Promise<IpSummary | null> {
@@ -253,7 +266,7 @@ export class RiskService {
     const res = await get<IpRiskEventItem[]>(
       `/risk/ips/${encodeURIComponent(ip)}/events`,
     );
-    return res.data ?? [];
+    return normalizeApiList<IpRiskEventItem>(res.data);
   }
 
   static async getIpTrafficLogs(
@@ -261,10 +274,10 @@ export class RiskService {
     limit = 10,
     offset = 0,
   ): Promise<RiskTrafficLogItem[]> {
-    const res = await get<RiskTrafficLogItem[]>(
+    const res = await get<RiskTrafficLogItem[] | { items?: RiskTrafficLogItem[] }>(
       `/risk/ips/${encodeURIComponent(ip)}/traffic-logs`,
       { limit, offset },
     );
-    return res.data ?? [];
+    return normalizeApiList<RiskTrafficLogItem>(res.data);
   }
 }

@@ -6,6 +6,7 @@ import { Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { TopologyChartPane } from "@/components/NetworkTopologyPanel";
 import type { DatasetNetworkTopologyJson } from "@/components/NetworkTopologyPanel";
+import { SectionTitle } from "@/components/SectionTitle";
 import { TrafficLogsTable } from "@/components/TrafficLogsTable";
 import { DetailMetricValue } from "@/components/DetailMetricValue";
 import OverflowTooltip from "@/components/OverflowTooltip";
@@ -18,6 +19,7 @@ import {
   createTablePagination,
   DEFAULT_TABLE_PAGE_SIZE,
 } from "@/constants/tablePagination";
+import { normalizeApiList } from "@/utils/normalizeApiList";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
 
 const CHART_HEIGHT = 320;
@@ -123,7 +125,7 @@ export default function RiskDetailPlaceholder() {
           setNetworkTopology(topologyResult.value);
         }
         if (ipsResult.status === "fulfilled") {
-          setRiskIpList(ipsResult.value);
+          setRiskIpList(normalizeApiList<RiskIpListItem>(ipsResult.value));
         }
       });
     };
@@ -215,10 +217,10 @@ export default function RiskDetailPlaceholder() {
                 </div>
 
                 <div className="flex min-w-0 flex-[1] flex-col rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-                  <h3 className="mb-[12px] shrink-0 text-[14px] font-medium text-[#333]">
+                  <SectionTitle className="mb-[12px] shrink-0">
                     风险 IP 列表
                     {/* （按每个 IP 的风险触发次数从多到少排序） */}
-                  </h3>
+                  </SectionTitle>
                   <Table<RiskIpListItem>
                     className="min-w-0"
                     rowKey="ip"
@@ -241,9 +243,7 @@ export default function RiskDetailPlaceholder() {
               </div>
 
               <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-                <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
-                  流量日志
-                </h3>
+                <SectionTitle className="mb-[12px]">流量日志</SectionTitle>
                 <TrafficLogsTable
                   trafficLogs={trafficLogs}
                   loading={trafficLogsLoading}

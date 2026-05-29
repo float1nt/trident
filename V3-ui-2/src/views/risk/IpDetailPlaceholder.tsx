@@ -5,6 +5,7 @@ import { useTrafficLogsInfiniteScroll } from "@/hooks/useTrafficLogsInfiniteScro
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Tag, Spin, Pagination } from "antd";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
+import { SectionTitle } from "@/components/SectionTitle";
 import { TrafficLogsTable } from "@/components/TrafficLogsTable";
 import { DetailMetricValue } from "@/components/DetailMetricValue";
 import OverflowTooltip from "@/components/OverflowTooltip";
@@ -173,9 +174,9 @@ export default function IpDetailPlaceholder() {
           ) : summary ? (
             <div className="flex flex-col gap-[12px]">
               <div className="flex flex-col rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-                <h3 className="mb-[12px] shrink-0 text-[14px] font-medium text-[#333]">
+                <SectionTitle className="mb-[12px] shrink-0">
                   与 IP 关联的风险事件
-                </h3>
+                </SectionTitle>
                 <LearnerInternalTopologyPanel
                   data={ipRiskEventTopology}
                   loading={riskEventsLoading && !ipRiskEventTopology}
@@ -206,9 +207,7 @@ export default function IpDetailPlaceholder() {
               </div>
 
               <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-                <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
-                  流量日志
-                </h3>
+                <SectionTitle className="mb-[12px]">流量日志</SectionTitle>
                 <TrafficLogsTable
                   trafficLogs={trafficLogs}
                   loading={trafficLogsLoading}
