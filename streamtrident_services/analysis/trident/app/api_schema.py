@@ -73,6 +73,9 @@ class LearnerTopologyView(BaseModel):
     risk_name: str
     risk_description: str
     trigger_time: str
+    first_trigger_time: str | None = None
+    last_trigger_time: str | None = None
+    trigger_count: int | None = None
     attack_ratio: float
     dominant_label: str
     dominant_ratio: float | None = None

@@ -46,6 +46,16 @@ class FakeFlows:
             ],
         }
 
+    def learner_trigger_stats(self, **_: Any) -> dict[str, dict[str, Any]]:
+        return {
+            "NEW_1": {
+                "assigned_learner": "NEW_1",
+                "first_trigger_time": "2026-05-27 09:30:00",
+                "last_trigger_time": "2026-05-27 10:05:00",
+                "trigger_count": 21,
+            }
+        }
+
 
 class FakeLearners:
     def list_learners(self, **_: Any) -> list[dict[str, Any]]:
@@ -144,6 +154,11 @@ def test_risk_events_topology_includes_attack_type_learners_only() -> None:
     assert data["risk_type_total"] == 1
     assert data["risk_ip_count"] == 1
     assert data["learners"] == ["NEW_1"]
+    view = data["views"]["NEW_1"]
+    assert view["trigger_time"] == "2026-05-27 10:05:00"
+    assert view["first_trigger_time"] == "2026-05-27 09:30:00"
+    assert view["last_trigger_time"] == "2026-05-27 10:05:00"
+    assert view["trigger_count"] == 21
 
     page = service.risk_events_topology(limit=1, offset=0)
     assert page["total"] == 1

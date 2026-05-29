@@ -344,6 +344,7 @@ class PageQueryService:
         session_id: str | None = None,
         subject_ip: str | None = None,
         top_n: int = 50,
+        trigger_stats: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
         learner = self.learners.get_learner(session_id=sid, learner_name=learner_name) or {}
@@ -363,12 +364,18 @@ class PageQueryService:
         is_benign = primary_attack == "BENIGN_NORMAL"
         traffic_kind = "benign" if is_benign else "attack"
         topology_risk_learners = [] if is_benign else [learner_name]
+        last_trigger_time = _format_time((trigger_stats or {}).get("last_trigger_time")) or event["trigger_time"]
+        first_trigger_time = _format_time((trigger_stats or {}).get("first_trigger_time")) or last_trigger_time
+        trigger_count = int((trigger_stats or {}).get("trigger_count") or event["flow_count"] or 0)
         view = {
             "learner": learner_name,
             "risk_id": event["risk_id"],
             "risk_name": event["risk_name"],
             "risk_description": event["risk_description"],
-            "trigger_time": event["trigger_time"],
+            "trigger_time": last_trigger_time,
+            "first_trigger_time": first_trigger_time,
+            "last_trigger_time": last_trigger_time,
+            "trigger_count": trigger_count,
             "attack_ratio": event["attack_ratio"],
             "dominant_label": event["dominant_label"],
             "dominant_ratio": event["risk_score"],
@@ -512,13 +519,23 @@ class PageQueryService:
         safe_offset = max(0, int(offset or 0))
         capped = max(1, min(int(limit), 50))
         page_rows = rows[safe_offset : safe_offset + capped]
+        page_learner_names = [str(row.get("learner_name") or "") for row in page_rows if row.get("learner_name")]
+        trigger_stats_by_learner = (
+            self.flows.learner_trigger_stats(session_id=sid, learner_names=page_learner_names)
+            if hasattr(self.flows, "learner_trigger_stats")
+            else {}
+        )
         views: dict[str, Any] = {}
         learners: list[str] = []
         for row in page_rows:
             learner_name = str(row.get("learner_name") or "")
             if not learner_name:
                 continue
-            topology = self.learner_topology(learner_name=learner_name, top_n=top_n)
+            topology = self.learner_topology(
+                learner_name=learner_name,
+                top_n=top_n,
+                trigger_stats=trigger_stats_by_learner.get(learner_name),
+            )
             view = topology["views"][learner_name]
             learners.append(learner_name)
             views[learner_name] = view
