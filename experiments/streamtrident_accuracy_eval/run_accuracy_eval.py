@@ -142,9 +142,75 @@ UDP_DRDOS_TFTP_SPECS = [
     },
 ]
 
+# Mixed attack panel: 5 attack families x 10k + optional eval benign probe.
+MIXED_ATTACK_PANEL_SPECS = [
+    {
+        "name": "PORTSCAN",
+        "path": ROOT / "data" / "cic2017" / "friday.csv",
+        "labels": {"Portscan"},
+        "target": 10000,
+    },
+    {
+        "name": "DDOS",
+        "path": ROOT / "data" / "cic2017" / "friday.csv",
+        "labels": {"DDoS"},
+        "target": 10000,
+    },
+    {
+        "name": "DOS_GOLDENEYE",
+        "path": ROOT / "data" / "cic2017" / "wednesday.csv",
+        "labels": {"DoS GoldenEye", "DoS GoldenEye - Attempted"},
+        "target": 10000,
+    },
+    {
+        "name": "DRDOS_DNS",
+        "path": DATA2019 / "DrDoS_DNS.csv",
+        "labels": {"DrDoS_DNS"},
+        "target": 10000,
+    },
+    {
+        "name": "SLOW_DOS",
+        "path": ROOT / "data" / "cic2017" / "wednesday.csv",
+        "labels": {
+            "DoS Slowloris",
+            "DoS Slowhttptest",
+            "DoS Slowloris - Attempted",
+            "DoS Slowhttptest - Attempted",
+        },
+        "target": 10000,
+    },
+]
+
 LABEL_PLANS: dict[str, list[dict[str, Any]]] = {
     "legacy_mixed": STRICT_LABEL_SPECS,
     "udp_drdos_tftp": UDP_DRDOS_TFTP_SPECS,
+    "mixed_attack_panel": MIXED_ATTACK_PANEL_SPECS,
+    "tcp_cic2017_2019": [
+        {
+            "name": "PORTSCAN",
+            "path": ROOT / "data" / "cic2017" / "friday.csv",
+            "labels": {"Portscan"},
+            "target": 10000,
+        },
+        {
+            "name": "DDOS",
+            "path": ROOT / "data" / "cic2017" / "friday.csv",
+            "labels": {"DDoS"},
+            "target": 10000,
+        },
+        {
+            "name": "DOS_HULK",
+            "path": ROOT / "data" / "cic2017" / "wednesday.csv",
+            "labels": {"DoS Hulk"},
+            "target": 10000,
+        },
+        {
+            "name": "SYN",
+            "path": DATA2019 / "Syn.csv",
+            "labels": {"Syn"},
+            "target": 10000,
+        },
+    ],
 }
 
 BENIGN_EVAL_SPEC = {
@@ -161,6 +227,7 @@ COARSE_MAP = {
     "PORTSCAN": "PORTSCAN",
     "DDOS": "DOS_DDOS",
     "DOS_HULK": "DOS_DDOS",
+    "DOS_GOLDENEYE": "DOS_DDOS",
     "SYN": "SYN_FLOOD",
     "DRDOS_DNS": "DRDOS_UDP_FAMILY",
     "DRDOS_NTP": "DRDOS_UDP_FAMILY",
@@ -170,6 +237,7 @@ COARSE_MAP = {
     "DRDOS_SNMP": "DRDOS_UDP_FAMILY",
     "DRDOS_SSDP": "DRDOS_UDP_FAMILY",
     "DRDOS_UDP": "DRDOS_UDP_FAMILY",
+    "SLOW_DOS": "SLOW_DOS",
     "TFTP": "TFTP",
 }
 
@@ -245,7 +313,7 @@ def main() -> int:
         "--plan",
         choices=sorted(LABEL_PLANS),
         default="legacy_mixed",
-        help="legacy_mixed: mixed/tcp/udp split on CIC2017+2019 labels; udp_drdos_tftp: UDP-only TFTP + DrDoS family",
+        help="legacy_mixed: mixed/tcp/udp split on CIC2017+2019 labels; udp_drdos_tftp: UDP-only TFTP + DrDoS family; mixed_attack_panel: 5 attack families mixed TCP/UDP; tcp_cic2017_2019: TCP-only CIC2017+Syn",
     )
     parser.add_argument(
         "--eval-benign",
@@ -312,6 +380,38 @@ def main() -> int:
             sync_docker_session_id(str(summary["session_id"]))
             manifest["docker_session_id"] = summary["session_id"]
             write_json(run_root / "manifest.json", manifest)
+    elif args.plan == "tcp_cic2017_2019":
+        summary = run_one(
+            ExperimentPlan("tcp_cic2017_2019", 6, label_specs),
+            run_root=run_root,
+            timeout=args.timeout,
+            benign_warmup=args.benign_warmup,
+            interleave_eval=args.interleave_eval,
+            hours_back=args.hours_back,
+        )
+        summaries = [summary]
+        manifest["tcp_cic2017_2019_summary"] = summary
+        write_json(run_root / "manifest.json", manifest)
+        if args.sync_docker_config and summary.get("session_id"):
+            sync_docker_session_id(str(summary["session_id"]))
+            manifest["docker_session_id"] = summary["session_id"]
+            write_json(run_root / "manifest.json", manifest)
+    elif args.plan == "mixed_attack_panel":
+        summary = run_one(
+            ExperimentPlan("mixed_attack_panel", None, label_specs),
+            run_root=run_root,
+            timeout=args.timeout,
+            benign_warmup=args.benign_warmup,
+            interleave_eval=args.interleave_eval,
+            hours_back=args.hours_back,
+        )
+        summaries = [summary]
+        manifest["mixed_attack_panel_summary"] = summary
+        write_json(run_root / "manifest.json", manifest)
+        if args.sync_docker_config and summary.get("session_id"):
+            sync_docker_session_id(str(summary["session_id"]))
+            manifest["docker_session_id"] = summary["session_id"]
+            write_json(run_root / "manifest.json", manifest)
     else:
         plans = [ExperimentPlan("mixed_tcp_udp", None, label_specs)]
         mixed_summary = run_one(plans[0], run_root=run_root, timeout=args.timeout, benign_warmup=args.benign_warmup)
@@ -341,7 +441,7 @@ def eval_specs_for_plan(plan: str, base_specs: list[dict[str, Any]], eval_benign
         return specs
     benign = dict(BENIGN_EVAL_SPEC)
     benign["target"] = int(eval_benign)
-    if plan == "udp_drdos_tftp":
+    if plan in {"udp_drdos_tftp", "tcp_cic2017_2019", "mixed_attack_panel"}:
         return specs + [benign]
     return [benign] + specs
 

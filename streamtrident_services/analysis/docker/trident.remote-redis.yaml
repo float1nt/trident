@@ -10,7 +10,7 @@ block_ms: 1000
 ack: true
 list_maxlen: 100000
 
-session_id: trident-session-dev
+session_id: accuracy-mixed_attack_panel-aa2b640d82
 window_size: 10000
 feature_profile: compact_stats_no_env
 
