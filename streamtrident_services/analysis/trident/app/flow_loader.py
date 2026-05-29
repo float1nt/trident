@@ -12,9 +12,9 @@ from .redis_consumer import RedisStreamMessage
 ALIASES: dict[str, tuple[str, ...]] = {
     "event_time": ("event_time", "timestamp", "Timestamp", "time", "flow_start"),
     "src_ip": ("src_ip", "source_ip", "Source IP", "Src IP"),
-    "dst_ip": ("dst_ip", "destination_ip", "Destination IP", "Dst IP"),
+    "dst_ip": ("dst_ip", "dest_ip", "destination_ip", "Destination IP", "Dst IP"),
     "src_port": ("src_port", "source_port", "Source Port", "Src Port"),
-    "dst_port": ("dst_port", "destination_port", "Destination Port", "Dst Port"),
+    "dst_port": ("dst_port", "dest_port", "destination_port", "Destination Port", "Dst Port"),
     "protocol": ("protocol", "proto", "Protocol"),
     "app_proto": ("app_proto", "application_protocol", "app_protocol", "Application Protocol"),
     "total_bytes": ("total_bytes", "totalBytes", "bytes"),
@@ -154,14 +154,15 @@ def _pick(payload: Mapping[str, Any], key: str, default: Any) -> Any:
 
 
 def _parse_raw_payload(fields: Mapping[str, Any]) -> dict[str, Any]:
-    for key in ("raw_event_json", "raw_event"):
+    for key in ("raw_event_json", "raw_event", "eve"):
         value = fields.get(key)
         if isinstance(value, str) and value.strip():
             try:
                 parsed = json.loads(value)
             except json.JSONDecodeError:
-                return {}
-            return parsed if isinstance(parsed, dict) else {}
+                continue
+            if isinstance(parsed, dict):
+                return parsed
     return {}
 
 
@@ -209,7 +210,7 @@ def _total_bytes(payload: Mapping[str, Any]) -> int:
 
 
 def _raw_event(fields: Mapping[str, Any], raw_payload: Mapping[str, Any]) -> str:
-    raw = fields.get("raw_event_json") or fields.get("raw_event")
+    raw = fields.get("raw_event_json") or fields.get("raw_event") or fields.get("eve")
     if isinstance(raw, str) and raw.strip():
         return raw
     payload = raw_payload if raw_payload else fields
