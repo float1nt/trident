@@ -94,6 +94,7 @@ def test_dashboard_overview_maps_database_rows_to_page_shape() -> None:
     assert data["metrics"]["total_flows"] == 10
     assert data["metrics"]["total_bytes"] == 10000
     assert data["metrics"]["risk_learner_count"] == 1
+    assert data["metrics"]["risk_type_count"] == 1
     assert data["traffic_distribution"][1] == {"name": "疑似异常流量", "value": 3000}
     assert data["protocol_distribution"] == [{"name": "其他", "value": 10}]
 
@@ -104,6 +105,31 @@ def test_overview_metrics_reports_total_traffic_bytes() -> None:
     data = service.overview_metrics()
 
     assert data["totalTraffic"] == 10000
+
+
+def test_overview_metrics_reports_distinct_risk_type_count() -> None:
+    class MultiLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            base = FakeLearners().list_learners()[0]
+            same_type = copy.deepcopy(base)
+            same_type["id"] = 13
+            same_type["learner_name"] = "NEW_2"
+            other_type = copy.deepcopy(base)
+            other_type["id"] = 14
+            other_type["learner_name"] = "NEW_3"
+            other_type["rule_json"] = {
+                "attack_types": [
+                    {"attack_type": "PORT_SCAN", "confidence": 0.75},
+                ]
+            }
+            baseline = FakeLearners().list_learners()[1]
+            return [base, same_type, other_type, baseline]
+
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=MultiLearners())
+
+    data = service.overview_metrics()
+
+    assert data["riskTypeCount"] == 2
 
 
 def test_overview_traffic_trend_returns_filled_buckets() -> None:

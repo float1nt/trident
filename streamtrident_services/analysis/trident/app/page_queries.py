@@ -76,6 +76,7 @@ class PageQueryService:
         sid = session_id or self.session_id
         learner_rows = self.learners.list_learners(session_id=sid)
         risk_names = _risk_learner_names(learner_rows)
+        risk_type_names = _distinct_risk_type_names(learner_rows)
         summary = self.flows.dashboard_summary(
             session_id=sid,
             risk_learners=risk_names,
@@ -96,6 +97,7 @@ class PageQueryService:
                 "total_bytes": int(summary.get("total_bytes") or 0),
                 "protocol_count": int(summary.get("protocol_count") or 0),
                 "risk_learner_count": len(risk_names),
+                "risk_type_count": len(risk_type_names),
                 "risk_ip_count": int(summary.get("risk_ip_count") or 0),
             },
             "traffic_distribution": [
@@ -118,7 +120,7 @@ class PageQueryService:
         return {
             "totalTraffic": int(metrics["total_bytes"]),
             "protocolCount": int(metrics["protocol_count"]),
-            "riskTypeCount": int(metrics["risk_learner_count"]),
+            "riskTypeCount": int(metrics["risk_type_count"]),
             "suspiciousIpCount": int(metrics["risk_ip_count"]),
         }
 
