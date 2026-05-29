@@ -19,6 +19,7 @@ import PageTabs from "@/components/PageTabs";
 import type { Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { IpRiskListItem } from "@/api/types";
+import AppTooltip from "@/components/AppTooltip";
 import OverflowTooltip from "@/components/OverflowTooltip";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
@@ -70,6 +71,26 @@ function getInitialViewTab(): RiskViewTab {
 
 const { RangePicker } = DatePicker;
 const { Paragraph } = Typography;
+
+function renderRiskTypeMaxTagPlaceholder(
+  omittedValues: { label?: React.ReactNode; value?: string | number }[],
+) {
+  return (
+    <AppTooltip
+      title={
+        <div className="flex max-w-[280px] flex-wrap gap-1">
+          {omittedValues.map((item) => (
+            <Tag key={String(item.value)} className="!m-0">
+              {item.label}
+            </Tag>
+          ))}
+        </div>
+      }
+    >
+      <span>+{omittedValues.length}</span>
+    </AppTooltip>
+  );
+}
 
 function formatTriggerRange(period: [Dayjs, Dayjs] | null) {
   if (!period?.[0] || !period[1]) {
@@ -360,6 +381,7 @@ const RiskTaskList = () => {
                     }}
                     placeholder="请选择"
                     maxTagCount="responsive"
+                    maxTagPlaceholder={renderRiskTypeMaxTagPlaceholder}
                     value={eventSearchInputs.attackTypes}
                     options={attackTypeOptions.map((item) => ({
                       value: item.code,
