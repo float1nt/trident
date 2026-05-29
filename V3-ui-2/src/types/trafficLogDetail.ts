@@ -43,3 +43,23 @@ export type TrafficLogDetailSection = {
   title: string;
   fields: TrafficLogDetailField[];
 };
+
+export type TrafficLogInterfacePane = {
+  key: string;
+  label: string;
+  content: string;
+};
+
+export type TrafficLogInterfaceBlock = {
+  titlePrefix: "请求" | "响应";
+  sizeLabel: string;
+  panes: TrafficLogInterfacePane[];
+  defaultPaneKey: string;
+  /** 响应区块的数据标签 */
+  dataTags?: string[];
+};
+
+export type TrafficLogInterfaceDetail = {
+  request: TrafficLogInterfaceBlock;
+  response: TrafficLogInterfaceBlock;
+};

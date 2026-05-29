@@ -4,9 +4,10 @@ import { CloseOutlined, InfoCircleOutlined } from "@ant-design/icons";
 import type { RiskTrafficLogItem } from "@/api/services/RiskService";
 import {
   buildBasicInfoSections,
-  buildInterfaceDetailSections,
   buildMockTrafficLogDetail,
+  buildMockTrafficLogInterfaceDetail,
 } from "@/mock/trafficLogDetailMock";
+import { TrafficLogInterfaceDetailPanel } from "@/components/TrafficLogInterfaceDetailPanel";
 import type { TrafficLogDetailSection } from "@/types/trafficLogDetail";
 import { whiteTooltipProps } from "@/components/AppTooltip";
 
@@ -88,12 +89,15 @@ export function TrafficLogDetailDrawer({
     [activeLog],
   );
 
-  const sections = useMemo(() => {
-    if (!detail) return [];
-    return activeTab === "basic"
-      ? buildBasicInfoSections(detail)
-      : buildInterfaceDetailSections(detail);
-  }, [activeTab, detail]);
+  const basicSections = useMemo(
+    () => (detail ? buildBasicInfoSections(detail) : []),
+    [detail],
+  );
+
+  const interfaceDetail = useMemo(
+    () => (detail ? buildMockTrafficLogInterfaceDetail(detail) : null),
+    [detail],
+  );
 
   useEffect(() => {
     if (open) {
@@ -173,15 +177,20 @@ export function TrafficLogDetailDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto px-[20px] py-[16px]">
-          {detail ? (
+          {!detail ? (
+            <p className="text-[14px] text-[#8c8c8c]">暂无日志详情</p>
+          ) : activeTab === "basic" ? (
             <div className="flex flex-col gap-[12px]">
-              {sections.map((section) => (
+              {basicSections.map((section) => (
                 <DetailSection key={section.title} section={section} />
               ))}
             </div>
-          ) : (
-            <p className="text-[14px] text-[#8c8c8c]">暂无日志详情</p>
-          )}
+          ) : interfaceDetail ? (
+            <TrafficLogInterfaceDetailPanel
+              key={activeLog?.id ?? activeIndex}
+              data={interfaceDetail}
+            />
+          ) : null}
         </div>
       </div>
     </Drawer>

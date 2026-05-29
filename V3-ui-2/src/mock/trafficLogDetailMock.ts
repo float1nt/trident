@@ -2,6 +2,7 @@ import type { RiskTrafficLogItem } from "@/api/services/RiskService";
 import type {
   TrafficLogDetail,
   TrafficLogDetailSection,
+  TrafficLogInterfaceDetail,
 } from "@/types/trafficLogDetail";
 import { formatTrafficVolumeText } from "@/utils/formatTotalTraffic";
 
@@ -138,27 +139,138 @@ export function buildBasicInfoSections(
   ];
 }
 
-export function buildInterfaceDetailSections(
-  detail: TrafficLogDetail,
-): TrafficLogDetailSection[] {
+function buildRequestReqRaw(detail: TrafficLogDetail): string {
+  const host = detail.userVisitAddress.split(":")[0] || detail.dstIp;
+  const port = detail.userVisitAddress.split(":")[1] || detail.dstPort;
   return [
-    {
-      title: "响应信息",
-      fields: [
-        { label: "响应状态", value: detail.responseStatus },
-        { label: "响应大小", value: detail.responseSize },
-        { label: "响应数据标签", value: detail.responseDataTag },
-        { label: "Content-Type", value: detail.contentType },
-        { label: "响应耗时", value: detail.responseTime },
+    `${detail.apiMethod} ${detail.path} HTTP/1.1`,
+    `Host: ${host}:${port}`,
+    `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`,
+    `Accept: application/json, text/plain, */*`,
+    `Accept-Language: zh-CN,zh;q=0.9,en;q=0.8`,
+    `Accept-Encoding: gzip, deflate`,
+    `Connection: keep-alive`,
+    `Referer: ${detail.referer === "-" ? "-" : detail.referer}`,
+    `X-Forwarded-For: ${detail.xffIp === "-" ? "-" : detail.xffIp}`,
+    `Cookie: session_id=mock_session_${detail.accessTime.replace(/\D/g, "").slice(0, 8)}`,
+    ``,
+  ].join("\n");
+}
+
+function buildRequestBody(): string {
+  return "";
+}
+
+function buildRequestHeader(detail: TrafficLogDetail): string {
+  return [
+    `method: ${detail.apiMethod}`,
+    `path: ${detail.path}`,
+    `scheme: http`,
+    `authority: ${detail.userVisitAddress}`,
+    `user-agent: Mozilla/5.0`,
+    `accept: */*`,
+    `accept-encoding: gzip, deflate`,
+    `accept-language: zh-CN,zh;q=0.9`,
+  ].join("\n");
+}
+
+function buildRequestQueryParams(): string {
+  return "page=1\nlimit=20\nsort=desc";
+}
+
+function buildResponseResRaw(detail: TrafficLogDetail): string {
+  return [
+    `HTTP/1.1 ${detail.responseStatus}`,
+    `Content-Type: ${detail.contentType}`,
+    `Content-Length: ${detail.responseSize}`,
+    `Connection: keep-alive`,
+    `Date: ${detail.accessTime}`,
+    `Server: nginx/1.18.0`,
+    `X-Response-Time: ${detail.responseTime}`,
+    ``,
+    `[`,
+    `  {`,
+    `    "id": 10001,`,
+    `    "name": "示例数据",`,
+    `    "status": "ok"`,
+    `  }`,
+    `]`,
+  ].join("\n");
+}
+
+function buildResponseBody(): string {
+  return `[\n  {\n    "id": 10001,\n    "name": "示例数据",\n    "status": "ok"\n  }\n]`;
+}
+
+function buildResponseHeader(detail: TrafficLogDetail): string {
+  return [
+    `status: ${detail.responseStatus}`,
+    `content-type: ${detail.contentType}`,
+    `content-length: ${detail.responseSize}`,
+    `connection: keep-alive`,
+    `date: ${detail.accessTime}`,
+    `server: nginx/1.18.0`,
+    `x-response-time: ${detail.responseTime}`,
+  ].join("\n");
+}
+
+const MOCK_RESPONSE_DATA_TAGS = [
+  "服务人员姓名(1)",
+  "年龄(1)",
+  "出生日期(1)",
+  "性别(1)",
+  "身份证号(1)",
+  "手机号码(1)",
+  "联系地址(1)",
+  "电子邮箱(1)",
+];
+
+/** 接口详情 Tab mock（请求/响应 Raw 等） */
+export function buildMockTrafficLogInterfaceDetail(
+  detail: TrafficLogDetail,
+): TrafficLogInterfaceDetail {
+  return {
+    request: {
+      titlePrefix: "请求",
+      sizeLabel: detail.requestSize,
+      defaultPaneKey: "req-raw",
+      panes: [
+        {
+          key: "req-raw",
+          label: "Req-Raw",
+          content: buildRequestReqRaw(detail),
+        },
+        { key: "body", label: "Body", content: buildRequestBody() },
+        {
+          key: "header",
+          label: "Header",
+          content: buildRequestHeader(detail),
+        },
+        {
+          key: "query",
+          label: "Query Params",
+          content: buildRequestQueryParams(),
+        },
       ],
     },
-    {
-      title: "接口路径",
-      fields: [
-        { label: "请求路径", value: detail.path },
-        { label: "请求方法", value: detail.apiMethod },
-        { label: "API协议", value: detail.apiProtocol },
+    response: {
+      titlePrefix: "响应",
+      sizeLabel: detail.responseSize,
+      defaultPaneKey: "res-raw",
+      dataTags: MOCK_RESPONSE_DATA_TAGS,
+      panes: [
+        {
+          key: "res-raw",
+          label: "Res-Raw",
+          content: buildResponseResRaw(detail),
+        },
+        { key: "body", label: "Body", content: buildResponseBody() },
+        {
+          key: "header",
+          label: "Header",
+          content: buildResponseHeader(detail),
+        },
       ],
     },
-  ];
+  };
 }
