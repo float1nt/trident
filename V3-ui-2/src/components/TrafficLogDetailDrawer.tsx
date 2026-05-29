@@ -136,6 +136,7 @@ export function TrafficLogDetailDrawer({
       destroyOnClose
       styles={{
         body: { padding: 0 },
+        mask: { background: "transparent" },
       }}
     >
       <div className="flex h-full flex-col">
