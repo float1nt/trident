@@ -39,8 +39,8 @@ function DetailField({
 
   return (
     <div className="flex min-w-0 items-start gap-2 py-[6px]">
-      <span className="w-[108px] shrink-0 text-[14px] leading-[22px] text-[#8c8c8c]">
-        {label}
+      <span className="text-[14px] leading-[22px] text-[#8c8c8c]">
+        {label}:
       </span>
       <span className="flex min-w-0 flex-1 items-center gap-1 text-[14px] leading-[22px] text-[#333]">
         <span className="min-w-0 break-all">{value}</span>
@@ -122,7 +122,7 @@ export function TrafficLogDetailDrawer({
       }
       open={open}
       onClose={onClose}
-      width="min(720px, 45vw)"
+      width="820px"
       destroyOnClose
       styles={{
         body: { padding: 0 },
