@@ -16,12 +16,12 @@ export default defineConfig({
     proxy: {
       // 认证与业务 API：streamtrident analysis 测试栈（start-test.sh → TRIDENT_API_HOST_PORT=9090）
       "/api/auth": {
-        target: "http://127.0.0.1:9090",
+        target: "http://127.0.0.1:8090",
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/api/, ""),
       },
       "/api": {
-        target: "http://127.0.0.1:9090",
+        target: "http://127.0.0.1:8090",
         changeOrigin: true,
         rewrite: (path: string) => path.replace(/^\/api/, ""),
       },
