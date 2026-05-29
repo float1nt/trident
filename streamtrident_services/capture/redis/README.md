@@ -7,8 +7,8 @@
 ## Run Redis
 
 ```bash
-cd streamtrident_services/capture/redis
-docker compose up -d
+cd streamtrident_services
+make capture-start
 ```
 
 ## Queue Admin

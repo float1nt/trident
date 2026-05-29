@@ -62,10 +62,10 @@ ON CONFLICT (session_id) DO UPDATE SET
     def validate_inference_ready(self, *, session_id: str, learners: list[dict[str, Any]]) -> None:
         runtime = self.get(session_id=session_id)
         if not runtime or not bool(runtime.get("cold_start_finalized")):
-            raise RuntimeError("inference mode requires cold_start_finalized session; run start-coldstart.sh first")
+            raise RuntimeError("inference mode requires cold_start_finalized session; run make prod-start-coldstart or make test-start-coldstart first")
         cold_learners = [row for row in learners if str(row.get("learner_name") or "").startswith("COLD_")]
         if not cold_learners:
-            raise RuntimeError("inference mode requires at least one COLD_*|BENIGN learner; run start-coldstart.sh first")
+            raise RuntimeError("inference mode requires at least one COLD_*|BENIGN learner; run make prod-start-coldstart or make test-start-coldstart first")
         for row in cold_learners:
             profile = row.get("profile_json") if isinstance(row.get("profile_json"), dict) else {}
             model_ref = profile.get("model_ref") if isinstance(profile, dict) else None
@@ -85,4 +85,3 @@ ON CONFLICT (session_id) DO UPDATE SET
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 return list(cur.fetchall())
-

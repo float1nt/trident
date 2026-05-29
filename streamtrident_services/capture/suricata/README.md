@@ -26,13 +26,14 @@ Set the capture interface and start the compose stack:
 
 ```bash
 cd streamtrident_services
-SURICATA_IFACE=eth0 make up
+SURICATA_IFACE=eth0 make capture-start
 ```
 
-Restart only capture:
+Restart capture:
 
 ```bash
-SURICATA_IFACE=eth0 make restart-capture
+make capture-stop
+SURICATA_IFACE=eth0 make capture-start
 ```
 
 ## Configuration
@@ -57,8 +58,9 @@ host port (`127.0.0.1:${REDIS_HOST_PORT}`), not through the compose service name
 ## Verify
 
 ```bash
-docker logs -f streamtrident-suricata-cic
-cd .. && ./check-redis-flow.sh
+cd streamtrident_services
+make capture-logs
+make capture-check
 ```
 
 Or manually:

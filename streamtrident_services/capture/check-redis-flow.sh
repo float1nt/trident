@@ -121,7 +121,7 @@ if (( max_len >= MIN_PEAK_LEN )); then
 elif (( growth >= MIN_GROWTH )); then
   pass "queue grew by ${growth} (start=${start_len}, peak=${max_len})"
 else
-  fail "no flow data observed on ${STREAM_KEY} in ${WATCH_SECONDS}s (start=${start_len}, peak=${max_len}, end=${end_len}); check mirror on ${SURICATA_IFACE:-<iface>} and suricata logs: docker logs streamtrident-suricata-cic"
+  fail "no flow data observed on ${STREAM_KEY} in ${WATCH_SECONDS}s (start=${start_len}, peak=${max_len}, end=${end_len}); check mirror on ${SURICATA_IFACE:-<iface>} and capture logs: make capture-logs"
 fi
 
 if [ "$end_len" -eq 0 ] && [ "$max_len" -gt 0 ]; then

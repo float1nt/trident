@@ -27,5 +27,5 @@ capture stack started
   redis: 0.0.0.0:$REDIS_HOST_PORT  (analysis host connects here)
   suricata-agent: 0.0.0.0:$SURICATA_AGENT_HOST_PORT
   split deploy guide: ../docs/SPLIT_DEPLOY.md
-  verify redis:   ./check-redis-flow.sh
+  verify redis:   make capture-check  (from streamtrident_services)
 EOF

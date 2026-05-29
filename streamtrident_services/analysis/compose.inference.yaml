@@ -1,4 +1,4 @@
-# Worker override: inference mode (use with compose.yaml + compose.test.yaml + .env.test)
+# Worker override: inference mode. Use after compose.yaml and optional environment overrides.
 services:
   trident-worker:
     command: ["python", "-m", "app.worker", "--config", "config/trident.yaml", "--mode", "inference"]
