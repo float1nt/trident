@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Drawer, Tooltip } from "antd";
-import { InfoCircleOutlined } from "@ant-design/icons";
+import { CloseOutlined, InfoCircleOutlined } from "@ant-design/icons";
 import type { RiskTrafficLogItem } from "@/api/services/RiskService";
 import {
   buildBasicInfoSections,
@@ -106,30 +106,25 @@ export function TrafficLogDetailDrawer({
 
   return (
     <Drawer
-      title={null}
+      title="详情"
       closable={false}
+      extra={
+        <Button
+          type="text"
+          icon={<CloseOutlined />}
+          aria-label="关闭"
+          onClick={onClose}
+        />
+      }
       open={open}
       onClose={onClose}
       width="min(720px, 45vw)"
       destroyOnClose
       styles={{
         body: { padding: 0 },
-        header: { display: "none" },
       }}
     >
       <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between border-b border-[#f0f0f0] px-[20px] py-[16px]">
-          <h3 className="m-0 text-[16px] font-medium text-[#333]">详情</h3>
-          <button
-            type="button"
-            aria-label="关闭"
-            className="flex h-[24px] w-[24px] items-center justify-center rounded text-[18px] leading-none text-[#8c8c8c] transition-colors hover:bg-[#f5f5f5] hover:text-[#333]"
-            onClick={onClose}
-          >
-            ×
-          </button>
-        </div>
-
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f0f0f0] px-[20px]">
           <div className="flex items-center gap-[24px]">
             {DETAIL_TABS.map((tab) => {
