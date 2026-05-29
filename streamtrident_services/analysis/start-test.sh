@@ -32,7 +32,8 @@ trident test stack started (project: $COMPOSE_PROJECT_NAME)
   api:        0.0.0.0:$TRIDENT_API_HOST_PORT
   postgres:   0.0.0.0:${POSTGRES_HOST_PORT:-25432}
   clickhouse: 0.0.0.0:${CLICKHOUSE_HTTP_HOST_PORT:-28123} (http), 0.0.0.0:${CLICKHOUSE_NATIVE_HOST_PORT:-29000} (native)
-  capture redis: $CAPTURE_REDIS_HOST:$CAPTURE_REDIS_PORT
+  capture redis: $CAPTURE_REDIS_HOST:$CAPTURE_REDIS_PORT  (remote capture host)
   suricata agents: $TRIDENT_SURICATA_AGENT_URLS
+  preflight:  redis-cli -h $CAPTURE_REDIS_HOST -p $CAPTURE_REDIS_PORT PING
   stop: ./stop-test.sh
 EOF
