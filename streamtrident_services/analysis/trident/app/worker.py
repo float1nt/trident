@@ -189,7 +189,11 @@ def main() -> int:
                         consumer=consumer,
                         reliable_consumer=reliable_consumer,
                     )
-                    if cfg.cold_start_exit_on_complete and engine.cold_start_complete:
+                    if (
+                        cfg.runtime_mode == "cold_start"
+                        and cfg.cold_start_exit_on_complete
+                        and engine.cold_start_complete
+                    ):
                         return 0
             now = perf_counter()
             if now - last_idle_log >= 60:
@@ -224,7 +228,11 @@ def main() -> int:
             force_window=False,
             reliable_consumer=reliable_consumer,
             )
-        if cfg.cold_start_exit_on_complete and engine.cold_start_complete:
+        if (
+            cfg.runtime_mode == "cold_start"
+            and cfg.cold_start_exit_on_complete
+            and engine.cold_start_complete
+        ):
             return 0
         if args.once:
             if cfg.process_partial_window:
