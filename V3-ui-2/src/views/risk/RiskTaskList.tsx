@@ -331,6 +331,18 @@ const RiskTaskList = () => {
               styles={{ body: { padding: "16px 16px 12px" } }}
             >
               <div className="risk-filter-row">
+              <Input
+                  className="risk-filter-field"
+                  prefix="风险名称"
+                  placeholder="请输入"
+                  value={eventSearchInputs.name}
+                  onChange={(e) =>
+                    setEventSearchInputs((prev) => ({
+                      ...prev,
+                      name: e.target.value,
+                    }))
+                  }
+                />
                 <div className="risk-filter-select risk-filter-field">
                   <span className="risk-filter-select__prefix">风险类型</span>
                   <Select
@@ -364,18 +376,6 @@ const RiskTaskList = () => {
                     }
                   />
                 </div>
-                <Input
-                  className="risk-filter-field"
-                  prefix="风险名称"
-                  placeholder="请输入"
-                  value={eventSearchInputs.name}
-                  onChange={(e) =>
-                    setEventSearchInputs((prev) => ({
-                      ...prev,
-                      name: e.target.value,
-                    }))
-                  }
-                />
                 <div className="risk-filter-range risk-filter-field">
                   <span className="risk-filter-range__prefix">触发时段</span>
                   <RangePicker
