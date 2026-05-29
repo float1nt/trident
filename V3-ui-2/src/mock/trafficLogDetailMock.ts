@@ -76,29 +76,29 @@ export function buildBasicInfoSections(
   detail: TrafficLogDetail,
 ): TrafficLogDetailSection[] {
   return [
-    {
-      title: "基础信息",
-      fields: [
-        { label: "访问时间", value: detail.accessTime },
-        { label: "流量", value: detail.traffic },
-        { label: "日志来源", value: detail.logSource },
-        { label: "应用名称", value: detail.appName },
-        { label: "用户访问地址", value: detail.userVisitAddress },
-        { label: "路径", value: detail.path },
-        { label: "访问域", value: detail.visitDomain },
-        { label: "部署域", value: detail.deployDomain },
-        {
-          label: "访问账号",
-          value: detail.visitAccount,
-          hint: "暂无账号识别结果",
-        },
-        {
-          label: "用户名称",
-          value: detail.userName,
-          hint: "暂无用户识别结果",
-        },
-      ],
-    },
+    // {
+    //   title: "基础信息",
+    //   fields: [
+    //     { label: "访问时间", value: detail.accessTime },
+    //     { label: "流量", value: detail.traffic },
+    //     { label: "日志来源", value: detail.logSource },
+    //     { label: "应用名称", value: detail.appName },
+    //     { label: "用户访问地址", value: detail.userVisitAddress },
+    //     { label: "路径", value: detail.path },
+    //     { label: "访问域", value: detail.visitDomain },
+    //     { label: "部署域", value: detail.deployDomain },
+    //     {
+    //       label: "访问账号",
+    //       value: detail.visitAccount,
+    //       hint: "暂无账号识别结果",
+    //     },
+    //     {
+    //       label: "用户名称",
+    //       value: detail.userName,
+    //       hint: "暂无用户识别结果",
+    //     },
+    //   ],
+    // },
     {
       title: "五元组信息",
       fields: [
@@ -128,20 +128,21 @@ export function buildBasicInfoSections(
 }
 
 function buildRequestReqRaw(detail: TrafficLogDetail): string {
-  const host = detail.userVisitAddress.split(":")[0] || detail.dstIp;
-  const port = detail.userVisitAddress.split(":")[1] || detail.dstPort;
+  // const host = detail.userVisitAddress.split(":")[0] || detail.dstIp;
+  // const port = detail.userVisitAddress.split(":")[1] || detail.dstPort;
   return [
-    `${detail.apiMethod} ${detail.path} HTTP/1.1`,
-    `Host: ${host}:${port}`,
-    `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`,
-    `Accept: application/json, text/plain, */*`,
-    `Accept-Language: zh-CN,zh;q=0.9,en;q=0.8`,
-    `Accept-Encoding: gzip, deflate`,
-    `Connection: keep-alive`,
-    `Referer: ${detail.referer === "-" ? "-" : detail.referer}`,
-    `X-Forwarded-For: ${detail.xffIp === "-" ? "-" : detail.xffIp}`,
-    `Cookie: session_id=mock_session_${detail.accessTime.replace(/\D/g, "").slice(0, 8)}`,
-    ``,
+    `-`
+    // `${detail.apiMethod} ${detail.path} HTTP/1.1`,
+    // `Host: ${host}:${port}`,
+    // `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`,
+    // `Accept: application/json, text/plain, */*`,
+    // `Accept-Language: zh-CN,zh;q=0.9,en;q=0.8`,
+    // `Accept-Encoding: gzip, deflate`,
+    // `Connection: keep-alive`,
+    // `Referer: ${detail.referer === "-" ? "-" : detail.referer}`,
+    // `X-Forwarded-For: ${detail.xffIp === "-" ? "-" : detail.xffIp}`,
+    // `Cookie: session_id=mock_session_${detail.accessTime.replace(/\D/g, "").slice(0, 8)}`,
+    // ``,
   ].join("\n");
 }
 

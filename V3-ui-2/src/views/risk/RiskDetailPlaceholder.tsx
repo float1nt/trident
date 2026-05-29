@@ -20,6 +20,7 @@ import {
   DEFAULT_TABLE_PAGE_SIZE,
 } from "@/constants/tablePagination";
 import { normalizeApiList } from "@/utils/normalizeApiList";
+import { formatTriggerCountText } from "@/utils/formatTotalTraffic";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
 
 const CHART_HEIGHT = 320;
@@ -188,12 +189,14 @@ export default function RiskDetailPlaceholder() {
                   {(risk?.firstTriggerTime ||
                     risk?.lastTriggerTime ||
                     risk?.triggerTime ||
+                    risk?.triggerCount != null ||
                     risk?.description) ? (
-                    <div className="flex min-w-0 flex-col gap-1 text-sm leading-[22px] text-[#666]">
+                    <div className="flex min-w-0 flex-col gap-1 text-sm leading-[22px] text-[#666] mr-[16px]">
                       {risk?.firstTriggerTime ||
                       risk?.lastTriggerTime ||
-                      risk?.triggerTime ? (
-                        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                      risk?.triggerTime ||
+                      risk?.triggerCount != null ? (
+                        <div className="flex min-w-0 items-center gap-[32px]">
                           {risk?.firstTriggerTime || risk?.triggerTime ? (
                             <span className="shrink-0 whitespace-nowrap">
                               首次触发时间：{risk.firstTriggerTime ?? risk.triggerTime}
@@ -205,12 +208,26 @@ export default function RiskDetailPlaceholder() {
                               {risk.lastTriggerTime ?? risk.triggerTime}
                             </span>
                           ) : null}
+                          {risk?.triggerCount != null ? (
+                            <OverflowTooltip
+                              title={
+                                risk.triggerCount >= 10_000
+                                  ? `${risk.triggerCount.toLocaleString("zh-CN")} 次`
+                                  : undefined
+                              }
+                            >
+                              <span className="shrink-0 whitespace-nowrap">
+                                累计触发次数：
+                                {formatTriggerCountText(risk.triggerCount)}
+                              </span>
+                            </OverflowTooltip>
+                          ) : null}
                         </div>
                       ) : null}
                       {risk?.description ? (
                         <OverflowTooltip title={risk.description}>
                           <span className="block min-w-0 truncate">
-                            {risk.description}
+                           风险说明： {risk.description}
                           </span>
                         </OverflowTooltip>
                       ) : null}
@@ -218,10 +235,6 @@ export default function RiskDetailPlaceholder() {
                   ) : null}
                 </div>
                 <div className="mr-[16px] flex items-center gap-[24px]">
-                  <div className="flex flex-col items-center">
-                    <div className="text-sm text-[#8c8c8c]">累计触发次数</div>
-                    <DetailMetricValue count={risk?.triggerCount ?? 0} />
-                  </div>
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险 IP 数</div>
                     <DetailMetricValue count={risk?.riskIpCount ?? 0} />

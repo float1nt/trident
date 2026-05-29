@@ -130,7 +130,7 @@ export default function IpDetailPlaceholder() {
               aria-hidden
             />
             <div className="min-w-0 flex-1">
-              <div className="mt-[10px] flex items-start justify-between gap-3">
+              <div className="mt-[10px] flex items-center gap-3">
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="m-0 text-lg font-medium text-[#333]">
@@ -143,16 +143,18 @@ export default function IpDetailPlaceholder() {
                     ) : null}
                   </div>
                   {(summary?.latestTriggerTime || summary?.description) ? (
-                    <div className="flex min-w-0 flex-nowrap items-center gap-1 text-sm leading-[22px] text-[#666]">
+                    <div className="flex min-w-0 flex-col gap-1 text-sm leading-[22px] text-[#666] mr-[16px]">
                       {summary?.latestTriggerTime ? (
-                        <span className="shrink-0 whitespace-nowrap">
-                          [{summary.latestTriggerTime}]
-                        </span>
+                        <div className="flex min-w-0 items-center justify-between">
+                          <span className="shrink-0 whitespace-nowrap">
+                            最近一次触发时间：{summary.latestTriggerTime}
+                          </span>
+                        </div>
                       ) : null}
                       {summary?.description ? (
                         <OverflowTooltip title={summary.description}>
                           <span className="block min-w-0 truncate">
-                            {summary.description}
+                            IP说明：{summary.description}
                           </span>
                         </OverflowTooltip>
                       ) : null}

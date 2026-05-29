@@ -89,3 +89,9 @@ export function formatMetricTimes(count: number): FormattedTrafficVolume {
     unit: "次",
   };
 }
+
+/** 详情页等场景：格式化为「数值+单位」触发次数文本 */
+export function formatTriggerCountText(count: number): string {
+  const { value, unit } = formatMetricTimes(count);
+  return `${value}${unit}`;
+}
