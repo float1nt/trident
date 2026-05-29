@@ -16,7 +16,10 @@ export type LearnerTopologyView = {
 
 export type LearnerNetworkTopologyJson = {
   version: number;
+  /** 风险事件总数（learner 条数） */
   total?: number;
+  /** 风险类型总数（去重后的展示类型数） */
+  risk_type_total?: number;
   learners: string[];
   default_learner: string;
   views: Record<string, LearnerTopologyView>;

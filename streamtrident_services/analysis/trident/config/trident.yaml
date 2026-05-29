@@ -8,7 +8,7 @@ read_count: 512
 block_ms: 1000
 ack: true
 session_id: trident-session-dev
-window_size: 1000
+window_size: 10000
 feature_profile: compact_stats_no_env
 
 clickhouse_dsn: http://127.0.0.1:8123/default
@@ -20,7 +20,7 @@ metrics_stream: trident:metrics
 redis_output_enabled: false
 
 unknown_threshold: 0.35
-new_learner_min_size: 20
+new_learner_min_size: 500
 pending_idle_ms: 60000
 process_partial_window: true
 
@@ -30,10 +30,10 @@ seed: 42
 init_epochs: 5
 new_class_epochs: 4
 increment_epochs: 1
-min_class_samples: 20
+min_class_samples: 300
 max_train_per_class: 20000
 max_increment_samples: 1000
-increment_min_samples: 20
+increment_min_samples: 1000
 tsieve_batch_size: 256
 tsieve_lr: 0.001
 evt_quantile: 0.97
@@ -44,22 +44,23 @@ dbscan_eps: 1.3
 dbscan_min_samples: 10
 max_unknown_buffer: 30000
 
-benign_history_confidence_scale: 0.6
+benign_accept_scale: 0.34
+benign_history_confidence_scale: 1.0
 cluster_purity_gate_enabled: true
 cluster_gate_max_benign_accept_rate: 0.35
 cluster_gate_rejected_action: reinject_unknown
 increment_drift_gate_enabled: true
 increment_drift_min_score: 0.12
-increment_drift_min_history_samples: 50
+increment_drift_min_history_samples: 500
 increment_route_gate_enabled: true
 increment_route_apply_to_new_only: true
-increment_route_min_samples: 20
+increment_route_min_samples: 1000
 increment_route_min_own_margin: 0.02
 increment_route_min_margin_gap: 0.03
 increment_route_min_confident_ratio: 0.55
 increment_iforest_guard_enabled: true
 increment_iforest_guard_apply_to_new_only: true
-increment_iforest_guard_min_samples: 20
+increment_iforest_guard_min_samples: 1000
 increment_iforest_guard_n_estimators: 200
 increment_iforest_guard_train_max_samples: 5000
 increment_iforest_guard_keep_quantile: 0.90

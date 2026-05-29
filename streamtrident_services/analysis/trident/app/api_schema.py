@@ -27,6 +27,8 @@ class TopologyNode(BaseModel):
     out_flow_count: int = 0
     in_flow_count: int = 0
     is_internal: bool = False
+    protocol: str | None = None
+    protocols: list[str] | None = None
 
 
 class TopologyLink(BaseModel):
@@ -34,6 +36,8 @@ class TopologyLink(BaseModel):
     target: str
     value: int
     is_benign: bool | None = None
+    protocol: str | None = None
+    protocols: list[str] | None = None
 
 
 class TopologyGraph(BaseModel):
@@ -80,6 +84,8 @@ class LearnerTopologyView(BaseModel):
 class LearnerTopologyData(BaseModel):
     version: int = 1
     total: int | None = None
+    risk_type_total: int | None = None
+    risk_ip_count: int | None = None
     learners: list[str]
     default_learner: str
     views: dict[str, LearnerTopologyView]

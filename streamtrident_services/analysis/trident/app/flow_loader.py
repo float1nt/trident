@@ -86,7 +86,7 @@ class FlowLoader:
         src_port = _uint16(_pick(merged, "src_port", 0))
         dst_port = _uint16(_pick(merged, "dst_port", 0))
         protocol = _protocol(_pick(merged, "protocol", 0))
-        app_proto = _app_proto(_pick(merged, "app_proto", "unknown"))
+        app_proto = _app_proto(_pick(merged, "app_proto", ""))
         total_bytes = _total_bytes(merged)
         source_flow_id = str(_pick(merged, "source_flow_id", ""))
         features = _features(merged)
@@ -280,13 +280,12 @@ def _protocol(value: Any) -> int:
 
 
 def _app_proto(value: Any) -> str:
-    if isinstance(value, str):
-        text = value.strip()
-        return text if text else "unknown"
     if value is None:
-        return "unknown"
+        return ""
     text = str(value).strip()
-    return text if text else "unknown"
+    if not text or text.lower() in {"unknown", "none", "-"}:
+        return ""
+    return text
 
 
 def _record_version(message_id: str) -> int:

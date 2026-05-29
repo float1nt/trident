@@ -20,6 +20,44 @@ export type DistributionItem = {
   color?: string;
 };
 
+const PROTOCOL_DISTRIBUTION_ORDER = ["TCP", "UDP", "其他"] as const;
+
+function protocolDistributionBucket(name: string): (typeof PROTOCOL_DISTRIBUTION_ORDER)[number] {
+  const text = name.trim();
+  if (!text) {
+    return "其他";
+  }
+  const upper = text.toUpperCase();
+  if (upper === "TCP" || text === "6") {
+    return "TCP";
+  }
+  if (upper === "UDP" || text === "17") {
+    return "UDP";
+  }
+  return "其他";
+}
+
+/** 协议分布仅展示 TCP / UDP，其余协议合并为「其他」 */
+export function normalizeProtocolDistribution(
+  data: DistributionItem[],
+): DistributionItem[] {
+  const totals: Record<(typeof PROTOCOL_DISTRIBUTION_ORDER)[number], number> = {
+    TCP: 0,
+    UDP: 0,
+    其他: 0,
+  };
+  for (const item of data) {
+    const value = Number(item.value) || 0;
+    if (value <= 0) {
+      continue;
+    }
+    totals[protocolDistributionBucket(item.name)] += value;
+  }
+  return PROTOCOL_DISTRIBUTION_ORDER.filter((name) => totals[name] > 0).map(
+    (name) => ({ name, value: totals[name] }),
+  );
+}
+
 function resolveTrafficDistributionGradient(
   name: string,
   index: number,
@@ -66,7 +104,7 @@ export function buildProtocolDistributionRingOption(
   data: DistributionItem[],
 ): EChartsOption {
   return buildDistributionRingOption(
-    data,
+    normalizeProtocolDistribution(data),
     (_name, index) =>
       toEChartsLinearGradient(
         pickOverviewChartGradient(OVERVIEW_CHART_GRADIENTS, index),

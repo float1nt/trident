@@ -2,32 +2,42 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "@/hooks/useApi";
 import { useTrafficLogsInfiniteScroll } from "@/hooks/useTrafficLogsInfiniteScroll";
 import { useSearchParams } from "react-router-dom";
-import { Tag, Table, Spin } from "antd";
+import { Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { TopologyChartPane } from "@/components/NetworkTopologyPanel";
 import type { DatasetNetworkTopologyJson } from "@/components/NetworkTopologyPanel";
+import { SectionTitle } from "@/components/SectionTitle";
 import { TrafficLogsTable } from "@/components/TrafficLogsTable";
+import { DetailMetricValue } from "@/components/DetailMetricValue";
+import OverflowTooltip from "@/components/OverflowTooltip";
 import {
   RiskService,
   type RiskDetail,
   type RiskIpListItem,
 } from "@/api/services/RiskService";
+import {
+  createTablePagination,
+  DEFAULT_TABLE_PAGE_SIZE,
+} from "@/constants/tablePagination";
+import { normalizeApiList } from "@/utils/normalizeApiList";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
 
 const CHART_HEIGHT = 320;
 const TOPOLOGY_REPULSION = 70;
 const TOPOLOGY_MIN_EDGE_FLOWS = 1;
-const LIST_PAGE_SIZE = 10;
 const LIST_MAX_HEIGHT = "200px";
 
-function buildRiskIpColumns(currentPage: number): ColumnsType<RiskIpListItem> {
+function buildRiskIpColumns(
+  currentPage: number,
+  pageSize: number,
+): ColumnsType<RiskIpListItem> {
   return [
     {
       title: "序号",
       key: "index",
       width: 72,
       render: (_value, _record, index) =>
-        (currentPage - 1) * LIST_PAGE_SIZE + index + 1,
+        (currentPage - 1) * pageSize + index + 1,
     },
     {
       title: "IP",
@@ -59,6 +69,7 @@ export default function RiskDetailPlaceholder() {
     useState<DatasetNetworkTopologyJson | null>(null);
   const [riskIpList, setRiskIpList] = useState<RiskIpListItem[]>([]);
   const [riskIpPage, setRiskIpPage] = useState(1);
+  const [riskIpPageSize, setRiskIpPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const requestSeqRef = useRef(0);
 
   const trafficLogsEnabled =
@@ -114,7 +125,7 @@ export default function RiskDetailPlaceholder() {
           setNetworkTopology(topologyResult.value);
         }
         if (ipsResult.status === "fulfilled") {
-          setRiskIpList(ipsResult.value);
+          setRiskIpList(normalizeApiList<RiskIpListItem>(ipsResult.value));
         }
       });
     };
@@ -124,14 +135,12 @@ export default function RiskDetailPlaceholder() {
 
   useEffect(() => {
     setRiskIpPage(1);
+    setRiskIpPageSize(DEFAULT_TABLE_PAGE_SIZE);
   }, [riskId]);
 
   const topologyView = networkTopology?.views.__combined__;
   const pageLoading = loading || loadState === "loading";
 
-  const featureTags = risk?.features
-    ? risk.features.split("、").map((item) => item.trim()).filter(Boolean)
-    : [];
   return (
     <div className="h-[calc(100vh-100px)] w-full rounded-[8px]">
       <Spin spinning={pageLoading}>
@@ -144,29 +153,24 @@ export default function RiskDetailPlaceholder() {
               aria-hidden
             />
             <div className="min-w-0 flex-1">
-              <div className="mt-[10px] flex items-center justify-between gap-3">
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                  <h2 className="m-0 shrink-0 text-lg font-medium text-[#333]">
+              <div className="mt-[10px] flex items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <h2 className="m-0 text-lg font-medium text-[#333]">
                     {risk?.name ?? "风险详情"}
                   </h2>
-                  {featureTags.length > 0 ? (
-                    <div className="flex flex-wrap items-center gap-[8px]">
-                      {featureTags.map((tag) => (
-                        <Tag key={tag} className="!m-0">
-                          {tag}
-                        </Tag>
-                      ))}
-                    </div>
-                  ) : null}
                   {(risk?.triggerTime || risk?.description) ? (
-                    <div className="mb-0 mt-0 flex min-w-0 w-full flex-wrap items-center gap-1 text-sm leading-[22px] text-[#666]">
+                    <div className="flex min-w-0 flex-nowrap items-center gap-1 text-sm leading-[22px] text-[#666]">
                       {risk?.triggerTime ? (
                         <span className="shrink-0 whitespace-nowrap">
                           [{risk.triggerTime}]
                         </span>
                       ) : null}
                       {risk?.description ? (
-                        <span className="min-w-0">{risk.description}</span>
+                        <OverflowTooltip title={risk.description}>
+                          <span className="block min-w-0 truncate">
+                            {risk.description}
+                          </span>
+                        </OverflowTooltip>
                       ) : null}
                     </div>
                   ) : null}
@@ -174,15 +178,11 @@ export default function RiskDetailPlaceholder() {
                 <div className="mr-[16px] flex items-center gap-[24px]">
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险 IP 数</div>
-                    <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
-                      {risk?.riskIpCount ?? 0}
-                    </div>
+                    <DetailMetricValue count={risk?.riskIpCount ?? 0} />
                   </div>
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险端口数</div>
-                    <div className="w-full text-center text-[28px] font-medium leading-none text-[#333]">
-                      {risk?.riskPortCount ?? 0}
-                    </div>
+                    <DetailMetricValue count={risk?.riskPortCount ?? 0} />
                   </div>
                 </div>
               </div>
@@ -217,33 +217,33 @@ export default function RiskDetailPlaceholder() {
                 </div>
 
                 <div className="flex min-w-0 flex-[1] flex-col rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-                  <h3 className="mb-[12px] shrink-0 text-[14px] font-medium text-[#333]">
+                  <SectionTitle className="mb-[12px] shrink-0">
                     风险 IP 列表
                     {/* （按每个 IP 的风险触发次数从多到少排序） */}
-                  </h3>
+                  </SectionTitle>
                   <Table<RiskIpListItem>
                     className="min-w-0"
                     rowKey="ip"
                     size="middle"
                     bordered
-                    columns={buildRiskIpColumns(riskIpPage)}
+                    columns={buildRiskIpColumns(riskIpPage, riskIpPageSize)}
                     dataSource={riskIpList}
-                    pagination={{
+                    pagination={createTablePagination({
                       current: riskIpPage,
-                      pageSize: LIST_PAGE_SIZE,
+                      pageSize: riskIpPageSize,
                       total: riskIpList.length,
-                      showTotal: (total) => `共 ${total} 条`,
-                      onChange: setRiskIpPage,
-                    }}
+                      onChange: (nextPage, nextPageSize) => {
+                        setRiskIpPage(nextPage);
+                        setRiskIpPageSize(nextPageSize);
+                      },
+                    })}
                     scroll={{ y: LIST_MAX_HEIGHT }}
                   />
                 </div>
               </div>
 
               <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-                <h3 className="mb-[12px] text-[14px] font-medium text-[#333]">
-                  流量日志
-                </h3>
+                <SectionTitle className="mb-[12px]">流量日志</SectionTitle>
                 <TrafficLogsTable
                   trafficLogs={trafficLogs}
                   loading={trafficLogsLoading}

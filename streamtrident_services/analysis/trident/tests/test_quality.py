@@ -4,7 +4,7 @@ import numpy as np
 
 from app.flow_loader import FlowLoader
 from app.redis_consumer import RedisStreamMessage
-from app.runtime.quality import build_learner_audit, feature_drift_score
+from app.runtime.quality import build_learner_audit, feature_drift_score, resolve_session_baseline_learner
 
 
 def _record(message_id: str, dst_port: int) -> object:
@@ -50,3 +50,73 @@ def test_learner_audit_emits_metrics_rules_topology_and_risk() -> None:
     assert 0.0 <= risk_score <= 1.0
     assert risk_band in {"low", "medium", "high"}
     assert "unknown_buffer=3" in risk_reason
+
+
+def test_baseline_learner_is_fixed_benign_even_with_scan_like_metrics() -> None:
+    records = [_record(f"{idx}-0", 1000 + idx) for idx in range(50)]
+
+    metrics, _topology, rules, risk_score, risk_band, risk_reason = build_learner_audit(
+        learner_name="0000|UNLABELED",
+        records=records,
+        flow_count=50,
+        unknown_buffer_size=0,
+        threshold=0.5,
+    )
+
+    assert rules["attack_types"] == [
+        {
+            "attack_type": "BENIGN_NORMAL",
+            "confidence": 0.35,
+            "evidence_rules": ["learner_baseline_benign_fixed"],
+            "explain": "冷启动结束后的 baseline 学习器，规则层固定标记为正常业务流量。",
+        }
+    ]
+    assert rules["rules"][0]["rule_id"] == "learner_baseline_benign_fixed"
+    assert rules["rules"][0]["source"] == "baseline_policy"
+    assert metrics["unique_dst_port_count"] == 50
+    assert risk_score == 0.35
+    assert risk_band == "low"
+    assert "fixed_benign=1" in risk_reason
+
+
+def test_cold_start_dominant_learner_is_fixed_benign_even_if_named_new() -> None:
+    records = [_record(f"{idx}-0", 443) for idx in range(50)]
+
+    metrics, _topology, rules, risk_score, risk_band, risk_reason = build_learner_audit(
+        learner_name="NEW_1",
+        records=records,
+        flow_count=50,
+        unknown_buffer_size=0,
+        threshold=0.5,
+        session_baseline_learner="NEW_1",
+    )
+
+    assert rules["attack_types"][0]["attack_type"] == "BENIGN_NORMAL"
+    assert risk_score == 0.35
+    assert risk_band == "low"
+    assert "fixed_benign=1" in risk_reason
+    assert metrics["flow_count"] == 50
+
+
+def test_resolve_session_baseline_prefers_dominant_post_cold_start_learner() -> None:
+    learners = [
+        {
+            "learner_name": "0000|UNLABELED",
+            "creation_window_index": 1,
+            "flow_count": 4510,
+            "profile_json": {},
+        },
+        {
+            "learner_name": "NEW_1",
+            "creation_window_index": 13,
+            "flow_count": 615660,
+            "profile_json": {},
+        },
+    ]
+
+    baseline = resolve_session_baseline_learner(
+        learners,
+        flow_counts={"0000|UNLABELED": 4510, "NEW_1": 615660},
+    )
+
+    assert baseline == "NEW_1"

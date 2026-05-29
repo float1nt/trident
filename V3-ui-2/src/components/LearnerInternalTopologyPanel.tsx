@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, useMemo, type ReactNode } from "react";
 import { Button, Card, Col, Empty, Row, Spin, Typography } from "antd";
+import { whiteTooltipProps } from "@/components/AppTooltip";
 import {
   GRID_CHART_HEIGHT,
   TopologyChartPane,
@@ -148,15 +149,20 @@ export function LearnerInternalTopologyPanel({
                   <div>
                     <div className="flex items-center justify-between gap-2">
                       <Text
-                        ellipsis={{ tooltip: option.riskName }}
-                        className="min-w-0 flex-1 text-[11px]"
+                        ellipsis={{
+                          tooltip: {
+                            title: option.riskName,
+                            ...whiteTooltipProps,
+                          },
+                        }}
+                        className="min-w-0 flex-1 text-[16px]"
                       >
                         {option.riskName}
                       </Text>
                       <Button
                         type="link"
-                        size="small"
-                        className="!h-auto shrink-0 !p-0 text-[11px]"
+                       
+                        className="!h-auto shrink-0 !p-0 text-[16px]"
                         disabled={option.riskId <= 0}
                         onClick={() => {
                           if (option.riskId > 0) {
@@ -167,22 +173,18 @@ export function LearnerInternalTopologyPanel({
                         查看详情
                       </Button>
                     </div>
-                    <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] font-normal leading-[16px]">
-                      <span className="shrink-0 whitespace-nowrap font-normal text-[#8c8c8c]">
-                        [{option.triggerTime}]
-                      </span>
-                      <span
-                        className="min-w-0 flex-1 truncate font-normal text-[#8c8c8c]"
-                        title={option.riskDescription}
-                      >
-                        {option.riskDescription}
-                      </span>
+                    <div className="mt-1 min-w-0 whitespace-normal break-words text-[14px] font-normal leading-[22px] text-[#8c8c8c]">
+                      [{option.triggerTime}] {option.riskDescription}
                     </div>
                   </div>
                 }
+                classNames={{
+                  title: "!whitespace-normal !overflow-visible",
+                }}
                 styles={{
                   header: { minHeight: 36, padding: "4px 8px" },
                   body: { padding: "8px 8px 4px" },
+                  title: { whiteSpace: "normal", overflow: "visible" },
                 }}
               >
                 <ChartPaneErrorBoundary title="拓扑图">

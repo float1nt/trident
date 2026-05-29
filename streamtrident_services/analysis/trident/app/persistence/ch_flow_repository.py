@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..flow_loader import FlowRecord
+from ..protocol_utils import main_protocol_sql as _main_protocol_sql
 from ..runtime.online_engine import FlowAssignment
 from .clickhouse_http import ClickHouseHTTPClient
 
@@ -184,13 +185,15 @@ FORMAT JSONEachRow
             source_expr = "src_ip"
             target_expr = "dst_ip"
         is_benign_expr = f"NOT ({abnormal})"
+        main_protocol = _main_protocol_sql()
         sql = f"""
 WITH edge_rows AS (
     SELECT
         {source_expr} AS source,
         {target_expr} AS target,
         count() AS value,
-        min({is_benign_expr}) AS is_benign
+        min({is_benign_expr}) AS is_benign,
+        topK(1)({main_protocol})[1] AS protocol
     FROM ch_flow FINAL
     {where}
     GROUP BY source, target
@@ -203,6 +206,19 @@ selected_nodes AS (
         SELECT source AS node FROM edge_rows
         UNION ALL
         SELECT target AS node FROM edge_rows
+    )
+    GROUP BY node
+),
+node_protocol_rows AS (
+    SELECT node, topK(1)(main_protocol)[1] AS protocol
+    FROM (
+        SELECT {source_expr} AS node, {main_protocol} AS main_protocol
+        FROM ch_flow FINAL
+        {where}
+        UNION ALL
+        SELECT {target_expr} AS node, {main_protocol} AS main_protocol
+        FROM ch_flow FINAL
+        {where}
     )
     GROUP BY node
 ),
@@ -219,10 +235,11 @@ node_rows AS (
     )
     GROUP BY node
 )
-SELECT 'node' AS row_type, id, '' AS source, '' AS target, flow_count AS value, out_flow_count, in_flow_count, 0 AS is_benign
-FROM node_rows
+SELECT 'node' AS row_type, nr.id, '' AS source, '' AS target, nr.flow_count AS value, nr.out_flow_count, nr.in_flow_count, 0 AS is_benign, ifNull(npr.protocol, '') AS protocol
+FROM node_rows nr
+LEFT JOIN node_protocol_rows npr ON nr.id = npr.node
 UNION ALL
-SELECT 'edge' AS row_type, '' AS id, source, target, value, 0 AS out_flow_count, 0 AS in_flow_count, is_benign
+SELECT 'edge' AS row_type, '' AS id, source, target, value, 0 AS out_flow_count, 0 AS in_flow_count, is_benign, ifNull(protocol, '') AS protocol
 FROM edge_rows
 FORMAT JSONEachRow
 """
@@ -245,17 +262,20 @@ FORMAT JSONEachRow
                         node_mode=node_mode,
                         out_flow_count=out_flow_count,
                         in_flow_count=in_flow_count,
+                        protocol=str(row.get("protocol") or "").strip() or None,
                     )
                 )
             elif row.get("row_type") == "edge":
-                links.append(
-                    {
-                        "source": str(row.get("source") or ""),
-                        "target": str(row.get("target") or ""),
-                        "value": int(row.get("value") or 0),
-                        "is_benign": bool(int(row.get("is_benign") or 0)),
-                    }
-                )
+                link = {
+                    "source": str(row.get("source") or ""),
+                    "target": str(row.get("target") or ""),
+                    "value": int(row.get("value") or 0),
+                    "is_benign": bool(int(row.get("is_benign") or 0)),
+                }
+                protocol = str(row.get("protocol") or "").strip()
+                if protocol:
+                    link["protocol"] = protocol
+                links.append(link)
         stats = self.topology_stats(
             session_id=session_id,
             risk_learners=risk_names,
@@ -419,7 +439,7 @@ FORMAT JSONEachRow
         abnormal = _abnormal_expr(risk_learners)
         sql = f"""
 SELECT
-    formatDateTime(bucket_start, '%Y-%m-%d %H:%M:%S') AS bucket_start,
+    formatDateTime(bucket_start, '%Y-%m-%d %H:%i:%S') AS bucket_start,
     sumIf(total_bytes, NOT ({abnormal})) AS normal,
     sumIf(total_bytes, {abnormal}) AS abnormal
 FROM (
@@ -685,10 +705,6 @@ def _time_filter(column: str, time_from: str | None, time_to: str | None) -> str
     return " AND ".join(parts) if parts else None
 
 
-def _main_protocol_sql() -> str:
-    return "if(app_proto != '', app_proto, multiIf(protocol = 1, 'ICMP', protocol = 6, 'TCP', protocol = 17, 'UDP', toString(protocol)))"
-
-
 def _in_filter(column: str, values: list[str]) -> str | None:
     clean = [value for value in values if value]
     if not clean:
@@ -725,6 +741,7 @@ def _topology_node(
     node_mode: str,
     out_flow_count: int = 0,
     in_flow_count: int = 0,
+    protocol: str | None = None,
 ) -> dict[str, Any]:
     ip = node_id
     port: int | None = None
@@ -734,7 +751,7 @@ def _topology_node(
             port = int(port_text)
         except ValueError:
             port = None
-    return {
+    node = {
         "id": node_id,
         "ip": ip,
         "port": port,
@@ -743,6 +760,9 @@ def _topology_node(
         "in_flow_count": in_flow_count,
         "is_internal": _is_internal_ip(ip),
     }
+    if protocol:
+        node["protocol"] = protocol
+    return node
 
 
 def _is_internal_ip(ip: str) -> bool:

@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from app.flow_loader import FlowLoader
 from app.persistence.ch_flow_repository import AssignmentUpdate, ChFlowRepository, _topology_node
+from app.protocol_utils import main_protocol_sql as _main_protocol_sql
 from app.redis_consumer import RedisStreamMessage
 from app.runtime.online_engine import FlowAssignment
+
+
+def test_main_protocol_sql_falls_back_when_app_proto_is_unknown() -> None:
+    sql = _main_protocol_sql()
+    assert "lower(app_proto) NOT IN ('unknown'" in sql
+    assert "protocol = 6, 'TCP'" in sql
 
 
 def test_assignment_update_preserves_base_row_and_increments_version() -> None:
@@ -49,6 +56,17 @@ def test_topology_node_includes_directional_flow_counts() -> None:
     assert node["in_flow_count"] == 5
 
 
+def test_topology_node_includes_protocol_when_provided() -> None:
+    node = _topology_node(
+        "192.168.10.3",
+        12,
+        node_mode="host",
+        protocol="TCP",
+    )
+
+    assert node["protocol"] == "TCP"
+
+
 def test_topology_graph_selects_top_edges_before_nodes() -> None:
     class FakeClient:
         def __init__(self) -> None:
@@ -73,6 +91,8 @@ def test_topology_graph_selects_top_edges_before_nodes() -> None:
 
     topology_sql = repo.client.sql[0]
     assert "WITH edge_rows AS" in topology_sql
+    assert "topK(1)" in topology_sql
+    assert "node_protocol_rows AS" in topology_sql
     assert "ORDER BY value DESC, source ASC, target ASC" in topology_sql
     assert "LIMIT 50" in topology_sql
     assert "selected_nodes AS" in topology_sql

@@ -122,7 +122,7 @@
 }
 
 .risk-event-scroll {
-  height: calc(100vh - 370px);
+  height: calc(100vh - 365px);
   overflow-x: hidden;
   overflow-y: auto;
 }

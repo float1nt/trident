@@ -53,7 +53,7 @@ def test_bad_features_json_falls_back_to_empty_object() -> None:
     assert json.loads(record.features_json) == {}
     assert record.src_port == 0
     assert record.dst_port == 0
-    assert record.app_proto == "unknown"
+    assert record.app_proto == ""
     assert record.total_bytes == 0
 
 

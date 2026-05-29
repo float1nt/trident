@@ -92,7 +92,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.get("/api/v1/runtime/summary", response_model=ApiResponse)
     def runtime_summary() -> dict[str, Any]:
         redis_state = _redis(cfg)
-        flow_repo = ChFlowRepository(cfg.clickhouse_dsn)
+        flow_repo = _flow_repo(cfg)
         return _ok(
             {
                 "session_id": cfg.session_id,
@@ -179,7 +179,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
         limit: int = Query(100, ge=1, le=1000),
         offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
-        return _ok(_pages(cfg).risk_traffic_logs(risk_id=risk_id, limit=limit, offset=offset))
+        result = _pages(cfg).risk_traffic_logs(risk_id=risk_id, limit=limit, offset=offset)
+        return _ok(FlowListData.model_validate(result).model_dump())
 
     @app.get("/risks/{risk_id}/protocol-distribution", response_model=ApiResponse)
     def risk_protocol_distribution(risk_id: int) -> dict[str, Any]:
@@ -197,8 +198,15 @@ def create_app(config_path: str | None = None) -> FastAPI:
     def risk_ip_events_topology(
         ip: str,
         top_n: int = Query(50, ge=1, le=500),
+        limit: int = Query(6, ge=1, le=50),
+        offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
-        data = _pages(cfg).ip_events_topology(ip=ip, top_n=top_n)
+        data = _pages(cfg).ip_events_topology(
+            ip=ip,
+            top_n=top_n,
+            limit=limit,
+            offset=offset,
+        )
         return _ok(LearnerTopologyData.model_validate(data).model_dump())
 
     @app.get("/risk/ips/{ip}/events", response_model=ApiResponse)
@@ -211,7 +219,8 @@ def create_app(config_path: str | None = None) -> FastAPI:
         limit: int = Query(100, ge=1, le=1000),
         offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
-        return _ok(_pages(cfg).ip_traffic_logs(ip=ip, limit=limit, offset=offset))
+        result = _pages(cfg).ip_traffic_logs(ip=ip, limit=limit, offset=offset)
+        return _ok(FlowListData.model_validate(result).model_dump())
 
     @app.get("/api/v1/flows", response_model=ApiResponse)
     def list_flows(
@@ -225,7 +234,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         offset: int | None = Query(None, ge=0),
         cursor: str | None = None,
     ) -> dict[str, Any]:
-        result = ChFlowRepository(cfg.clickhouse_dsn).list_flows(
+        result = _flow_repo(cfg).list_flows(
             session_id=session_id or cfg.session_id,
             window_index=window_index,
             learner_name=learner_name,
@@ -240,11 +249,11 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     @app.get("/api/v1/learners", response_model=ApiResponse)
     def list_learners(session_id: str | None = None) -> dict[str, Any]:
-        return _ok({"items": LearnerRepository(cfg.postgres_dsn).list_learners(session_id=session_id or cfg.session_id)})
+        return _ok({"items": _learner_repo(cfg).list_learners(session_id=session_id or cfg.session_id)})
 
     @app.get("/api/v1/learners/{learner_name}", response_model=ApiResponse)
     def get_learner(learner_name: str, session_id: str | None = None) -> dict[str, Any]:
-        learner = LearnerRepository(cfg.postgres_dsn).get_learner(
+        learner = _learner_repo(cfg).get_learner(
             session_id=session_id or cfg.session_id,
             learner_name=learner_name,
         )
@@ -258,7 +267,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         offset: int | None = Query(None, ge=0),
         cursor: str | None = None,
     ) -> dict[str, Any]:
-        result = ChFlowRepository(cfg.clickhouse_dsn).list_flows(
+        result = _flow_repo(cfg).list_flows(
             session_id=session_id or cfg.session_id,
             learner_name=learner_name,
             limit=limit,
