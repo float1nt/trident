@@ -172,7 +172,7 @@ export default function RiskDetailPlaceholder() {
   return (
     <div className="h-[calc(100vh-100px)] w-full rounded-[8px]">
       <Spin spinning={pageLoading}>
-        <div className="rounded-[8px] bg-[#f6faff] px-[12px] py-[7px]">
+        <div className="rounded-[8px] bg-[#f6faff] px-[12px] py-[12px]">
           <div className="flex items-start gap-[12px]">
             <img
               src={taskDetailIcon}
@@ -181,7 +181,7 @@ export default function RiskDetailPlaceholder() {
               aria-hidden
             />
             <div className="min-w-0 flex-1">
-              <div className="mt-[10px] flex items-start justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <h2 className="m-0 text-lg font-medium text-[#333]">
                     {risk?.name ?? "风险详情"}

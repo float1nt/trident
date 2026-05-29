@@ -121,7 +121,7 @@ export default function IpDetailPlaceholder() {
   return (
     <div className="h-[calc(100vh-100px)] w-full rounded-[8px]">
       <Spin spinning={pageLoading}>
-        <div className="rounded-[8px] bg-[#f6faff] px-[12px] py-[7px]">
+        <div className="rounded-[8px] bg-[#f6faff] px-[12px] py-[12px]">
           <div className="flex items-start gap-[12px]">
             <img
               src={taskDetailIcon}
@@ -130,7 +130,7 @@ export default function IpDetailPlaceholder() {
               aria-hidden
             />
             <div className="min-w-0 flex-1">
-              <div className="mt-[10px] flex items-center gap-3">
+              <div className="flex items-center gap-3">
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="m-0 text-lg font-medium text-[#333]">
