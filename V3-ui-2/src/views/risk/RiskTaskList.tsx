@@ -337,8 +337,15 @@ const RiskTaskList = () => {
                     mode="multiple"
                     allowClear
                     showSearch
+                    virtual={false}
+                    listHeight={200}
                     optionFilterProp="label"
                     className="risk-filter-select__control"
+                    classNames={{
+                      popup: {
+                        root: "app-scrollbar risk-filter-select-dropdown",
+                      },
+                    }}
                     placeholder="请选择"
                     maxTagCount="responsive"
                     value={eventSearchInputs.attackTypes}
