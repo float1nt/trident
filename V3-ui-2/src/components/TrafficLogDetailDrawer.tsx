@@ -103,7 +103,7 @@ export function TrafficLogDetailDrawer({
     if (open) {
       setActiveTab("basic");
     }
-  }, [open, activeIndex]);
+  }, [open]);
 
   const canGoPrev = activeIndex > 0;
   const canGoNext = activeIndex >= 0 && activeIndex < logs.length - 1;

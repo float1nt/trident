@@ -257,7 +257,7 @@ export function buildMockTrafficLogInterfaceDetail(
       titlePrefix: "响应",
       sizeLabel: detail.responseSize,
       defaultPaneKey: "res-raw",
-      dataTags: MOCK_RESPONSE_DATA_TAGS,
+      // dataTags: MOCK_RESPONSE_DATA_TAGS,
       panes: [
         {
           key: "res-raw",
