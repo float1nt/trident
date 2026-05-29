@@ -24,6 +24,8 @@ docker compose --env-file "$ENV_FILE" -f compose.yaml up -d --build redis redis-
 cat <<EOF
 capture stack started
   iface: $SURICATA_IFACE
-  redis: 0.0.0.0:$REDIS_HOST_PORT
+  redis: 0.0.0.0:$REDIS_HOST_PORT  (analysis host connects here)
   suricata-agent: 0.0.0.0:$SURICATA_AGENT_HOST_PORT
+  split deploy guide: ../docs/SPLIT_DEPLOY.md
+  verify redis:   ./check-redis-flow.sh
 EOF

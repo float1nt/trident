@@ -1,2 +1,1 @@
-"""Redis stream service."""
-
+"""Redis queue service."""

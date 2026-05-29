@@ -5,6 +5,7 @@ IFACE="${IFACE:-eth0}"
 REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
 REDIS_PORT="${REDIS_PORT:-16379}"
 REDIS_STREAM="${REDIS_STREAM:-suricata:cic_flow}"
+REDIS_OUTPUT_MODE="${REDIS_OUTPUT_MODE:-list}"
 REDIS_STREAM_MAXLEN="${REDIS_STREAM_MAXLEN:-1000000}"
 CIC_MODE="${CIC_MODE:-cic-flowmeter}"
 CIC_FLOW_TIMEOUT_US="${CIC_FLOW_TIMEOUT_US:-120000000}"
@@ -31,14 +32,14 @@ if ! ip link show "$IFACE" >/dev/null 2>&1; then
   exit 1
 fi
 
-python3 - "$BASE_CONF" "$LIVE_CONF" "$REDIS_HOST" "$REDIS_PORT" "$REDIS_STREAM" \
+python3 - "$BASE_CONF" "$LIVE_CONF" "$REDIS_HOST" "$REDIS_PORT" "$REDIS_STREAM" "$REDIS_OUTPUT_MODE" \
   "$REDIS_STREAM_MAXLEN" "$CIC_MODE" "$CIC_FLOW_TIMEOUT_US" \
   "$CIC_ACTIVE_IDLE_THRESHOLD_US" "$SURICATA_FILTER_CONFIG" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-base, out, redis_host, redis_port, redis_stream, redis_maxlen, cic_mode, flow_timeout, active_idle, filter_path = sys.argv[1:]
+base, out, redis_host, redis_port, redis_stream, redis_mode, redis_maxlen, cic_mode, flow_timeout, active_idle, filter_path = sys.argv[1:]
 
 def load_filter(path: str) -> dict:
     if not path:
@@ -86,6 +87,9 @@ def append_filter(result: list[str], payload: dict) -> None:
             result.append(f"                - {json.dumps(value)}")
 
 filter_payload = load_filter(filter_path)
+redis_mode = redis_mode.strip().lower()
+if redis_mode not in {"list", "lpush", "stream", "xadd"}:
+    raise SystemExit(f"unsupported Redis output mode: {redis_mode}")
 lines = Path(base).read_text(encoding="utf-8", errors="replace").splitlines()
 result = []
 skip = False
@@ -100,9 +104,12 @@ for line in lines:
             f"        server: {redis_host}",
             f"        port: {redis_port}",
             "        async: false",
-            "        mode: stream",
+            f"        mode: {redis_mode}",
             f"        key: {redis_stream}",
-            f"        stream-maxlen: {redis_maxlen}",
+        ])
+        if redis_mode in {"stream", "xadd"}:
+            result.append(f"        stream-maxlen: {redis_maxlen}")
+        result.extend([
             "      types:",
             "        - cic-flow:",
             "            enabled: yes",
@@ -132,6 +139,7 @@ echo "suricata-cic starting"
 echo "  iface=$IFACE"
 echo "  redis=$REDIS_HOST:$REDIS_PORT"
 echo "  stream=$REDIS_STREAM"
+echo "  redis_output_mode=$REDIS_OUTPUT_MODE"
 echo "  mode=$CIC_MODE"
 echo "  log_dir=$LOG_DIR"
 if [ -n "$SURICATA_FILTER_CONFIG" ] && [ -r "$SURICATA_FILTER_CONFIG" ]; then
@@ -141,6 +149,16 @@ else
 fi
 
 redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" PING >/dev/null
+KEY_TYPE="$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" TYPE "$REDIS_STREAM" | tr -d '\r')"
+case "$REDIS_OUTPUT_MODE:$KEY_TYPE" in
+  list:none|list:list|lpush:none|lpush:list|stream:none|stream:stream|xadd:none|xadd:stream)
+    ;;
+  *)
+    echo "redis key type mismatch: key=$REDIS_STREAM type=$KEY_TYPE output_mode=$REDIS_OUTPUT_MODE" >&2
+    echo "delete or rename the old key before switching queue modes" >&2
+    exit 1
+    ;;
+esac
 
 /opt/suricata-cic/bin/suricata -T -c "$LIVE_CONF" -l "$LOG_DIR" \
   -S /var/lib/suricata/rules/empty.rules \

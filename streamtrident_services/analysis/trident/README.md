@@ -2,13 +2,13 @@
 
 独立 Trident 服务目录。
 
-当前阶段实现 Redis Stream 到 ClickHouse `ch_flow` 的落库、窗口判定、assignment 回写、learner/snapshot 持久化、Redis 输出流发布和只读 API。
+当前阶段默认实现 Redis list 到 ClickHouse `ch_flow` 的实时有损消费、窗口判定、assignment 回写、learner/snapshot 持久化、Redis 输出流发布和只读 API。
 
 服务边界：
 
 - 不 import `trident_demo`
 - 不 import sibling `suricata/` 或 `redis/` 服务代码
-- Redis Stream 字段协议通过 `config/trident.yaml` 和 loader 归一化对齐
+- Redis list/stream 字段协议通过 `config/trident.yaml` 和 loader 归一化对齐
 
 ## Worker
 
@@ -21,15 +21,13 @@ python -m app.worker --config config/trident.yaml --once
 
 worker 会：
 
-- 创建 Redis consumer group
-- 使用 `XREADGROUP` 读取 `suricata:cic_flow`
-- 启动时处理本 consumer pending，并尝试 `XAUTOCLAIM` 超时 pending
-- 归一化 flow 字段并写入 ClickHouse `ch_flow` 的 `ingested` 版本
+- 默认使用 Redis list pop 读取 `suricata:cic_flow`，取走即从 Redis 删除
+- 按 `list_maxlen` 裁剪积压，保留最新一段实时缓冲
+- 归一化 flow 字段
 - 按窗口执行在线引擎，产生 accepted / unknown / new learner / metrics
 - 写入 `ch_flow` 的 `assigned` 版本
 - upsert `pg_learner` 并追加 `pg_learner_snapshot`
 - 输出 `trident:assignments`、`trident:alerts`、`trident:metrics`
-- 所有步骤成功后再 `XACK`
 
 当前在线引擎已经复刻 `trident_demo/core` 的核心实时算法逻辑，但代码位于本服务内，不 import demo：
 

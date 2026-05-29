@@ -12,7 +12,7 @@ from .protocol_utils import (
     resolve_flow_protocol_name,
     transport_protocol_name,
 )
-from .redis_consumer import RedisStreamConsumer
+from .redis_consumer import RedisListConsumer, RedisStreamConsumer
 from .runtime.quality import is_baseline_learner, resolve_session_baseline_learner
 
 
@@ -39,7 +39,7 @@ class PageQueryService:
         session_id: str,
         flows: ChFlowRepository,
         learners: LearnerRepository,
-        redis: RedisStreamConsumer | None = None,
+        redis: RedisListConsumer | RedisStreamConsumer | None = None,
     ) -> None:
         self.session_id = session_id
         self.flows = flows
@@ -76,6 +76,7 @@ class PageQueryService:
         sid = session_id or self.session_id
         learner_rows = self.learners.list_learners(session_id=sid)
         risk_names = _risk_learner_names(learner_rows)
+        risk_type_names = _distinct_risk_type_names(learner_rows)
         summary = self.flows.dashboard_summary(
             session_id=sid,
             risk_learners=risk_names,
@@ -96,6 +97,7 @@ class PageQueryService:
                 "total_bytes": int(summary.get("total_bytes") or 0),
                 "protocol_count": int(summary.get("protocol_count") or 0),
                 "risk_learner_count": len(risk_names),
+                "risk_type_count": len(risk_type_names),
                 "risk_ip_count": int(summary.get("risk_ip_count") or 0),
             },
             "traffic_distribution": [
@@ -118,7 +120,7 @@ class PageQueryService:
         return {
             "totalTraffic": int(metrics["total_bytes"]),
             "protocolCount": int(metrics["protocol_count"]),
-            "riskTypeCount": int(metrics["risk_learner_count"]),
+            "riskTypeCount": int(metrics["risk_type_count"]),
             "suspiciousIpCount": int(metrics["risk_ip_count"]),
         }
 
@@ -346,6 +348,7 @@ class PageQueryService:
         session_id: str | None = None,
         subject_ip: str | None = None,
         top_n: int = 50,
+        trigger_stats: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
         learner = self.learners.get_learner(session_id=sid, learner_name=learner_name) or {}
@@ -365,12 +368,18 @@ class PageQueryService:
         is_benign = primary_attack == "BENIGN_NORMAL"
         traffic_kind = "benign" if is_benign else "attack"
         topology_risk_learners = [] if is_benign else [learner_name]
+        last_trigger_time = _format_time((trigger_stats or {}).get("last_trigger_time")) or event["trigger_time"]
+        first_trigger_time = _format_time((trigger_stats or {}).get("first_trigger_time")) or last_trigger_time
+        trigger_count = int((trigger_stats or {}).get("trigger_count") or event["flow_count"] or 0)
         view = {
             "learner": learner_name,
             "risk_id": event["risk_id"],
             "risk_name": event["risk_name"],
             "risk_description": event["risk_description"],
-            "trigger_time": event["trigger_time"],
+            "trigger_time": last_trigger_time,
+            "first_trigger_time": first_trigger_time,
+            "last_trigger_time": last_trigger_time,
+            "trigger_count": trigger_count,
             "attack_ratio": event["attack_ratio"],
             "dominant_label": event["dominant_label"],
             "dominant_ratio": event["risk_score"],
@@ -484,10 +493,19 @@ class PageQueryService:
             if scope_key == "event"
             else frozenset()
         )
+        rows = self.learners.list_learners(session_id=self.session_id)
+        counts = _attack_type_event_counts(rows)
+        if scope_key == "event":
+            codes = [
+                code
+                for code in ATTACK_TYPE_DISPLAY
+                if code not in exclude and int(counts.get(code, 0)) > 0
+            ]
+        else:
+            codes = [code for code in ATTACK_TYPE_DISPLAY if code not in exclude]
         items: list[dict[str, Any]] = []
-        for code, display in ATTACK_TYPE_DISPLAY.items():
-            if code in exclude:
-                continue
+        for code in codes:
+            display = _attack_display(code)
             items.append(
                 {
                     "code": code,
@@ -496,8 +514,6 @@ class PageQueryService:
                 }
             )
         if include_count:
-            rows = self.learners.list_learners(session_id=self.session_id)
-            counts = _attack_type_event_counts(rows)
             for item in items:
                 item["count"] = int(counts.get(str(item["code"]) or "", 0))
         return {"items": items}
@@ -546,13 +562,23 @@ class PageQueryService:
         safe_offset = max(0, int(offset or 0))
         capped = max(1, min(int(limit), 50))
         page_rows = rows[safe_offset : safe_offset + capped]
+        page_learner_names = [str(row.get("learner_name") or "") for row in page_rows if row.get("learner_name")]
+        trigger_stats_by_learner = (
+            self.flows.learner_trigger_stats(session_id=sid, learner_names=page_learner_names)
+            if hasattr(self.flows, "learner_trigger_stats")
+            else {}
+        )
         views: dict[str, Any] = {}
         learners: list[str] = []
         for row in page_rows:
             learner_name = str(row.get("learner_name") or "")
             if not learner_name:
                 continue
-            topology = self.learner_topology(learner_name=learner_name, top_n=top_n)
+            topology = self.learner_topology(
+                learner_name=learner_name,
+                top_n=top_n,
+                trigger_stats=trigger_stats_by_learner.get(learner_name),
+            )
             view = topology["views"][learner_name]
             learners.append(learner_name)
             views[learner_name] = view

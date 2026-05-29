@@ -1,4 +1,5 @@
 redis_url: redis://${CAPTURE_REDIS_HOST:-127.0.0.1}:${CAPTURE_REDIS_PORT:-16379}/0
+queue_type: list
 input_stream: suricata:cic_flow
 consumer_group: trident-online
 consumer_name: trident-01
@@ -7,6 +8,7 @@ best_effort_start_id: $
 read_count: 512
 block_ms: 1000
 ack: true
+list_maxlen: 100000
 
 session_id: accuracy-mixed_attack_panel-aa2b640d82
 window_size: 10000

@@ -46,6 +46,16 @@ class FakeFlows:
             ],
         }
 
+    def learner_trigger_stats(self, **_: Any) -> dict[str, dict[str, Any]]:
+        return {
+            "NEW_1": {
+                "assigned_learner": "NEW_1",
+                "first_trigger_time": "2026-05-27 09:30:00",
+                "last_trigger_time": "2026-05-27 10:05:00",
+                "trigger_count": 21,
+            }
+        }
+
 
 class FakeLearners:
     def list_learners(self, **_: Any) -> list[dict[str, Any]]:
@@ -84,6 +94,7 @@ def test_dashboard_overview_maps_database_rows_to_page_shape() -> None:
     assert data["metrics"]["total_flows"] == 10
     assert data["metrics"]["total_bytes"] == 10000
     assert data["metrics"]["risk_learner_count"] == 1
+    assert data["metrics"]["risk_type_count"] == 1
     assert data["traffic_distribution"][1] == {"name": "疑似异常流量", "value": 3000}
     assert data["protocol_distribution"] == [{"name": "其他", "value": 10}]
 
@@ -94,6 +105,31 @@ def test_overview_metrics_reports_total_traffic_bytes() -> None:
     data = service.overview_metrics()
 
     assert data["totalTraffic"] == 10000
+
+
+def test_overview_metrics_reports_distinct_risk_type_count() -> None:
+    class MultiLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            base = FakeLearners().list_learners()[0]
+            same_type = copy.deepcopy(base)
+            same_type["id"] = 13
+            same_type["learner_name"] = "NEW_2"
+            other_type = copy.deepcopy(base)
+            other_type["id"] = 14
+            other_type["learner_name"] = "NEW_3"
+            other_type["rule_json"] = {
+                "attack_types": [
+                    {"attack_type": "PORT_SCAN", "confidence": 0.75},
+                ]
+            }
+            baseline = FakeLearners().list_learners()[1]
+            return [base, same_type, other_type, baseline]
+
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=MultiLearners())
+
+    data = service.overview_metrics()
+
+    assert data["riskTypeCount"] == 2
 
 
 def test_overview_traffic_trend_returns_filled_buckets() -> None:
@@ -144,6 +180,11 @@ def test_risk_events_topology_includes_attack_type_learners_only() -> None:
     assert data["risk_type_total"] == 1
     assert data["risk_ip_count"] == 1
     assert data["learners"] == ["NEW_1"]
+    view = data["views"]["NEW_1"]
+    assert view["trigger_time"] == "2026-05-27 10:05:00"
+    assert view["first_trigger_time"] == "2026-05-27 09:30:00"
+    assert view["last_trigger_time"] == "2026-05-27 10:05:00"
+    assert view["trigger_count"] == 21
 
     page = service.risk_events_topology(limit=1, offset=0)
     assert page["total"] == 1
@@ -199,8 +240,20 @@ def test_risk_attack_types_event_scope_excludes_benign() -> None:
     codes = {item["code"] for item in data["items"]}
     assert "BENIGN_NORMAL" not in codes
     assert "DDOS_VICTIM" in codes
+    assert "PORT_SCAN" not in codes
     assert data["items"][0]["name"]
     assert data["items"][0]["desc"]
+
+
+def test_risk_attack_types_all_scope_returns_dictionary() -> None:
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
+
+    data = service.risk_attack_types(scope="all")
+
+    codes = {item["code"] for item in data["items"]}
+    assert "BENIGN_NORMAL" in codes
+    assert "DDOS_VICTIM" in codes
+    assert "PORT_SCAN" in codes
 
 
 def test_risk_attack_types_include_count() -> None:
@@ -230,6 +283,29 @@ def test_risk_attack_types_include_count() -> None:
 
     assert by_code["DDOS_VICTIM"] == 2
     assert by_code["PORT_SCAN"] == 1
+
+
+def test_risk_attack_types_event_scope_includes_unnamed_learners() -> None:
+    class UnknownLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            unnamed = copy.deepcopy(FakeLearners().list_learners()[0])
+            unnamed["id"] = 15
+            unnamed["learner_name"] = "NEW_UNKNOWN"
+            unnamed["rule_json"] = {
+                "attack_types": [
+                    {"attack_type": "UNKNOWN_SUSPECTED", "confidence": 0.35},
+                ]
+            }
+            return [unnamed, FakeLearners().list_learners()[1]]
+
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=UnknownLearners())
+
+    data = service.risk_attack_types(scope="event", include_count=True)
+    by_code = {item["code"]: item for item in data["items"]}
+
+    assert set(by_code) == {"UNKNOWN_SUSPECTED"}
+    assert by_code["UNKNOWN_SUSPECTED"]["name"] == "未命名攻击"
+    assert by_code["UNKNOWN_SUSPECTED"]["count"] == 1
 
 
 def test_risk_events_topology_filters_by_attack_types() -> None:

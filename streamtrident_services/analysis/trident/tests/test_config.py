@@ -9,11 +9,13 @@ def test_redis_output_is_disabled_by_default() -> None:
     assert load_config(None).redis_output_enabled is False
 
 
-def test_best_effort_consumer_is_default() -> None:
+def test_list_queue_is_default() -> None:
     cfg = load_config(None)
 
+    assert cfg.queue_type == "list"
     assert cfg.consumer_mode == "best_effort"
     assert cfg.best_effort_start_id == "$"
+    assert cfg.list_maxlen == 100000
 
 
 def test_redis_output_can_be_enabled(tmp_path: Path) -> None:
