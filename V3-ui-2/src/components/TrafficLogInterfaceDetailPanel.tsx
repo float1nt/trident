@@ -61,7 +61,7 @@ function InterfaceSubTabs({
   );
 }
 
-function HttpMessageBlock({ block }: { block: TrafficLogInterfaceBlock }) {
+export function HttpMessageBlock({ block }: { block: TrafficLogInterfaceBlock }) {
   const [activePaneKey, setActivePaneKey] = useState(block.defaultPaneKey);
 
   const activePane = useMemo(
@@ -86,7 +86,7 @@ function HttpMessageBlock({ block }: { block: TrafficLogInterfaceBlock }) {
 
   return (
     <section className="flex flex-col gap-[8px]">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-[6px]">
           <span className="text-[14px] font-medium text-[#333]">
             {block.titlePrefix} ({block.sizeLabel})
@@ -105,7 +105,7 @@ function HttpMessageBlock({ block }: { block: TrafficLogInterfaceBlock }) {
           activeKey={activePane?.key ?? block.defaultPaneKey}
           onChange={setActivePaneKey}
         />
-      </div>
+      </div> */}
 
       {block.dataTags && block.dataTags.length > 0 ? (
         <div className="flex flex-wrap gap-[8px]">

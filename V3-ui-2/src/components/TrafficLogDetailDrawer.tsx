@@ -7,7 +7,7 @@ import {
   buildMockTrafficLogDetail,
   buildMockTrafficLogInterfaceDetail,
 } from "@/mock/trafficLogDetailMock";
-import { TrafficLogInterfaceDetailPanel } from "@/components/TrafficLogInterfaceDetailPanel";
+import { TrafficLogInterfaceDetailPanel, HttpMessageBlock } from "@/components/TrafficLogInterfaceDetailPanel";
 import type { TrafficLogDetailSection } from "@/types/trafficLogDetail";
 import { whiteTooltipProps } from "@/components/AppTooltip";
 
@@ -60,16 +60,26 @@ function DetailSection({ section }: { section: TrafficLogDetailSection }) {
       <div className="bg-[#eef4ff] px-[12px] py-[8px] text-[14px] font-medium text-[#333]">
         {section.title}
       </div>
-      <div className="grid grid-cols-1 gap-x-[24px] px-[12px] py-[4px] md:grid-cols-2">
-        {section.fields.map((field) => (
-          <DetailField
-            key={`${section.title}-${field.label}`}
-            label={field.label}
-            value={field.value}
-            hint={field.hint}
-          />
-        ))}
-      </div>
+      {
+        section.fields.length > 0 ? (
+          <div className="grid grid-cols-1 gap-x-[24px] px-[12px] py-[4px] md:grid-cols-2">
+            {section.fields.map((field) => (
+              <DetailField
+                key={`${section.title}-${field.label}`}
+                label={field.label}
+                value={field.value}
+                hint={field.hint}
+              />
+            ))}
+          </div>
+        ) : null
+      }
+
+      {section.messageBlock ? (
+        <div >
+          <HttpMessageBlock block={section.messageBlock} />
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -110,7 +120,7 @@ export function TrafficLogDetailDrawer({
 
   return (
     <Drawer
-      title="详情"
+      title="日志详情"
       closable={false}
       extra={
         <Button
@@ -129,8 +139,8 @@ export function TrafficLogDetailDrawer({
       }}
     >
       <div className="flex h-full flex-col">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f0f0f0] px-[20px]">
-          <div className="flex items-center gap-[24px]">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#f0f0f0] px-[20px] mt-[8px]">
+          {/* <div className="flex items-center gap-[24px]">
             {DETAIL_TABS.map((tab) => {
               const active = tab.key === activeTab;
               return (
@@ -155,25 +165,27 @@ export function TrafficLogDetailDrawer({
                 </button>
               );
             })}
-          </div>
+          </div> */}
 
-          <div className="flex items-center gap-[8px] pb-[8px] pt-[8px] text-[14px] text-[#666]">
-            <span>当前序号: {activeIndex >= 0 ? activeIndex + 1 : "-"}</span>
-            <Button
+          {/* <div className="flex items-center gap-[8px] pb-[8px] pt-[8px] text-[14px] text-[#666]"> */}
+          <Button
               size="small"
               disabled={!canGoPrev}
               onClick={() => onActiveIndexChange(activeIndex - 1)}
+              className="text-[12px] text-[#333] "
             >
               上一条
             </Button>
+            <span className="text-[12px] text-[#333] ">当前序号: {activeIndex >= 0 ? activeIndex + 1 : "-"}</span>
             <Button
               size="small"
               disabled={!canGoNext}
               onClick={() => onActiveIndexChange(activeIndex + 1)}
+              className="text-[12px] text-[#333] "
             >
               下一条
             </Button>
-          </div>
+          {/* </div> */}
         </div>
 
         <div className="flex-1 overflow-y-auto px-[20px] py-[16px]">

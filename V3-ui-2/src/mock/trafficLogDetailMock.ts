@@ -2,6 +2,7 @@ import type { RiskTrafficLogItem } from "@/api/services/RiskService";
 import type {
   TrafficLogDetail,
   TrafficLogDetailSection,
+  TrafficLogInterfaceBlock,
   TrafficLogInterfaceDetail,
 } from "@/types/trafficLogDetail";
 import { formatTrafficVolumeText } from "@/utils/formatTotalTraffic";
@@ -119,22 +120,9 @@ export function buildBasicInfoSections(
       ],
     },
     {
-      title: "请求信息",
-      fields: [
-        { label: "API请求方法", value: detail.apiMethod },
-        { label: "API协议", value: detail.apiProtocol },
-        { label: "访问业务", value: detail.visitBusiness },
-        { label: "请求大小", value: detail.requestSize },
-        {
-          label: "MAC地址",
-          value: detail.macAddress,
-          hint: "暂无 MAC 地址",
-        },
-        { label: "Referer", value: detail.referer },
-        { label: "XFF IP", value: detail.xffIp },
-        { label: "请求数据标签", value: detail.requestDataTag },
-        { label: "识别文件", value: detail.identifiedFile },
-      ],
+      title: "报文信息",
+      fields: [],
+      messageBlock: buildTrafficLogRequestBlock(detail),
     },
   ];
 }
@@ -225,34 +213,40 @@ const MOCK_RESPONSE_DATA_TAGS = [
   "电子邮箱(1)",
 ];
 
+function buildTrafficLogRequestBlock(
+  detail: TrafficLogDetail,
+): TrafficLogInterfaceBlock {
+  return {
+    titlePrefix: "请求",
+    sizeLabel: detail.requestSize,
+    defaultPaneKey: "req-raw",
+    panes: [
+      {
+        key: "req-raw",
+        label: "Req-Raw",
+        content: buildRequestReqRaw(detail),
+      },
+      { key: "body", label: "Body", content: buildRequestBody() },
+      {
+        key: "header",
+        label: "Header",
+        content: buildRequestHeader(detail),
+      },
+      {
+        key: "query",
+        label: "Query Params",
+        content: buildRequestQueryParams(),
+      },
+    ],
+  };
+}
+
 /** 接口详情 Tab mock（请求/响应 Raw 等） */
 export function buildMockTrafficLogInterfaceDetail(
   detail: TrafficLogDetail,
 ): TrafficLogInterfaceDetail {
   return {
-    request: {
-      titlePrefix: "请求",
-      sizeLabel: detail.requestSize,
-      defaultPaneKey: "req-raw",
-      panes: [
-        {
-          key: "req-raw",
-          label: "Req-Raw",
-          content: buildRequestReqRaw(detail),
-        },
-        { key: "body", label: "Body", content: buildRequestBody() },
-        {
-          key: "header",
-          label: "Header",
-          content: buildRequestHeader(detail),
-        },
-        {
-          key: "query",
-          label: "Query Params",
-          content: buildRequestQueryParams(),
-        },
-      ],
-    },
+    request: buildTrafficLogRequestBlock(detail),
     response: {
       titlePrefix: "响应",
       sizeLabel: detail.responseSize,
