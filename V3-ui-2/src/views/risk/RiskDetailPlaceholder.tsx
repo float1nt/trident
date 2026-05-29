@@ -45,7 +45,7 @@ function buildRiskIpColumns(
       dataIndex: "ip",
       key: "ip",
       render: (ip: string) => (
-        <Button variant="link" color="primary" onClick={() => onIpClick(ip)}>
+        <Button className="!h-auto !p-0" variant="link" color="primary" onClick={() => onIpClick(ip)}>
           {ip}
         </Button>
       ),

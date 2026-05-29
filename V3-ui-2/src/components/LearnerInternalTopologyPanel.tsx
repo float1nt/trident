@@ -161,7 +161,6 @@ export function LearnerInternalTopologyPanel({
                       </Text>
                       <Button
                         type="link"
-                       
                         className="!h-auto shrink-0 !p-0 text-[16px]"
                         disabled={option.riskId <= 0}
                         onClick={() => {
