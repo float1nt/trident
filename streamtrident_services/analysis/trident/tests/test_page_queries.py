@@ -94,6 +94,7 @@ def test_dashboard_overview_maps_database_rows_to_page_shape() -> None:
     assert data["metrics"]["total_flows"] == 10
     assert data["metrics"]["total_bytes"] == 10000
     assert data["metrics"]["risk_learner_count"] == 1
+    assert data["metrics"]["risk_type_count"] == 1
     assert data["traffic_distribution"][1] == {"name": "疑似异常流量", "value": 3000}
     assert data["protocol_distribution"] == [{"name": "其他", "value": 10}]
 
@@ -104,6 +105,31 @@ def test_overview_metrics_reports_total_traffic_bytes() -> None:
     data = service.overview_metrics()
 
     assert data["totalTraffic"] == 10000
+
+
+def test_overview_metrics_reports_distinct_risk_type_count() -> None:
+    class MultiLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            base = FakeLearners().list_learners()[0]
+            same_type = copy.deepcopy(base)
+            same_type["id"] = 13
+            same_type["learner_name"] = "NEW_2"
+            other_type = copy.deepcopy(base)
+            other_type["id"] = 14
+            other_type["learner_name"] = "NEW_3"
+            other_type["rule_json"] = {
+                "attack_types": [
+                    {"attack_type": "PORT_SCAN", "confidence": 0.75},
+                ]
+            }
+            baseline = FakeLearners().list_learners()[1]
+            return [base, same_type, other_type, baseline]
+
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=MultiLearners())
+
+    data = service.overview_metrics()
+
+    assert data["riskTypeCount"] == 2
 
 
 def test_overview_traffic_trend_returns_filled_buckets() -> None:
@@ -204,6 +230,126 @@ def test_risk_events_topology_distinguishes_risk_types_and_events() -> None:
     assert data["total"] == 3
     assert data["risk_type_total"] == 2
     assert data["risk_ip_count"] == 3
+
+
+def test_risk_attack_types_event_scope_excludes_benign() -> None:
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
+
+    data = service.risk_attack_types(scope="event")
+
+    codes = {item["code"] for item in data["items"]}
+    assert "BENIGN_NORMAL" not in codes
+    assert "DDOS_VICTIM" in codes
+    assert "PORT_SCAN" not in codes
+    assert data["items"][0]["name"]
+    assert data["items"][0]["desc"]
+
+
+def test_risk_attack_types_all_scope_returns_dictionary() -> None:
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
+
+    data = service.risk_attack_types(scope="all")
+
+    codes = {item["code"] for item in data["items"]}
+    assert "BENIGN_NORMAL" in codes
+    assert "DDOS_VICTIM" in codes
+    assert "PORT_SCAN" in codes
+
+
+def test_risk_attack_types_include_count() -> None:
+    class TopologyFlows(FakeFlows):
+        def topology_graph(self, **_: Any) -> dict[str, Any]:
+            return {"flow_count": 1, "node_mode": "host", "nodes": [], "links": [], "stats": {}}
+
+    class MultiLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            base = FakeLearners().list_learners()[0]
+            second = copy.deepcopy(base)
+            second["id"] = 13
+            second["learner_name"] = "NEW_2"
+            third = copy.deepcopy(base)
+            third["id"] = 14
+            third["learner_name"] = "NEW_3"
+            third["rule_json"] = {
+                "attack_types": [
+                    {"attack_type": "PORT_SCAN", "confidence": 0.75},
+                ]
+            }
+            return [base, second, third]
+
+    service = PageQueryService(session_id="s1", flows=TopologyFlows(), learners=MultiLearners())
+    data = service.risk_attack_types(scope="event", include_count=True)
+    by_code = {item["code"]: item.get("count", 0) for item in data["items"]}
+
+    assert by_code["DDOS_VICTIM"] == 2
+    assert by_code["PORT_SCAN"] == 1
+
+
+def test_risk_attack_types_event_scope_includes_unnamed_learners() -> None:
+    class UnknownLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            unnamed = copy.deepcopy(FakeLearners().list_learners()[0])
+            unnamed["id"] = 15
+            unnamed["learner_name"] = "NEW_UNKNOWN"
+            unnamed["rule_json"] = {
+                "attack_types": [
+                    {"attack_type": "UNKNOWN_SUSPECTED", "confidence": 0.35},
+                ]
+            }
+            return [unnamed, FakeLearners().list_learners()[1]]
+
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=UnknownLearners())
+
+    data = service.risk_attack_types(scope="event", include_count=True)
+    by_code = {item["code"]: item for item in data["items"]}
+
+    assert set(by_code) == {"UNKNOWN_SUSPECTED"}
+    assert by_code["UNKNOWN_SUSPECTED"]["name"] == "未命名攻击"
+    assert by_code["UNKNOWN_SUSPECTED"]["count"] == 1
+
+
+def test_risk_events_topology_filters_by_attack_types() -> None:
+    class TopologyFlows(FakeFlows):
+        def topology_graph(self, **_: Any) -> dict[str, Any]:
+            return {"flow_count": 1, "node_mode": "host", "nodes": [], "links": [], "stats": {}}
+
+        def risk_ip_view(self, **_: Any) -> dict[str, Any]:
+            return {"total": 1, "items": []}
+
+    class MultiLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            base = FakeLearners().list_learners()[0]
+            second = copy.deepcopy(base)
+            second["id"] = 13
+            second["learner_name"] = "NEW_2"
+            third = copy.deepcopy(base)
+            third["id"] = 14
+            third["learner_name"] = "NEW_3"
+            third["rule_json"] = {
+                "attack_types": [
+                    {"attack_type": "PORT_SCAN", "confidence": 0.75},
+                ]
+            }
+            return [base, second, third]
+
+        def get_learner(self, **kwargs: Any) -> dict[str, Any]:
+            name = str(kwargs.get("learner_name") or "")
+            for row in self.list_learners():
+                if str(row.get("learner_name") or "") == name:
+                    return row
+            return {}
+
+    service = PageQueryService(session_id="s1", flows=TopologyFlows(), learners=MultiLearners())
+
+    single = service.risk_events_topology(attack_types=["PORT_SCAN"])
+    assert single["total"] == 1
+    assert single["learners"] == ["NEW_3"]
+
+    multi = service.risk_events_topology(attack_types=["PORT_SCAN", "DDOS_VICTIM"])
+    assert multi["total"] == 3
+
+    comma = service.risk_events_topology(attack_types=["PORT_SCAN,DDOS_VICTIM"])
+    assert comma["total"] == 3
 
 
 def test_risk_events_topology_filters_by_display_name_not_learner_name() -> None:

@@ -29,6 +29,8 @@ ATTACK_TYPE_DISPLAY: dict[str, dict[str, str]] = {
     "UNKNOWN_SUSPECTED": {"name": "未命名攻击", "desc": "当前流量存在异常迹象，但尚未匹配到已命名攻击类型。"},
 }
 
+EVENT_SCOPE_EXCLUDED_ATTACK_TYPES = frozenset({"BENIGN_NORMAL"})
+
 
 class PageQueryService:
     def __init__(
@@ -74,6 +76,7 @@ class PageQueryService:
         sid = session_id or self.session_id
         learner_rows = self.learners.list_learners(session_id=sid)
         risk_names = _risk_learner_names(learner_rows)
+        risk_type_names = _distinct_risk_type_names(learner_rows)
         summary = self.flows.dashboard_summary(
             session_id=sid,
             risk_learners=risk_names,
@@ -94,6 +97,7 @@ class PageQueryService:
                 "total_bytes": int(summary.get("total_bytes") or 0),
                 "protocol_count": int(summary.get("protocol_count") or 0),
                 "risk_learner_count": len(risk_names),
+                "risk_type_count": len(risk_type_names),
                 "risk_ip_count": int(summary.get("risk_ip_count") or 0),
             },
             "traffic_distribution": [
@@ -116,7 +120,7 @@ class PageQueryService:
         return {
             "totalTraffic": int(metrics["total_bytes"]),
             "protocolCount": int(metrics["protocol_count"]),
-            "riskTypeCount": int(metrics["risk_learner_count"]),
+            "riskTypeCount": int(metrics["risk_type_count"]),
             "suspiciousIpCount": int(metrics["risk_ip_count"]),
         }
 
@@ -477,10 +481,48 @@ class PageQueryService:
         total = len(ip_rows)
         return {"total": total, "risks": ip_rows[offset : offset + limit]}
 
+    def risk_attack_types(
+        self,
+        *,
+        scope: str = "event",
+        include_count: bool = False,
+    ) -> dict[str, Any]:
+        scope_key = str(scope or "event").strip().lower()
+        exclude = (
+            EVENT_SCOPE_EXCLUDED_ATTACK_TYPES
+            if scope_key == "event"
+            else frozenset()
+        )
+        rows = self.learners.list_learners(session_id=self.session_id)
+        counts = _attack_type_event_counts(rows)
+        if scope_key == "event":
+            codes = [
+                code
+                for code in ATTACK_TYPE_DISPLAY
+                if code not in exclude and int(counts.get(code, 0)) > 0
+            ]
+        else:
+            codes = [code for code in ATTACK_TYPE_DISPLAY if code not in exclude]
+        items: list[dict[str, Any]] = []
+        for code in codes:
+            display = _attack_display(code)
+            items.append(
+                {
+                    "code": code,
+                    "name": display["name"],
+                    "desc": display["desc"],
+                }
+            )
+        if include_count:
+            for item in items:
+                item["count"] = int(counts.get(str(item["code"]) or "", 0))
+        return {"items": items}
+
     def risk_events_topology(
         self,
         *,
         name: str | None = None,
+        attack_types: list[str] | None = None,
         trigger_start: str | None = None,
         trigger_end: str | None = None,
         top_n: int = 50,
@@ -496,6 +538,7 @@ class PageQueryService:
         rows = _filter_learner_rows(
             all_rows,
             name=name,
+            attack_types=attack_types,
             risk_band=None,
             time_from=time_from,
             time_to=time_to,
@@ -766,10 +809,35 @@ def _clean_trigger_bound(value: str | None) -> str | None:
     return text
 
 
+def _normalize_attack_type_codes(raw: list[str] | None) -> set[str] | None:
+    if not raw:
+        return None
+    codes: set[str] = set()
+    for item in raw:
+        for part in str(item or "").split(","):
+            code = part.strip().upper()
+            if code:
+                codes.add(code)
+    return codes or None
+
+
+def _attack_type_event_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        if not _is_attack_learner(row) or int(row.get("flow_count") or 0) <= 0:
+            continue
+        attack_type = _rule_attack_type(row)
+        if not attack_type or attack_type == "BENIGN_NORMAL":
+            continue
+        counts[attack_type] = counts.get(attack_type, 0) + 1
+    return counts
+
+
 def _filter_learner_rows(
     rows: list[dict[str, Any]],
     *,
     name: str | None,
+    attack_types: list[str] | None = None,
     risk_band: str | None,
     time_from: str | None,
     time_to: str | None,
@@ -782,6 +850,7 @@ def _filter_learner_rows(
     filtered = []
     name_text = (name or "").strip().lower()
     band_text = (risk_band or "").strip().lower()
+    attack_type_codes = _normalize_attack_type_codes(attack_types)
     for row in rows:
         row_band = str(row.get("risk_band") or "").lower()
         if band_text:
@@ -789,6 +858,10 @@ def _filter_learner_rows(
                 continue
         elif not include_all_bands and not _is_attack_learner(row):
             continue
+        if attack_type_codes:
+            row_attack = _rule_attack_type(row).upper()
+            if row_attack not in attack_type_codes:
+                continue
         if name_text:
             display_name = _learner_risk_display_name(
                 row,

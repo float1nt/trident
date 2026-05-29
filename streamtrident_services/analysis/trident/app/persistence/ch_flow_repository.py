@@ -130,7 +130,7 @@ SELECT
     source_flow_id,
     record_version,
     record_stage
-FROM ch_flow FINAL
+FROM ch_flow
 {where}
 ORDER BY event_time DESC, flow_uid ASC
 LIMIT {capped}{offset_clause}
@@ -140,7 +140,7 @@ FORMAT JSONEachRow
         rows = [row for line in text.splitlines() if line.strip() for row in [_parse_json(line)]]
         total: int | None = None
         if offset is not None:
-            total_text = self.client.execute(f"SELECT count() AS total FROM ch_flow FINAL {where} FORMAT JSONEachRow")
+            total_text = self.client.execute(f"SELECT count() AS total FROM ch_flow {where} FORMAT JSONEachRow")
             total_rows = [_parse_json(line) for line in total_text.splitlines() if line.strip()]
             total = int(total_rows[0].get("total") or 0) if total_rows else 0
         return {
@@ -194,7 +194,7 @@ WITH edge_rows AS (
         count() AS value,
         min({is_benign_expr}) AS is_benign,
         topK(1)({main_protocol})[1] AS protocol
-    FROM ch_flow FINAL
+    FROM ch_flow
     {where}
     GROUP BY source, target
     ORDER BY value DESC, source ASC, target ASC
@@ -213,11 +213,11 @@ node_protocol_rows AS (
     SELECT node, topK(1)(main_protocol)[1] AS protocol
     FROM (
         SELECT {source_expr} AS node, {main_protocol} AS main_protocol
-        FROM ch_flow FINAL
+        FROM ch_flow
         {where}
         UNION ALL
         SELECT {target_expr} AS node, {main_protocol} AS main_protocol
-        FROM ch_flow FINAL
+        FROM ch_flow
         {where}
     )
     GROUP BY node
@@ -321,10 +321,10 @@ FORMAT JSONEachRow
             filters.append(abnormal)
         where = _where(filters)
         sql = f"""
-WITH total AS (SELECT count() AS total_count FROM ch_flow FINAL {where}),
+WITH total AS (SELECT count() AS total_count FROM ch_flow {where}),
 ports AS (
     SELECT dst_port, count() AS port_count
-    FROM ch_flow FINAL
+    FROM ch_flow
     {where}
     GROUP BY dst_port
     ORDER BY port_count DESC, dst_port ASC
@@ -333,22 +333,22 @@ ports AS (
 ips AS (
     SELECT uniqExact(ip) AS unique_ip_count
     FROM (
-        SELECT src_ip AS ip FROM ch_flow FINAL {where}
+        SELECT src_ip AS ip FROM ch_flow {where}
         UNION ALL
-        SELECT dst_ip AS ip FROM ch_flow FINAL {where}
+        SELECT dst_ip AS ip FROM ch_flow {where}
     )
 ),
 endpoints AS (
     SELECT uniqExact(endpoint) AS unique_endpoint_count
     FROM (
-        SELECT concat(src_ip, ':', toString(src_port)) AS endpoint FROM ch_flow FINAL {where}
+        SELECT concat(src_ip, ':', toString(src_port)) AS endpoint FROM ch_flow {where}
         UNION ALL
-        SELECT concat(dst_ip, ':', toString(dst_port)) AS endpoint FROM ch_flow FINAL {where}
+        SELECT concat(dst_ip, ':', toString(dst_port)) AS endpoint FROM ch_flow {where}
     )
 ),
 dst_ports AS (
     SELECT uniqExact(dst_port) AS unique_dst_port_count
-    FROM ch_flow FINAL
+    FROM ch_flow
     {where}
 )
 SELECT
@@ -405,7 +405,7 @@ FROM (
         assigned_learner,
         src_ip,
         window_index
-    FROM ch_flow FINAL
+    FROM ch_flow
     {where}
 )
 FORMAT JSONEachRow
@@ -448,7 +448,7 @@ FROM (
         total_bytes,
         is_unknown,
         assigned_learner
-    FROM ch_flow FINAL
+    FROM ch_flow
     {where}
 )
 GROUP BY bucket_start
@@ -480,7 +480,7 @@ FORMAT JSONEachRow
         main_protocol = _main_protocol_sql()
         sql = f"""
 SELECT {main_protocol} AS protocol, count() AS value
-FROM ch_flow FINAL
+FROM ch_flow
 {where}
 GROUP BY protocol
 ORDER BY value DESC, protocol ASC
@@ -506,7 +506,7 @@ FORMAT JSONEachRow
         )
         sql = f"""
 SELECT src_ip AS ip, count() AS triggerCount
-FROM ch_flow FINAL
+FROM ch_flow
 {where}
 GROUP BY src_ip
 ORDER BY triggerCount DESC, ip ASC
@@ -530,7 +530,7 @@ FORMAT JSONEachRow
         )
         sql = f"""
 SELECT uniqExact(dst_port) AS port_count
-FROM ch_flow FINAL
+FROM ch_flow
 {where}
 FORMAT JSONEachRow
 """
@@ -556,7 +556,7 @@ FORMAT JSONEachRow
         )
         sql = f"""
 SELECT uniqExact(src_ip) AS ip_count
-FROM ch_flow FINAL
+FROM ch_flow
 {where}
 FORMAT JSONEachRow
 """
@@ -586,7 +586,7 @@ FORMAT JSONEachRow
         capped = max(1, min(int(limit_per_learner), 20))
         sql = f"""
 SELECT assigned_learner, src_ip, count() AS flow_count
-FROM ch_flow FINAL
+FROM ch_flow
 {where}
 GROUP BY assigned_learner, src_ip
 ORDER BY assigned_learner ASC, flow_count DESC, src_ip ASC
@@ -631,7 +631,7 @@ FORMAT JSONEachRow
 SELECT count() AS total
 FROM (
     SELECT src_ip, assigned_learner
-    FROM ch_flow FINAL
+    FROM ch_flow
     {where}
     GROUP BY src_ip, assigned_learner
 )
@@ -651,7 +651,7 @@ SELECT
     any(dst_ip) AS top_dst_ip,
     any(dst_port) AS top_dst_port,
     any({main_protocol}) AS top_protocol
-FROM ch_flow FINAL
+FROM ch_flow
 {where}
 GROUP BY src_ip, assigned_learner
 ORDER BY trigger_time DESC, flow_count DESC, subject_ip ASC
@@ -681,7 +681,7 @@ SELECT
     min(event_time) AS first_trigger_time,
     max(event_time) AS last_trigger_time,
     count() AS trigger_count
-FROM ch_flow FINAL
+FROM ch_flow
 {where}
 GROUP BY assigned_learner
 FORMAT JSONEachRow
@@ -699,12 +699,12 @@ FORMAT JSONEachRow
 
     def count_flows(self, *, session_id: str | None = None) -> int:
         where = f"WHERE session_id = {_quote(session_id)}" if session_id else ""
-        text = self.client.execute(f"SELECT count() FROM ch_flow FINAL {where} FORMAT TabSeparated")
+        text = self.client.execute(f"SELECT count() FROM ch_flow {where} FORMAT TabSeparated")
         return int(text.strip() or "0")
 
     def max_window_index(self, *, session_id: str | None = None) -> int:
         where = f"WHERE session_id = {_quote(session_id)}" if session_id else ""
-        text = self.client.execute(f"SELECT max(window_index) FROM ch_flow FINAL {where} FORMAT TabSeparated")
+        text = self.client.execute(f"SELECT max(window_index) FROM ch_flow {where} FORMAT TabSeparated")
         value = text.strip()
         return int(value) if value and value != "\\N" else 0
 
