@@ -6,6 +6,8 @@ export type LearnerTopologyView = {
   risk_name?: string;
   risk_description?: string;
   trigger_time?: string;
+  first_trigger_time?: string;
+  last_trigger_time?: string;
   attack_ratio: number;
   dominant_label?: string;
   dominant_ratio?: number;
