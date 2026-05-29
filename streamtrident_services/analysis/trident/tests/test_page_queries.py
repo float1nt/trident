@@ -240,8 +240,20 @@ def test_risk_attack_types_event_scope_excludes_benign() -> None:
     codes = {item["code"] for item in data["items"]}
     assert "BENIGN_NORMAL" not in codes
     assert "DDOS_VICTIM" in codes
+    assert "PORT_SCAN" not in codes
     assert data["items"][0]["name"]
     assert data["items"][0]["desc"]
+
+
+def test_risk_attack_types_all_scope_returns_dictionary() -> None:
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
+
+    data = service.risk_attack_types(scope="all")
+
+    codes = {item["code"] for item in data["items"]}
+    assert "BENIGN_NORMAL" in codes
+    assert "DDOS_VICTIM" in codes
+    assert "PORT_SCAN" in codes
 
 
 def test_risk_attack_types_include_count() -> None:
@@ -271,6 +283,29 @@ def test_risk_attack_types_include_count() -> None:
 
     assert by_code["DDOS_VICTIM"] == 2
     assert by_code["PORT_SCAN"] == 1
+
+
+def test_risk_attack_types_event_scope_includes_unnamed_learners() -> None:
+    class UnknownLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            unnamed = copy.deepcopy(FakeLearners().list_learners()[0])
+            unnamed["id"] = 15
+            unnamed["learner_name"] = "NEW_UNKNOWN"
+            unnamed["rule_json"] = {
+                "attack_types": [
+                    {"attack_type": "UNKNOWN_SUSPECTED", "confidence": 0.35},
+                ]
+            }
+            return [unnamed, FakeLearners().list_learners()[1]]
+
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=UnknownLearners())
+
+    data = service.risk_attack_types(scope="event", include_count=True)
+    by_code = {item["code"]: item for item in data["items"]}
+
+    assert set(by_code) == {"UNKNOWN_SUSPECTED"}
+    assert by_code["UNKNOWN_SUSPECTED"]["name"] == "未命名攻击"
+    assert by_code["UNKNOWN_SUSPECTED"]["count"] == 1
 
 
 def test_risk_events_topology_filters_by_attack_types() -> None:

@@ -493,10 +493,19 @@ class PageQueryService:
             if scope_key == "event"
             else frozenset()
         )
+        rows = self.learners.list_learners(session_id=self.session_id)
+        counts = _attack_type_event_counts(rows)
+        if scope_key == "event":
+            codes = [
+                code
+                for code in ATTACK_TYPE_DISPLAY
+                if code not in exclude and int(counts.get(code, 0)) > 0
+            ]
+        else:
+            codes = [code for code in ATTACK_TYPE_DISPLAY if code not in exclude]
         items: list[dict[str, Any]] = []
-        for code, display in ATTACK_TYPE_DISPLAY.items():
-            if code in exclude:
-                continue
+        for code in codes:
+            display = _attack_display(code)
             items.append(
                 {
                     "code": code,
@@ -505,8 +514,6 @@ class PageQueryService:
                 }
             )
         if include_count:
-            rows = self.learners.list_learners(session_id=self.session_id)
-            counts = _attack_type_event_counts(rows)
             for item in items:
                 item["count"] = int(counts.get(str(item["code"]) or "", 0))
         return {"items": items}
