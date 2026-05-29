@@ -1,106 +1,126 @@
-import { Spin, Table } from "antd";
+import { useMemo, useState } from "react";
+import { Button, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import type { RefObject } from "react";
+import type { TablePaginationConfig } from "antd/es/table";
 import type { RiskTrafficLogItem } from "@/api/services/RiskService";
+import { TrafficLogDetailDrawer } from "@/components/TrafficLogDetailDrawer";
 import { formatTrafficVolumeText } from "@/utils/formatTotalTraffic";
 import { normalizeApiList } from "@/utils/normalizeApiList";
-
-const LIST_MAX_HEIGHT = "200px";
 
 function formatPort(port: number): string {
   return port > 0 ? String(port) : "-";
 }
 
-const trafficLogColumns: ColumnsType<RiskTrafficLogItem> = [
-  {
-    title: "访问时间",
-    dataIndex: "accessTime",
-    key: "accessTime",
-    width: 180,
-  },
-  {
-    title: "源IP",
-    dataIndex: "srcIp",
-    key: "srcIp",
-    width: 140,
-  },
-  {
-    title: "源端口",
-    dataIndex: "srcPort",
-    key: "srcPort",
-    width: 90,
-    render: (port: number) => formatPort(port),
-  },
-  {
-    title: "协议类型",
-    dataIndex: "protocol",
-    key: "protocol",
-    width: 120,
-  },
-  {
-    title: "目的IP",
-    dataIndex: "dstIp",
-    key: "dstIp",
-    width: 140,
-  },
-  {
-    title: "目的端口",
-    dataIndex: "dstPort",
-    key: "dstPort",
-    width: 90,
-    render: (port: number) => formatPort(port),
-  },
-  {
-    title: "流量",
-    dataIndex: "traffic",
-    key: "traffic",
-    width: 110,
-    render: (bytes: number) => formatTrafficVolumeText(bytes),
-  },
-];
+function buildTrafficLogColumns(
+  onOpenDetail: (index: number) => void,
+): ColumnsType<RiskTrafficLogItem> {
+  return [
+    {
+      title: "访问时间",
+      dataIndex: "accessTime",
+      key: "accessTime",
+      width: 180,
+    },
+    {
+      title: "源IP",
+      dataIndex: "srcIp",
+      key: "srcIp",
+      width: 140,
+    },
+    {
+      title: "源端口",
+      dataIndex: "srcPort",
+      key: "srcPort",
+      width: 90,
+      render: (port: number) => formatPort(port),
+    },
+    {
+      title: "协议类型",
+      dataIndex: "protocol",
+      key: "protocol",
+      width: 120,
+    },
+    {
+      title: "目的IP",
+      dataIndex: "dstIp",
+      key: "dstIp",
+      width: 140,
+    },
+    {
+      title: "目的端口",
+      dataIndex: "dstPort",
+      key: "dstPort",
+      width: 90,
+      render: (port: number) => formatPort(port),
+    },
+    {
+      title: "流量",
+      dataIndex: "traffic",
+      key: "traffic",
+      width: 110,
+      render: (bytes: number) => formatTrafficVolumeText(bytes),
+    },
+    {
+      title: "操作",
+      key: "action",
+      width: 88,
+      fixed: "right",
+      render: (_value, _record, index) => (
+        <Button
+          type="link"
+          className="!h-auto !p-0"
+          onClick={() => onOpenDetail(index)}
+        >
+          详情
+        </Button>
+      ),
+    },
+  ];
+}
 
 type TrafficLogsTableProps = {
   trafficLogs: RiskTrafficLogItem[];
   loading: boolean;
-  hasMore: boolean;
-  tableWrapperRef: RefObject<HTMLDivElement>;
+  pagination: TablePaginationConfig;
 };
 
 export function TrafficLogsTable({
   trafficLogs,
   loading,
-  hasMore,
-  tableWrapperRef,
+  pagination,
 }: TrafficLogsTableProps) {
   const rows = normalizeApiList<RiskTrafficLogItem>(trafficLogs);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+
+  const columns = useMemo(
+    () =>
+      buildTrafficLogColumns((index) => {
+        setActiveIndex(index);
+        setDrawerOpen(true);
+      }),
+    [],
+  );
+
   return (
-    <div ref={tableWrapperRef}>
+    <>
       <Table<RiskTrafficLogItem>
         rowKey="id"
         size="middle"
         bordered
-        columns={trafficLogColumns}
+        loading={loading}
+        columns={columns}
         dataSource={rows}
-        pagination={false}
-        scroll={{ x: 980, y: LIST_MAX_HEIGHT }}
-        footer={() => {
-          if (loading) {
-            return (
-              <div className="py-2 text-center">
-                <Spin size="small" />
-              </div>
-            );
-          }
-          if (!hasMore && rows.length > 0) {
-            return (
-              <div className="py-2 text-center text-sm text-[#8c8c8c]">
-                已加载全部
-              </div>
-            );
-          }
-          return null;
-        }}
+        pagination={pagination}
+        scroll={{ x: 1068 }}
       />
-    </div>
+      <TrafficLogDetailDrawer
+        open={drawerOpen}
+        logs={rows}
+        activeIndex={activeIndex}
+        onClose={() => setDrawerOpen(false)}
+        onActiveIndexChange={setActiveIndex}
+      />
+    </>
   );
 }

@@ -74,6 +74,10 @@ function buildEventTopologyParams(
   if (name) {
     params.name = name;
   }
+  const attackTypes = query.attackTypes?.filter((code) => code.trim());
+  if (attackTypes?.length) {
+    params.attackTypes = attackTypes.join(",");
+  }
   const start = query.triggerStart?.trim();
   const end = query.triggerEnd?.trim();
   if (
@@ -114,8 +118,21 @@ export type RiskListResponse = {
   risks: IpRiskListItem[];
 };
 
+export type AttackTypeOption = {
+  code: string;
+  name: string;
+  desc: string;
+  count?: number;
+};
+
+export type AttackTypesQuery = {
+  scope?: "event" | "all";
+  includeCount?: boolean;
+};
+
 export type EventTopologyQuery = {
   name?: string;
+  attackTypes?: string[];
   triggerStart?: string;
   triggerEnd?: string;
   limit?: number;
@@ -155,6 +172,32 @@ export type RiskTrafficLogItem = {
   traffic: number;
   protocol: string;
 };
+
+export type TrafficLogsPageResponse = {
+  items: RiskTrafficLogItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+function normalizeTrafficLogsPage(
+  data: unknown,
+  limit: number,
+  offset: number,
+): TrafficLogsPageResponse {
+  const items = normalizeApiList<RiskTrafficLogItem>(data);
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const obj = data as Record<string, unknown>;
+    const total = typeof obj.total === "number" ? obj.total : items.length;
+    return {
+      items,
+      total,
+      limit: typeof obj.limit === "number" ? obj.limit : limit,
+      offset: typeof obj.offset === "number" ? obj.offset : offset,
+    };
+  }
+  return { items, total: items.length, limit, offset };
+}
 
 export type IpSummary = {
   ip: string;
@@ -197,6 +240,26 @@ export class RiskService {
     return { total, risks };
   }
 
+  static async getAttackTypes(
+    query: AttackTypesQuery = {},
+  ): Promise<AttackTypeOption[]> {
+    const params: Record<string, string | boolean> = {
+      scope: query.scope ?? "event",
+    };
+    if (query.includeCount) {
+      params.includeCount = true;
+    }
+    const res = await get<{ items?: AttackTypeOption[] } | AttackTypeOption[]>(
+      "/risk/attack-types",
+      params,
+    );
+    const data = res.data;
+    if (Array.isArray(data)) {
+      return data;
+    }
+    return normalizeApiList<AttackTypeOption>(data?.items);
+  }
+
   static async getEventTopology(
     query: EventTopologyQuery = {},
   ): Promise<LearnerNetworkTopologyJson> {
@@ -235,12 +298,12 @@ export class RiskService {
     riskId: number,
     limit = 10,
     offset = 0,
-  ): Promise<RiskTrafficLogItem[]> {
-    const res = await get<RiskTrafficLogItem[] | { items?: RiskTrafficLogItem[] }>(
+  ): Promise<TrafficLogsPageResponse> {
+    const res = await get<TrafficLogsPageResponse | RiskTrafficLogItem[]>(
       `/risks/${riskId}/traffic-logs`,
       { limit, offset },
     );
-    return normalizeApiList<RiskTrafficLogItem>(res.data);
+    return normalizeTrafficLogsPage(res.data, limit, offset);
   }
 
   static async getIpSummary(ip: string): Promise<IpSummary | null> {
@@ -273,11 +336,11 @@ export class RiskService {
     ip: string,
     limit = 10,
     offset = 0,
-  ): Promise<RiskTrafficLogItem[]> {
-    const res = await get<RiskTrafficLogItem[] | { items?: RiskTrafficLogItem[] }>(
+  ): Promise<TrafficLogsPageResponse> {
+    const res = await get<TrafficLogsPageResponse | RiskTrafficLogItem[]>(
       `/risk/ips/${encodeURIComponent(ip)}/traffic-logs`,
       { limit, offset },
     );
-    return normalizeApiList<RiskTrafficLogItem>(res.data);
+    return normalizeTrafficLogsPage(res.data, limit, offset);
   }
 }

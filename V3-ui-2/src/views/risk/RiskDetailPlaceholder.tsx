@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useApi } from "@/hooks/useApi";
-import { useTrafficLogsInfiniteScroll } from "@/hooks/useTrafficLogsInfiniteScroll";
-import { useSearchParams } from "react-router-dom";
-import { Table, Spin } from "antd";
+import { useTrafficLogsPagination } from "@/hooks/useTrafficLogsPagination";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Button, Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { TopologyChartPane } from "@/components/NetworkTopologyPanel";
 import type { DatasetNetworkTopologyJson } from "@/components/NetworkTopologyPanel";
@@ -25,11 +25,12 @@ import taskDetailIcon from "@/assets/蒙版组 152.png";
 const CHART_HEIGHT = 320;
 const TOPOLOGY_REPULSION = 70;
 const TOPOLOGY_MIN_EDGE_FLOWS = 1;
-const LIST_MAX_HEIGHT = "200px";
+const LIST_MAX_HEIGHT = "300px";
 
 function buildRiskIpColumns(
   currentPage: number,
   pageSize: number,
+  onIpClick: (ip: string) => void,
 ): ColumnsType<RiskIpListItem> {
   return [
     {
@@ -43,6 +44,11 @@ function buildRiskIpColumns(
       title: "IP",
       dataIndex: "ip",
       key: "ip",
+      render: (ip: string) => (
+        <Button className="!h-auto !p-0" variant="link" color="primary" onClick={() => onIpClick(ip)}>
+          {ip}
+        </Button>
+      ),
     },
     {
       title: "风险触发次数",
@@ -55,6 +61,7 @@ function buildRiskIpColumns(
 
 /** 风险详情页 */
 export default function RiskDetailPlaceholder() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const riskId = searchParams.get("id");
   const numericId = riskId ? Number(riskId) : NaN;
@@ -70,6 +77,10 @@ export default function RiskDetailPlaceholder() {
   const [riskIpList, setRiskIpList] = useState<RiskIpListItem[]>([]);
   const [riskIpPage, setRiskIpPage] = useState(1);
   const [riskIpPageSize, setRiskIpPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
+  const [trafficLogPage, setTrafficLogPage] = useState(1);
+  const [trafficLogPageSize, setTrafficLogPageSize] = useState(
+    DEFAULT_TABLE_PAGE_SIZE,
+  );
   const requestSeqRef = useRef(0);
 
   const trafficLogsEnabled =
@@ -82,9 +93,13 @@ export default function RiskDetailPlaceholder() {
   const {
     trafficLogs,
     loading: trafficLogsLoading,
-    hasMore: trafficLogsHasMore,
-    tableWrapperRef,
-  } = useTrafficLogsInfiniteScroll(trafficLogsEnabled, fetchTrafficLogs);
+    total: trafficLogsTotal,
+  } = useTrafficLogsPagination(
+    trafficLogsEnabled,
+    trafficLogPage,
+    trafficLogPageSize,
+    fetchTrafficLogs,
+  );
 
   useEffect(() => {
     if (!riskId || Number.isNaN(numericId)) {
@@ -136,10 +151,22 @@ export default function RiskDetailPlaceholder() {
   useEffect(() => {
     setRiskIpPage(1);
     setRiskIpPageSize(DEFAULT_TABLE_PAGE_SIZE);
+    setTrafficLogPage(1);
+    setTrafficLogPageSize(DEFAULT_TABLE_PAGE_SIZE);
   }, [riskId]);
 
   const topologyView = networkTopology?.views.__combined__;
   const pageLoading = loading || loadState === "loading";
+
+  const handleIpDetail = useCallback(
+    (ip: string) => {
+      navigate({
+        pathname: "/risk/ip-detail",
+        search: `?ip=${encodeURIComponent(ip)}`,
+      });
+    },
+    [navigate],
+  );
 
   return (
     <div className="h-[calc(100vh-100px)] w-full rounded-[8px]">
@@ -216,7 +243,7 @@ export default function RiskDetailPlaceholder() {
                   )}
                 </div>
 
-                <div className="flex min-w-0 flex-[1] flex-col rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+                <div className="flex min-w-0 flex-[1] flex-col rounded-[8px] border border-[#e8eaed] bg-[#fff] px-[16px] pt-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
                   <SectionTitle className="mb-[12px] shrink-0">
                     风险 IP 列表
                     {/* （按每个 IP 的风险触发次数从多到少排序） */}
@@ -226,7 +253,11 @@ export default function RiskDetailPlaceholder() {
                     rowKey="ip"
                     size="middle"
                     bordered
-                    columns={buildRiskIpColumns(riskIpPage, riskIpPageSize)}
+                    columns={buildRiskIpColumns(
+                      riskIpPage,
+                      riskIpPageSize,
+                      handleIpDetail,
+                    )}
                     dataSource={riskIpList}
                     pagination={createTablePagination({
                       current: riskIpPage,
@@ -242,13 +273,20 @@ export default function RiskDetailPlaceholder() {
                 </div>
               </div>
 
-              <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+              <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] px-[16px] pt-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
                 <SectionTitle className="mb-[12px]">流量日志</SectionTitle>
                 <TrafficLogsTable
                   trafficLogs={trafficLogs}
                   loading={trafficLogsLoading}
-                  hasMore={trafficLogsHasMore}
-                  tableWrapperRef={tableWrapperRef}
+                  pagination={createTablePagination({
+                    current: trafficLogPage,
+                    pageSize: trafficLogPageSize,
+                    total: trafficLogsTotal,
+                    onChange: (nextPage, nextPageSize) => {
+                      setTrafficLogPage(nextPage);
+                      setTrafficLogPageSize(nextPageSize);
+                    },
+                  })}
                 />
               </div>
             </div>
