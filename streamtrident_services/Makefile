@@ -2,7 +2,13 @@ COMPOSE ?= docker compose
 SERVICE ?=
 LOGS ?= trident-api trident-worker suricata-cic suricata-agent
 
-.PHONY: help up down ps build rebuild capture-up capture-check-redis trident-up trident-test-up trident-test-down capture-down trident-down restart restart-trident restart-capture logs logs-all migrate worker api suricata suricata-agent clean
+.PHONY: help up down ps build rebuild capture-up capture-check-redis trident-up trident-test-up trident-test-down trident-test-coldstart trident-test-inference trident-test-worker-logs capture-down trident-down restart restart-trident restart-capture logs logs-all migrate worker api suricata suricata-agent clean
+
+ANALYSIS_DIR := analysis
+ANALYSIS_ENV_FILE := .env.test
+ANALYSIS_COMPOSE := -f compose.yaml -f compose.test.yaml --env-file $(ANALYSIS_ENV_FILE)
+ANALYSIS_COMPOSE_COLDSTART := $(ANALYSIS_COMPOSE) -f compose.coldstart.test.yaml
+ANALYSIS_COMPOSE_INFERENCE := $(ANALYSIS_COMPOSE) -f compose.inference.test.yaml
 
 help:
 	@printf '%s\n' \
@@ -13,10 +19,13 @@ help:
 		'  make capture-up        Start capture stack from capture/compose.yaml' \
 		'  make capture-check-redis  Verify Redis flow ingest on capture host' \
 		'  make trident-up        Start Trident stack from analysis/compose.yaml' \
-		'  make trident-test-up   Start isolated analysis test stack (analysis/start-test.sh)' \
-		'  make capture-down      Stop capture stack' \
-		'  make trident-down      Stop Trident stack' \
-		'  make trident-test-down Stop analysis test stack' \
+		'  make trident-test-up        Start analysis test stack (deps + api + inference worker)' \
+		'  make trident-test-coldstart Recreate test worker in cold_start mode' \
+		'  make trident-test-inference Recreate test worker in inference mode' \
+		'  make trident-test-worker-logs Tail test worker log (cold_start / inference events)' \
+		'  make capture-down           Stop capture stack' \
+		'  make trident-down           Stop Trident stack' \
+		'  make trident-test-down      Stop analysis test stack' \
 		'  make restart           Restart one service: make restart SERVICE=trident-api' \
 		'  make restart-trident   Rebuild/recreate trident-migrate, trident-worker, trident-api' \
 		'  make restart-capture   Rebuild/recreate Suricata CIC capture service' \
@@ -56,10 +65,23 @@ trident-up:
 	cd analysis && ./start.sh
 
 trident-test-up:
-	cd analysis && ./start-test.sh
+	cd $(ANALYSIS_DIR) && ./start-test.sh
+
+trident-test-coldstart:
+	cd $(ANALYSIS_DIR) && set -a && . ./$(ANALYSIS_ENV_FILE) && set +a && \
+		export COMPOSE_PROJECT_NAME="$${COMPOSE_PROJECT_NAME:-streamtrident-test}" && \
+		$(COMPOSE) $(ANALYSIS_COMPOSE_COLDSTART) up -d --force-recreate trident-worker
+
+trident-test-inference:
+	cd $(ANALYSIS_DIR) && set -a && . ./$(ANALYSIS_ENV_FILE) && set +a && \
+		export COMPOSE_PROJECT_NAME="$${COMPOSE_PROJECT_NAME:-streamtrident-test}" && \
+		$(COMPOSE) $(ANALYSIS_COMPOSE_INFERENCE) up -d --force-recreate trident-worker
+
+trident-test-worker-logs:
+	tail -f $(ANALYSIS_DIR)/trident/logs-test/worker.log
 
 trident-test-down:
-	cd analysis && ./stop-test.sh
+	cd $(ANALYSIS_DIR) && ./stop-test.sh
 
 capture-down:
 	cd capture && docker compose -f compose.yaml down

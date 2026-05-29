@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 ENV_FILE="${ENV_FILE:-.env.test}"
-COMPOSE_FILES=(-f compose.yaml -f compose.test.yaml)
+COMPOSE_FILES=(-f compose.yaml -f compose.test.yaml -f compose.inference.test.yaml)
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "config file not found: analysis/$ENV_FILE"

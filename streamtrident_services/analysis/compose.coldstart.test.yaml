@@ -1,0 +1,4 @@
+# Worker override: cold_start mode (use with compose.yaml + compose.test.yaml + .env.test)
+services:
+  trident-worker:
+    command: ["python", "-m", "app.worker", "--config", "config/trident.yaml", "--mode", "cold_start"]

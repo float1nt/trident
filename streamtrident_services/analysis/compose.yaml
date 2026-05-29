@@ -62,6 +62,7 @@ services:
       context: ./trident
     image: streamtrident/trident:local
     container_name: streamtrident-worker
+    gpus: all
     depends_on:
       clickhouse:
         condition: service_healthy
