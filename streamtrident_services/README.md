@@ -21,7 +21,7 @@ streamtrident_services/
 ├── analysis/
 │   ├── compose.yaml
 │   ├── .env.example
-│   ├── start.sh
+│   ├── scripts/
 │   └── trident/
 └── compose.yaml
 ```
@@ -41,8 +41,9 @@ cp .env.split .env
 On the analysis host (local):
 
 ```bash
-cd streamtrident_services/analysis
-./start-test.sh
+cd streamtrident_services
+make test-start-coldstart   # build baseline from benign traffic
+make test-start-inference   # switch worker to inference after cold start completes
 ```
 
 For other hosts, set these in `analysis/.env` or `analysis/.env.test`:
@@ -50,14 +51,16 @@ For other hosts, set these in `analysis/.env` or `analysis/.env.test`:
 - `CAPTURE_REDIS_HOST`: capture host IP (e.g. `172.16.88.12`)
 - `TRIDENT_SURICATA_AGENT_URLS`: capture host agent URL (e.g. `http://172.16.88.12:19100`)
 
-## Local Compose
+## Local Run
 
 ```bash
 cd streamtrident_services
-docker compose up -d
+make capture-start
+make test-start-coldstart
+make test-start-inference
 ```
 
-This starts all capture and analysis services on one machine for development.
+This starts capture services and the test analysis stack on one machine for development.
 
 Host ports default to non-standard values to avoid conflicts with services already installed on the host:
 
@@ -67,15 +70,11 @@ Host ports default to non-standard values to avoid conflicts with services alrea
 - PostgreSQL: `127.0.0.1:15432` -> container `5432`
 - Trident API: `127.0.0.1:8090` -> container `8090`
 
-Override them when needed:
+Override them in `capture/.env`, `analysis/.env`, or `analysis/.env.test` when needed.
 
-```bash
-REDIS_HOST_PORT=6379 POSTGRES_HOST_PORT=5432 docker compose up -d
-```
+Suricata uses host networking and captures from `SURICATA_IFACE`, defaulting to `eth0`. Set it to the actual host NIC before starting capture.
 
-Suricata uses host networking and captures from `SURICATA_IFACE`, defaulting to `eth0`. Set it to the actual host NIC when starting:
-
-For production-style local testing, prefer `capture/start.sh` and `analysis/start.sh`.
+For production-style local testing, use `make prod-start-coldstart` and `make prod-start-inference` from `streamtrident_services`.
 
 The capture service writes CIC flow records to Redis list `suricata:cic_flow` by default. Trident worker consumes that list with pop semantics, so records are removed from Redis as soon as Trident takes them.
 
@@ -91,8 +90,8 @@ Useful Suricata settings:
 After startup, verify that flow data is being written:
 
 ```bash
-docker compose logs -f suricata-cic
-cd capture && ./check-redis-flow.sh
+make capture-logs
+make capture-check
 ```
 
 Manual checks:

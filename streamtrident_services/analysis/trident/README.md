@@ -28,11 +28,11 @@ python -m app.worker --config config/trident.yaml --mode cold_start
 python -m app.worker --config config/trident.yaml --mode inference
 ```
 
-也可以使用脚本：
+本地开发时也可以使用 analysis 侧脚本：
 
 ```bash
-./start-coldstart.sh
-./start-inference.sh
+../scripts/start-worker-coldstart.sh
+../scripts/start-worker-inference.sh
 ```
 
 语义：
@@ -44,8 +44,8 @@ python -m app.worker --config config/trident.yaml --mode inference
 常用流程：
 
 ```bash
-./start-coldstart.sh    # 注入良性流，等待日志 cold_start_complete
-./start-inference.sh    # 同 session_id 下启动推理/攻击评估
+../scripts/start-worker-coldstart.sh    # 注入良性流，等待日志 cold_start_complete
+../scripts/start-worker-inference.sh    # 同 session_id 下启动推理/攻击评估
 ```
 
 worker 会：

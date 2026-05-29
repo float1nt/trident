@@ -74,6 +74,6 @@ cat <<EOF
 database cleaned ($MODE)
   project: $COMPOSE_PROJECT_NAME
   postgres / clickhouse: empty schema via trident-migrate
-  worker/api: stopped (start with start-test.sh / start.sh or make trident-test-*)
+  worker/api: stopped (start from streamtrident_services with make prod-start-* or make test-start-*)
 
 EOF

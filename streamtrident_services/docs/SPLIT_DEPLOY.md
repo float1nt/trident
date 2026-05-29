@@ -42,8 +42,8 @@ sudo ufw allow from ANALYSIS_IP to any port 19100 proto tcp
 验证采集是否正常：
 
 ```bash
-docker compose logs -f suricata-cic
-./check-redis-flow.sh
+make capture-logs
+make capture-check
 ```
 
 脚本会在约 20 秒内轮询队列长度，并抽样校验最新一条 flow JSON（不 pop 数据）。若分析侧 worker 正在消费，队列可能经常为 0，脚本会以观测窗口内的峰值长度为准。
@@ -58,15 +58,15 @@ curl -sS http://172.16.88.12:19100/agent/v1/health
 ## 2. 分析侧（本机）
 
 ```bash
-cd streamtrident_services/analysis
-# .env.test 已指向采集机 172.16.88.12
-./start-test.sh
+cd streamtrident_services
+# analysis/.env.test 已指向采集机 172.16.88.12
+make test-start-coldstart
 ```
 
-等价命令：
+冷启动完成后切到推理：
 
 ```bash
-make -C streamtrident_services trident-test-up
+make test-start-inference
 ```
 
 分析栈端口（与生产分析栈错开，避免冲突）：
@@ -89,7 +89,7 @@ TRIDENT_SURICATA_AGENT_URLS=http://172.16.88.12:19100
 停止分析栈：
 
 ```bash
-./stop-test.sh
+make test-stop
 ```
 
 ## 3. 端到端检查
@@ -99,7 +99,7 @@ TRIDENT_SURICATA_AGENT_URLS=http://172.16.88.12:19100
 curl -sS http://127.0.0.1:9090/api/v1/health
 
 # 分析机：worker 是否在消费（日志中应有 redis 读取）
-docker logs -f streamtrident-worker-test
+make test-logs
 
 # 采集机：队列是否在增长/被消费
 redis-cli -h 172.16.88.12 -p 16379 LLEN suricata:cic_flow
