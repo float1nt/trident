@@ -112,3 +112,28 @@ def test_topology_graph_selects_top_edges_before_nodes() -> None:
     assert graph["links"] == [
         {"source": "10.0.0.1", "target": "10.0.0.2", "value": 3, "is_benign": False}
     ]
+
+
+def test_learner_trigger_stats_batches_min_max_and_count() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sql = ""
+
+        def execute(self, sql: str) -> str:
+            self.sql = sql
+            return (
+                '{"assigned_learner":"NEW_1","first_trigger_time":"2026-05-27 09:30:00",'
+                '"last_trigger_time":"2026-05-27 10:05:00","trigger_count":21}\n'
+            )
+
+    repo = ChFlowRepository.__new__(ChFlowRepository)
+    repo.client = FakeClient()
+
+    stats = repo.learner_trigger_stats(session_id="s1", learner_names=["NEW_1", "NEW_1", "NEW_2"])
+
+    assert "min(event_time) AS first_trigger_time" in repo.client.sql
+    assert "max(event_time) AS last_trigger_time" in repo.client.sql
+    assert "count() AS trigger_count" in repo.client.sql
+    assert "assigned_learner IN ('NEW_1', 'NEW_2')" in repo.client.sql
+    assert "GROUP BY assigned_learner" in repo.client.sql
+    assert stats["NEW_1"]["trigger_count"] == 21

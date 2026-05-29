@@ -664,6 +664,39 @@ FORMAT JSONEachRow
             "total": total,
         }
 
+    def learner_trigger_stats(self, *, session_id: str, learner_names: list[str]) -> dict[str, dict[str, Any]]:
+        clean_names = list(dict.fromkeys(name for name in learner_names if name))
+        learner_filter = _in_filter("assigned_learner", clean_names)
+        if not learner_filter:
+            return {}
+        where = _where(
+            [
+                f"session_id = {_quote(session_id)}",
+                learner_filter,
+            ]
+        )
+        sql = f"""
+SELECT
+    assigned_learner,
+    min(event_time) AS first_trigger_time,
+    max(event_time) AS last_trigger_time,
+    count() AS trigger_count
+FROM ch_flow FINAL
+{where}
+GROUP BY assigned_learner
+FORMAT JSONEachRow
+"""
+        text = self.client.execute(sql)
+        result: dict[str, dict[str, Any]] = {}
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            row = _parse_json(line)
+            learner_name = str(row.get("assigned_learner") or "")
+            if learner_name:
+                result[learner_name] = row
+        return result
+
     def count_flows(self, *, session_id: str | None = None) -> int:
         where = f"WHERE session_id = {_quote(session_id)}" if session_id else ""
         text = self.client.execute(f"SELECT count() FROM ch_flow FINAL {where} FORMAT TabSeparated")
