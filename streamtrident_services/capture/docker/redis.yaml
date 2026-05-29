@@ -1,4 +1,5 @@
 url: redis://redis:6379/0
+queue_type: list
 input_stream: suricata:cic_flow
 consumer_group: trident-online
 consumer_name: trident-01

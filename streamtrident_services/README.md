@@ -76,13 +76,14 @@ Suricata uses host networking and captures from `SURICATA_IFACE`, defaulting to 
 
 For production-style local testing, prefer `capture/start.sh` and `analysis/start.sh`.
 
-The capture service writes CIC flow records to Redis stream `suricata:cic_flow` by default. Trident worker consumes that stream and performs database persistence and algorithm processing.
+The capture service writes CIC flow records to Redis list `suricata:cic_flow` by default. Trident worker consumes that list with pop semantics, so records are removed from Redis as soon as Trident takes them.
 
 Useful Suricata settings:
 
 - `SURICATA_IFACE`: host interface to capture from, for example `eth0`, `ens33`, `enp0s3`
-- `SURICATA_REDIS_STREAM`: output stream name, default `suricata:cic_flow`
-- `SURICATA_REDIS_STREAM_MAXLEN`: Redis stream max length, default `1000000`
+- `SURICATA_REDIS_STREAM`: Redis queue key, default `suricata:cic_flow`
+- `SURICATA_REDIS_OUTPUT_MODE`: Redis output mode, default `list`
+- `SURICATA_REDIS_STREAM_MAXLEN`: Redis stream max length when `SURICATA_REDIS_OUTPUT_MODE=stream`, default `1000000`
 - `CIC_FLOW_TIMEOUT_US`: flow timeout in microseconds, default `120000000`
 - `CIC_ACTIVE_IDLE_THRESHOLD_US`: CIC active/idle threshold in microseconds, default `5000000`
 
@@ -90,8 +91,8 @@ After startup, verify that flow data is being written:
 
 ```bash
 docker compose logs -f suricata-cic
-redis-cli -p 16379 XLEN suricata:cic_flow
-redis-cli -p 16379 XREVRANGE suricata:cic_flow + - COUNT 1
+redis-cli -p 16379 LLEN suricata:cic_flow
+redis-cli -p 16379 LRANGE suricata:cic_flow 0 0
 ```
 
 ## Local Commands

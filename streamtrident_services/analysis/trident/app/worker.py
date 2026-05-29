@@ -13,7 +13,7 @@ from .output_streams import TridentOutputStreams
 from .persistence.ch_flow_repository import ChFlowRepository
 from .persistence.learner_repository import LearnerRepository
 from .persistence.snapshot_repository import SnapshotRepository
-from .redis_consumer import RedisStreamConsumer
+from .redis_consumer import RedisListConsumer, RedisStreamConsumer
 from .runtime.assignment_writer import AssignmentWriter
 from .runtime.monitoring import process_metrics
 from .runtime.online_engine import FlowAssignment, OnlineEngine
@@ -54,13 +54,19 @@ def main() -> int:
     shutdown = ShutdownFlag()
     shutdown.install()
 
-    consumer = RedisStreamConsumer(
-        cfg.redis_url,
-        stream=cfg.input_stream,
-        group=cfg.consumer_group,
-        consumer=cfg.consumer_name,
-    )
-    reliable_consumer = cfg.consumer_mode == "reliable"
+    queue_type = cfg.queue_type.lower()
+    if queue_type == "list":
+        consumer = RedisListConsumer(cfg.redis_url, key=cfg.input_stream)
+    elif queue_type == "stream":
+        consumer = RedisStreamConsumer(
+            cfg.redis_url,
+            stream=cfg.input_stream,
+            group=cfg.consumer_group,
+            consumer=cfg.consumer_name,
+        )
+    else:
+        raise ValueError(f"unsupported queue_type: {cfg.queue_type}")
+    reliable_consumer = queue_type == "stream" and cfg.consumer_mode == "reliable"
     if reliable_consumer:
         consumer.ensure_group()
     loader = FlowLoader(session_id=cfg.session_id, feature_profile=cfg.feature_profile)
@@ -86,8 +92,9 @@ def main() -> int:
         "worker_started",
         session_id=cfg.session_id,
         input_stream=cfg.input_stream,
+        queue_type=queue_type,
         consumer_mode=cfg.consumer_mode,
-        reliable_consumer=cfg.consumer_mode == "reliable",
+        reliable_consumer=reliable_consumer,
         read_count=cfg.read_count,
         block_ms=cfg.block_ms,
         window_size=cfg.window_size,
@@ -129,7 +136,10 @@ def main() -> int:
     last_id = cfg.best_effort_start_id
     last_idle_log = 0.0
     while not shutdown.stop:
-        if reliable_consumer:
+        if queue_type == "list":
+            consumer.trim_to_maxlen(cfg.list_maxlen)  # type: ignore[attr-defined]
+            messages = consumer.read_pop(count=cfg.read_count, block_ms=cfg.block_ms)  # type: ignore[attr-defined]
+        elif reliable_consumer:
             messages = consumer.read_new(count=cfg.read_count, block_ms=cfg.block_ms)
         else:
             messages = consumer.read_best_effort(last_id=last_id, count=cfg.read_count, block_ms=cfg.block_ms)
@@ -163,11 +173,12 @@ def main() -> int:
                     "worker_idle_heartbeat",
                     session_id=cfg.session_id,
                     input_stream=cfg.input_stream,
+                    queue_type=queue_type,
                     consumer_mode=cfg.consumer_mode,
                     redis_xlen=_safe_metric(lambda: consumer.xlen()),
                     redis_pending=_safe_metric(lambda: consumer.pending_count()) if reliable_consumer else 0,
                     buffered_count=buffer.buffered_count if buffer else 0,
-                    last_stream_id=last_id if not reliable_consumer else None,
+                    last_stream_id=last_id if queue_type == "stream" and not reliable_consumer else None,
                 )
             if args.once:
                 return 0
@@ -217,7 +228,7 @@ def _process_messages(
     snapshot_service: SnapshotService,
     outputs: TridentOutputStreams,
     engine: OnlineEngine,
-    consumer: RedisStreamConsumer,
+    consumer: RedisListConsumer | RedisStreamConsumer,
     buffer: WindowBuffer | None,
     force_window: bool,
     reliable_consumer: bool,
@@ -288,7 +299,7 @@ def _process_window(
     snapshot_service: SnapshotService,
     outputs: TridentOutputStreams,
     engine: OnlineEngine,
-    consumer: RedisStreamConsumer,
+    consumer: RedisListConsumer | RedisStreamConsumer,
     reliable_consumer: bool,
     pre_acked: int = 0,
     parse_failures: int = 0,
@@ -369,6 +380,7 @@ def _process_window(
             "clickhouse_write_count": assigned,
             "ack_enabled": int(cfg.ack and reliable_consumer),
             "consumer_mode": cfg.consumer_mode,
+            "queue_type": cfg.queue_type,
         }
         if reliable_consumer and cfg.ack and messages:
             t_stage = perf_counter()
@@ -391,6 +403,7 @@ def _process_window(
             unknown_count=result.metrics.get("unknown_count", 0),
             timings=timings,
             consumer_mode=cfg.consumer_mode,
+            queue_type=cfg.queue_type,
             redis_xlen=metrics.get("redis_xlen", -1),
             redis_pending=metrics.get("redis_pending", -1),
         )
@@ -430,6 +443,7 @@ def _process_window(
             "redis_xlen": _safe_metric(lambda: consumer.xlen()),
             "redis_pending": _safe_metric(lambda: consumer.pending_count()) if reliable_consumer else 0,
             "consumer_mode": cfg.consumer_mode,
+            "queue_type": cfg.queue_type,
         },
     )
 

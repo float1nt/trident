@@ -12,6 +12,7 @@ import yaml
 @dataclass(slots=True)
 class TridentConfig:
     redis_url: str = "redis://127.0.0.1:6379/0"
+    queue_type: str = "list"
     input_stream: str = "suricata:cic_flow"
     consumer_group: str = "trident-online"
     consumer_name: str = "trident-01"
@@ -20,6 +21,7 @@ class TridentConfig:
     read_count: int = 512
     block_ms: int = 1000
     ack: bool = True
+    list_maxlen: int = 100000
     session_id: str = "trident-session-dev"
     window_size: int = 10000
     feature_profile: str = "compact_stats_no_env"
@@ -120,6 +122,7 @@ def load_config(path: str | Path | None) -> TridentConfig:
         raise ValueError(f"config must be a mapping: {path}")
     return TridentConfig(
         redis_url=str(payload.get("redis_url", "redis://127.0.0.1:6379/0")),
+        queue_type=str(payload.get("queue_type", "list")).lower(),
         input_stream=str(payload.get("input_stream", "suricata:cic_flow")),
         consumer_group=str(payload.get("consumer_group", "trident-online")),
         consumer_name=str(payload.get("consumer_name", "trident-01")),
@@ -128,6 +131,7 @@ def load_config(path: str | Path | None) -> TridentConfig:
         read_count=int(payload.get("read_count", 512)),
         block_ms=int(payload.get("block_ms", 1000)),
         ack=_bool(payload.get("ack"), True),
+        list_maxlen=int(payload.get("list_maxlen", 100000)),
         session_id=str(payload.get("session_id", "trident-session-dev")),
         window_size=int(payload.get("window_size", 10000)),
         feature_profile=str(payload.get("feature_profile", "compact_stats_no_env")),

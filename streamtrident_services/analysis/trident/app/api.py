@@ -280,8 +280,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
 
 def _redis(cfg: TridentConfig) -> RedisStreamConsumer:
-    from .redis_consumer import RedisStreamConsumer
+    from .redis_consumer import RedisListConsumer, RedisStreamConsumer
 
+    if cfg.queue_type.lower() == "list":
+        return RedisListConsumer(cfg.redis_url, key=cfg.input_stream)
     return RedisStreamConsumer(
         cfg.redis_url,
         stream=cfg.input_stream,

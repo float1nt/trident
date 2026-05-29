@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import time_ns
 from typing import Any, Mapping
 
 import redis
@@ -101,6 +102,55 @@ class RedisStreamConsumer:
         return bool(self.client.ping())
 
 
+class RedisListConsumer:
+    def __init__(
+        self,
+        redis_url: str,
+        *,
+        key: str,
+        decode_responses: bool = True,
+    ) -> None:
+        self.key = key
+        self.client = redis.Redis.from_url(redis_url, decode_responses=decode_responses)
+        self._sequence = 0
+
+    def read_pop(self, *, count: int, block_ms: int) -> list[RedisStreamMessage]:
+        timeout = max(1, int((block_ms + 999) / 1000))
+        first = self.client.brpop(self.key, timeout=timeout)
+        if not first:
+            return []
+        values = [_list_value(first)]
+        while len(values) < count:
+            value = self.client.rpop(self.key)
+            if value is None:
+                break
+            values.append(str(value))
+        return [self._message(value) for value in values]
+
+    def trim_to_maxlen(self, maxlen: int) -> None:
+        if maxlen <= 0:
+            return
+        self.client.ltrim(self.key, 0, maxlen - 1)
+
+    def xlen(self) -> int:
+        return int(self.client.llen(self.key))
+
+    def pending_count(self) -> int:
+        return 0
+
+    def ping(self) -> bool:
+        return bool(self.client.ping())
+
+    def _message(self, value: str) -> RedisStreamMessage:
+        self._sequence += 1
+        message_id = f"{time_ns() // 1_000_000}-{self._sequence}"
+        return RedisStreamMessage(
+            stream=self.key,
+            message_id=message_id,
+            fields={"eve": value},
+        )
+
+
 def _flatten_messages(batch: Any) -> list[RedisStreamMessage]:
     messages: list[RedisStreamMessage] = []
     for stream, stream_messages in batch or []:
@@ -113,3 +163,9 @@ def _flatten_messages(batch: Any) -> list[RedisStreamMessage]:
                 )
             )
     return messages
+
+
+def _list_value(item: Any) -> str:
+    if isinstance(item, (list, tuple)) and len(item) >= 2:
+        return str(item[1])
+    return str(item)

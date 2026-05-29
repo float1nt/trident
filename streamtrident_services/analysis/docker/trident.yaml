@@ -1,4 +1,5 @@
 redis_url: redis://redis:6379/0
+queue_type: list
 input_stream: suricata:cic_flow
 consumer_group: trident-online
 consumer_name: trident-01
@@ -7,6 +8,7 @@ best_effort_start_id: $
 read_count: 512
 block_ms: 1000
 ack: true
+list_maxlen: 100000
 
 session_id: trident-session-dev
 window_size: 1000

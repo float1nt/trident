@@ -12,7 +12,7 @@ from .protocol_utils import (
     resolve_flow_protocol_name,
     transport_protocol_name,
 )
-from .redis_consumer import RedisStreamConsumer
+from .redis_consumer import RedisListConsumer, RedisStreamConsumer
 from .runtime.quality import is_baseline_learner, resolve_session_baseline_learner
 
 
@@ -37,7 +37,7 @@ class PageQueryService:
         session_id: str,
         flows: ChFlowRepository,
         learners: LearnerRepository,
-        redis: RedisStreamConsumer | None = None,
+        redis: RedisListConsumer | RedisStreamConsumer | None = None,
     ) -> None:
         self.session_id = session_id
         self.flows = flows
