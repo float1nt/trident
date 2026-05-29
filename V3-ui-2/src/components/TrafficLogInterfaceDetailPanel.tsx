@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Tag, message } from "antd";
-import { CopyOutlined } from "@ant-design/icons";
+import { Tag } from "antd";
 import type {
   TrafficLogInterfaceBlock,
   TrafficLogInterfaceDetail,
@@ -28,61 +27,14 @@ function CodeViewer({ content }: { content: string }) {
   );
 }
 
-function InterfaceSubTabs({
-  panes,
-  activeKey,
-  onChange,
-}: {
-  panes: TrafficLogInterfaceBlock["panes"];
-  activeKey: string;
-  onChange: (key: string) => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-end gap-[16px]">
-      {panes.map((pane) => {
-        const active = pane.key === activeKey;
-        return (
-          <button
-            key={pane.key}
-            type="button"
-            className={[
-              "border-none bg-transparent p-0 text-[13px] leading-[20px] transition-colors",
-              active
-                ? "font-medium text-[#1777ff]"
-                : "text-[#666] hover:text-[#333]",
-            ].join(" ")}
-            onClick={() => onChange(pane.key)}
-          >
-            {pane.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 export function HttpMessageBlock({ block }: { block: TrafficLogInterfaceBlock }) {
-  const [activePaneKey, setActivePaneKey] = useState(block.defaultPaneKey);
+  const [activePaneKey] = useState(block.defaultPaneKey);
 
   const activePane = useMemo(
     () =>
       block.panes.find((pane) => pane.key === activePaneKey) ?? block.panes[0],
     [activePaneKey, block.panes],
   );
-
-  const handleCopy = async () => {
-    const text = activePane?.content ?? "";
-    if (!text.trim()) {
-      message.warning("暂无内容可复制");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      message.success("已复制");
-    } catch {
-      message.error("复制失败");
-    }
-  };
 
   return (
     <section className="flex flex-col gap-[8px]">

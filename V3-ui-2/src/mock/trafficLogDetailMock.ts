@@ -76,29 +76,29 @@ export function buildBasicInfoSections(
   detail: TrafficLogDetail,
 ): TrafficLogDetailSection[] {
   return [
-    // {
-    //   title: "基础信息",
-    //   fields: [
-    //     { label: "访问时间", value: detail.accessTime },
-    //     { label: "流量", value: detail.traffic },
-    //     { label: "日志来源", value: detail.logSource },
-    //     { label: "应用名称", value: detail.appName },
-    //     { label: "用户访问地址", value: detail.userVisitAddress },
-    //     { label: "路径", value: detail.path },
-    //     { label: "访问域", value: detail.visitDomain },
-    //     { label: "部署域", value: detail.deployDomain },
-    //     {
-    //       label: "访问账号",
-    //       value: detail.visitAccount,
-    //       hint: "暂无账号识别结果",
-    //     },
-    //     {
-    //       label: "用户名称",
-    //       value: detail.userName,
-    //       hint: "暂无用户识别结果",
-    //     },
-    //   ],
-    // },
+    {
+      title: "基础信息",
+      fields: [
+        { label: "访问时间", value: detail.accessTime },
+        { label: "流量", value: detail.traffic },
+        // { label: "日志来源", value: detail.logSource },
+        // { label: "应用名称", value: detail.appName },
+        // { label: "用户访问地址", value: detail.userVisitAddress },
+        // { label: "路径", value: detail.path },
+        // { label: "访问域", value: detail.visitDomain },
+        // { label: "部署域", value: detail.deployDomain },
+        // {
+        //   label: "访问账号",
+        //   value: detail.visitAccount,
+        //   hint: "暂无账号识别结果",
+        // },
+        // {
+        //   label: "用户名称",
+        //   value: detail.userName,
+        //   hint: "暂无用户识别结果",
+        // },
+      ],
+    },
     {
       title: "五元组信息",
       fields: [
@@ -127,7 +127,7 @@ export function buildBasicInfoSections(
   ];
 }
 
-function buildRequestReqRaw(detail: TrafficLogDetail): string {
+function buildRequestReqRaw(_detail: TrafficLogDetail): string {
   // const host = detail.userVisitAddress.split(":")[0] || detail.dstIp;
   // const port = detail.userVisitAddress.split(":")[1] || detail.dstPort;
   return [
@@ -202,17 +202,6 @@ function buildResponseHeader(detail: TrafficLogDetail): string {
     `x-response-time: ${detail.responseTime}`,
   ].join("\n");
 }
-
-const MOCK_RESPONSE_DATA_TAGS = [
-  "服务人员姓名(1)",
-  "年龄(1)",
-  "出生日期(1)",
-  "性别(1)",
-  "身份证号(1)",
-  "手机号码(1)",
-  "联系地址(1)",
-  "电子邮箱(1)",
-];
 
 function buildTrafficLogRequestBlock(
   detail: TrafficLogDetail,
