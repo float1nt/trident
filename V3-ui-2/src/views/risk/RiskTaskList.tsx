@@ -13,6 +13,7 @@ import {
   Spin,
   Typography,
   Pagination,
+  Select,
 } from "antd";
 import PageTabs from "@/components/PageTabs";
 import type { Dayjs } from "dayjs";
@@ -21,7 +22,10 @@ import type { IpRiskListItem } from "@/api/types";
 import OverflowTooltip from "@/components/OverflowTooltip";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
-import { RiskService } from "@/api/services/RiskService";
+import {
+  RiskService,
+  type AttackTypeOption,
+} from "@/api/services/RiskService";
 import {
   createPaginationProps,
   createTablePagination,
@@ -44,11 +48,13 @@ const EMPTY_SEARCH: RiskSearchForm = {
 
 type EventSearchForm = {
   name: string;
+  attackTypes: string[];
   triggerPeriod: [Dayjs, Dayjs] | null;
 };
 
 const EMPTY_EVENT_SEARCH: EventSearchForm = {
   name: "",
+  attackTypes: [],
   triggerPeriod: null,
 };
 
@@ -94,12 +100,34 @@ const RiskTaskList = () => {
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
   const [eventLoadError, setEventLoadError] = useState<string | null>(null);
   const [eventPage, setEventPage] = useState(1);
+  const [attackTypeOptions, setAttackTypeOptions] = useState<AttackTypeOption[]>(
+    [],
+  );
+
+  useEffect(() => {
+    if (activeView !== "event") return;
+    let cancelled = false;
+    void RiskService.getAttackTypes({ scope: "event", includeCount: true })
+      .then((items) => {
+        if (!cancelled) setAttackTypeOptions(items);
+      })
+      .catch(() => {
+        if (!cancelled) setAttackTypeOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView]);
 
   const fetchEventTopologyPage = useCallback(
     async (offset: number, limit: number) => {
       const range = formatTriggerRange(eventFilters.triggerPeriod);
       return RiskService.getEventTopology({
         name: eventFilters.name || undefined,
+        attackTypes:
+          eventFilters.attackTypes.length > 0
+            ? eventFilters.attackTypes
+            : undefined,
         ...range,
         limit,
         offset,
@@ -303,6 +331,32 @@ const RiskTaskList = () => {
               styles={{ body: { padding: "16px 16px 12px" } }}
             >
               <div className="risk-filter-row">
+                <div className="risk-filter-select risk-filter-field">
+                  <span className="risk-filter-select__prefix">风险类型</span>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    className="risk-filter-select__control"
+                    placeholder="请选择"
+                    maxTagCount="responsive"
+                    value={eventSearchInputs.attackTypes}
+                    options={attackTypeOptions.map((item) => ({
+                      value: item.code,
+                      label: item.count
+                        ? `${item.name}（${item.count}）`
+                        : item.name,
+                      title: item.desc,
+                    }))}
+                    onChange={(value) =>
+                      setEventSearchInputs((prev) => ({
+                        ...prev,
+                        attackTypes: value,
+                      }))
+                    }
+                  />
+                </div>
                 <Input
                   className="risk-filter-field"
                   prefix="风险名称"

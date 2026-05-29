@@ -335,6 +335,34 @@
 
 ##### Tab：事件视角（学习器拓扑卡片）
 
+#### GET `/risk/attack-types`
+
+返回风险类型下拉选项（与后端 `ATTACK_TYPE_DISPLAY` 一致）。
+
+**Query：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `scope` | string | 否 | 默认 `event`：排除 `BENIGN_NORMAL`；`all` 返回全部类型 |
+| `includeCount` | boolean | 否 | 为 `true` 时附带当前 session 各类型事件数 `count` |
+
+**响应 `data`：**
+
+```json
+{
+  "items": [
+    {
+      "code": "DDOS_VICTIM",
+      "name": "DDoS攻击",
+      "desc": "...",
+      "count": 2
+    }
+  ]
+}
+```
+
+---
+
 #### GET `/risk/events/topology`
 
 返回事件视角的学习器拓扑网格数据。
@@ -343,8 +371,9 @@
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `name` | string | 否 | 风险名称关键词，模糊匹配（匹配 name / learner / dominantLabel / riskName / riskDescription） |
-| `triggerStart` | string | 否 | 触发时段开始（UI 已有筛选，Mock 未实现，**后端需支持**） |
+| `name` | string | 否 | 风险名称关键词，模糊匹配展示名 |
+| `attackTypes` | string[] | 否 | 风险类型编码多选（OR）；支持重复参数或逗号分隔 |
+| `triggerStart` | string | 否 | 触发时段开始 |
 | `triggerEnd` | string | 否 | 触发时段结束 |
 
 **响应 `data`：** 见 [5.3 LearnerNetworkTopologyJson](#53-learnernetworktopologyjson事件视角ip详情事件卡)
@@ -801,7 +830,8 @@
 | 总览 | GET | `/overview/distributions` | ❌ 待实现 |
 | 总览 | GET | `/overview/network-topology` | ❌ 待实现 |
 | 风险 | GET | `/risks` | ❌ 待实现 |
-| 风险 | GET | `/risk/events/topology` | ❌ 待实现 |
+| 风险 | GET | `/risk/attack-types` | ✅ 已实现 |
+| 风险 | GET | `/risk/events/topology` | ✅ 已实现（含 `attackTypes` 筛选） |
 | 风险 | GET | `/risks/{id}` | ❌ 待实现 |
 | 风险 | GET | `/risks/{id}/network-topology` | ❌ 待实现 |
 | 风险 | GET | `/risks/{id}/ips` | ❌ 待实现 |

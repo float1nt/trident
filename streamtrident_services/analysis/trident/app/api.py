@@ -142,9 +142,22 @@ def create_app(config_path: str | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         return _ok(_pages(cfg).risk_list(limit=limit, offset=offset, name=name, subject_ip=subjectIp))
 
+    @app.get("/risk/attack-types", response_model=ApiResponse)
+    def risk_attack_types(
+        scope: str = Query("event"),
+        includeCount: bool = Query(False),
+    ) -> dict[str, Any]:
+        return _ok(
+            _pages(cfg).risk_attack_types(
+                scope=scope,
+                include_count=includeCount,
+            )
+        )
+
     @app.get("/risk/events/topology", response_model=ApiResponse)
     def risk_events_topology(
         name: str | None = None,
+        attackTypes: list[str] | None = Query(None),
         triggerStart: str | None = None,
         triggerEnd: str | None = None,
         top_n: int = Query(50, ge=1, le=500),
@@ -153,6 +166,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     ) -> dict[str, Any]:
         data = _pages(cfg).risk_events_topology(
             name=name,
+            attack_types=attackTypes,
             trigger_start=triggerStart,
             trigger_end=triggerEnd,
             top_n=top_n,

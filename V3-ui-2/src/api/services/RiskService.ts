@@ -74,6 +74,10 @@ function buildEventTopologyParams(
   if (name) {
     params.name = name;
   }
+  const attackTypes = query.attackTypes?.filter((code) => code.trim());
+  if (attackTypes?.length) {
+    params.attackTypes = attackTypes.join(",");
+  }
   const start = query.triggerStart?.trim();
   const end = query.triggerEnd?.trim();
   if (
@@ -114,8 +118,21 @@ export type RiskListResponse = {
   risks: IpRiskListItem[];
 };
 
+export type AttackTypeOption = {
+  code: string;
+  name: string;
+  desc: string;
+  count?: number;
+};
+
+export type AttackTypesQuery = {
+  scope?: "event" | "all";
+  includeCount?: boolean;
+};
+
 export type EventTopologyQuery = {
   name?: string;
+  attackTypes?: string[];
   triggerStart?: string;
   triggerEnd?: string;
   limit?: number;
@@ -221,6 +238,26 @@ export class RiskService {
         ? (data as RiskListResponse).total
         : risks.length;
     return { total, risks };
+  }
+
+  static async getAttackTypes(
+    query: AttackTypesQuery = {},
+  ): Promise<AttackTypeOption[]> {
+    const params: Record<string, string | boolean> = {
+      scope: query.scope ?? "event",
+    };
+    if (query.includeCount) {
+      params.includeCount = true;
+    }
+    const res = await get<{ items?: AttackTypeOption[] } | AttackTypeOption[]>(
+      "/risk/attack-types",
+      params,
+    );
+    const data = res.data;
+    if (Array.isArray(data)) {
+      return data;
+    }
+    return normalizeApiList<AttackTypeOption>(data?.items);
   }
 
   static async getEventTopology(
