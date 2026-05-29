@@ -21,6 +21,15 @@ alert_stream: trident:alerts
 metrics_stream: trident:metrics
 redis_output_enabled: false
 
+runtime_mode: inference
+cold_start_exit_on_complete: true
+inference_require_cold_start: true
+cold_start_stable_windows: 5
+cold_start_stable_max_idle_seconds: 0
+cold_start_min_learners: 1
+cold_start_min_windows: 2
+cold_start_min_flows: 0
+
 unknown_threshold: 0.35
 new_learner_min_size: 500
 pending_idle_ms: 60000

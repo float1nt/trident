@@ -12,6 +12,7 @@ def test_redis_output_is_disabled_by_default() -> None:
 def test_list_queue_is_default() -> None:
     cfg = load_config(None)
 
+    assert cfg.runtime_mode == "inference"
     assert cfg.queue_type == "list"
     assert cfg.consumer_mode == "best_effort"
     assert cfg.best_effort_start_id == "$"
@@ -34,3 +35,27 @@ def test_load_config_expands_environment_variables(tmp_path: Path, monkeypatch) 
     )
 
     assert load_config(config_path).redis_url == "redis://10.10.10.10:16379/0"
+
+
+def test_load_config_reads_runtime_mode_settings(tmp_path: Path) -> None:
+    config_path = tmp_path / "trident.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "runtime_mode: cold_start",
+                "cold_start_exit_on_complete: false",
+                "inference_require_cold_start: false",
+                "cold_start_stable_windows: 3",
+                "cold_start_min_flows: 2500",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cfg = load_config(config_path)
+
+    assert cfg.runtime_mode == "cold_start"
+    assert cfg.cold_start_exit_on_complete is False
+    assert cfg.inference_require_cold_start is False
+    assert cfg.cold_start_stable_windows == 3
+    assert cfg.cold_start_min_flows == 2500

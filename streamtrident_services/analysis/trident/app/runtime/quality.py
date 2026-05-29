@@ -132,38 +132,62 @@ def build_learner_audit(
     metrics = _build_v4_metrics(records, flow_count=flow_count, unknown_buffer_size=unknown_buffer_size, threshold=threshold)
     topology_json = _build_topology_json(learner_name, records)
     host_evidence_json = _build_host_evidence_json(learner_name, records)
-    if is_baseline_learner(learner_name, session_baseline_learner=session_baseline_learner):
-        attack_types, rule_hits = _match_attack_rules(metrics, host_evidence_json)
-        dominant = attack_types[0] if attack_types else None
-        dominant_type = str((dominant or {}).get("attack_type") or "")
-        dominant_conf = float((dominant or {}).get("confidence") or 0.0)
-        contaminated = dominant_type == "DOS_ATTACKER" and dominant_conf >= 0.62
-        if contaminated:
-            risk_score = dominant_conf
-            risk_band = risk_band_for_score(risk_score)
-            risk_reason = (
-                f"baseline_learner={learner_name},contaminated_attack={dominant_type},risk_score={risk_score:.3f},"
-                f"flow_count={int(metrics.get('flow_count') or flow_count)},"
-                f"unknown_buffer={unknown_buffer_size}"
-            )
-        else:
-            attack_types, rule_hits = _baseline_benign_rule(metrics)
-            risk_score = BASELINE_BENIGN_CONFIDENCE
-            risk_band = "low"
-            risk_reason = (
-                f"baseline_learner={learner_name},fixed_benign=1,risk_score={risk_score:.3f},"
-                f"flow_count={int(metrics.get('flow_count') or flow_count)},"
-                f"unknown_buffer={unknown_buffer_size}"
-            )
-    else:
-        attack_types, rule_hits = _match_attack_rules(metrics, host_evidence_json)
-        risk_score = float(max((item["confidence"] for item in attack_types), default=0.0))
+    attack_types, rule_hits = _match_attack_rules(metrics, host_evidence_json)
+    risk_score = float(max((item["confidence"] for item in attack_types), default=0.0))
+    risk_band = risk_band_for_score(risk_score)
+    dominant = attack_types[0]["attack_type"] if attack_types else "NONE"
+    risk_reason = (
+        f"dominant_attack={dominant},risk_score={risk_score:.3f},"
+        f"dst_port_entropy={_m(metrics, 'dst_port_entropy'):.1f},"
+        f"dst_port_top1_concentration={_m(metrics, 'dst_port_top1_concentration'):.1f},"
+        f"unknown_buffer={unknown_buffer_size}"
+    )
+    rule_json = {
+        "version": 1,
+        "rule_set": {"id": RULE_SET_ID, "version": RULE_SET_VERSION},
+        "target": {"learner_name": learner_name},
+        "attack_types": attack_types,
+        "evidence": {
+            "learner_metric_json": metrics,
+            "host_evidence_json": host_evidence_json,
+            "flow_evidence_json": None,
+        },
+        "rules": rule_hits,
+    }
+    return metrics, topology_json, rule_json, risk_score, risk_band, risk_reason
+
+
+def apply_cold_start_benign_audit(
+    *,
+    learner_name: str,
+    records: list[FlowRecord],
+    flow_count: int,
+    unknown_buffer_size: int,
+    threshold: float,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], float, str, str]:
+    metrics = _build_v4_metrics(records, flow_count=flow_count, unknown_buffer_size=unknown_buffer_size, threshold=threshold)
+    topology_json = _build_topology_json(learner_name, records)
+    host_evidence_json = _build_host_evidence_json(learner_name, records)
+    attack_types, rule_hits = _match_attack_rules(metrics, host_evidence_json)
+    dominant = attack_types[0] if attack_types else None
+    dominant_type = str((dominant or {}).get("attack_type") or "")
+    dominant_conf = float((dominant or {}).get("confidence") or 0.0)
+    contaminated = dominant_type == "DOS_ATTACKER" and dominant_conf >= 0.62
+    if contaminated:
+        risk_score = dominant_conf
         risk_band = risk_band_for_score(risk_score)
-        dominant = attack_types[0]["attack_type"] if attack_types else "NONE"
         risk_reason = (
-            f"dominant_attack={dominant},risk_score={risk_score:.3f},"
-            f"dst_port_entropy={_m(metrics, 'dst_port_entropy'):.1f},"
-            f"dst_port_top1_concentration={_m(metrics, 'dst_port_top1_concentration'):.1f},"
+            f"cold_start_learner={learner_name},contaminated_attack={dominant_type},risk_score={risk_score:.3f},"
+            f"flow_count={int(metrics.get('flow_count') or flow_count)},"
+            f"unknown_buffer={unknown_buffer_size}"
+        )
+    else:
+        attack_types, rule_hits = _baseline_benign_rule(metrics)
+        risk_score = BASELINE_BENIGN_CONFIDENCE
+        risk_band = "low"
+        risk_reason = (
+            f"cold_start_learner={learner_name},fixed_benign=1,risk_score={risk_score:.3f},"
+            f"flow_count={int(metrics.get('flow_count') or flow_count)},"
             f"unknown_buffer={unknown_buffer_size}"
         )
     rule_json = {

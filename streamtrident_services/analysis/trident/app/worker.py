@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import sys
 from time import perf_counter
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from .logging_utils import configure_logging, emit_event, emit_exception
 from .output_streams import TridentOutputStreams
 from .persistence.ch_flow_repository import ChFlowRepository
 from .persistence.learner_repository import LearnerRepository
+from .persistence.session_runtime_repository import SessionRuntimeRepository
 from .persistence.snapshot_repository import SnapshotRepository
 from .redis_consumer import RedisListConsumer, RedisStreamConsumer
 from .runtime.assignment_writer import AssignmentWriter
@@ -24,6 +26,7 @@ from .window_buffer import BufferedFlow, FlowWindow, WindowBuffer
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Trident Redis to ClickHouse worker")
     parser.add_argument("--config", default="config/trident.yaml")
+    parser.add_argument("--mode", choices=["cold_start", "inference"], default=None)
     parser.add_argument("--once", action="store_true")
     return parser.parse_args()
 
@@ -51,6 +54,9 @@ def main() -> int:
     _configure_logging()
     args = parse_args()
     cfg = load_config(args.config)
+    if args.mode:
+        cfg.runtime_mode = args.mode
+    cfg.runtime_mode = str(cfg.runtime_mode).strip().lower()
     shutdown = ShutdownFlag()
     shutdown.install()
 
@@ -72,6 +78,7 @@ def main() -> int:
     loader = FlowLoader(session_id=cfg.session_id, feature_profile=cfg.feature_profile)
     flow_repo = ChFlowRepository(cfg.clickhouse_dsn)
     learner_repo = LearnerRepository(cfg.postgres_dsn)
+    runtime_repo = SessionRuntimeRepository(cfg.postgres_dsn)
     snapshot_repo = SnapshotRepository(cfg.postgres_dsn)
     snapshot_service = SnapshotService(learner_repo, snapshot_repo)
     assignment_writer = AssignmentWriter(flow_repo)
@@ -81,10 +88,23 @@ def main() -> int:
         alert_stream=cfg.alert_stream,
         metrics_stream=cfg.metrics_stream,
     )
+    learner_rows = learner_repo.list_learners(session_id=cfg.session_id)
+    if cfg.runtime_mode == "inference" and cfg.inference_require_cold_start:
+        try:
+            runtime_repo.validate_inference_ready(session_id=cfg.session_id, learners=learner_rows)
+        except RuntimeError as exc:
+            emit_event(
+                "inference_startup_validation_failed",
+                session_id=cfg.session_id,
+                runtime_mode=cfg.runtime_mode,
+                reason=str(exc),
+            )
+            print(str(exc), file=sys.stderr)
+            return 2
     engine = OnlineEngine(
         session_id=cfg.session_id,
         cfg=cfg,
-        learner_rows=learner_repo.list_learners(session_id=cfg.session_id),
+        learner_rows=learner_rows,
     )
     buffer = WindowBuffer(cfg.window_size)
 
@@ -101,6 +121,7 @@ def main() -> int:
         feature_profile=cfg.feature_profile,
         redis_output_enabled=cfg.redis_output_enabled,
         ack_enabled=cfg.ack,
+        runtime_mode=cfg.runtime_mode,
     )
 
     if reliable_consumer:
@@ -125,6 +146,7 @@ def main() -> int:
             flow_repo=flow_repo,
             assignment_writer=assignment_writer,
             snapshot_service=snapshot_service,
+            runtime_repo=runtime_repo,
             outputs=outputs,
             engine=engine,
             consumer=consumer,
@@ -161,11 +183,14 @@ def main() -> int:
                         flow_repo=flow_repo,
                         assignment_writer=assignment_writer,
                         snapshot_service=snapshot_service,
+                        runtime_repo=runtime_repo,
                         outputs=outputs,
                         engine=engine,
                         consumer=consumer,
                         reliable_consumer=reliable_consumer,
                     )
+                    if cfg.cold_start_exit_on_complete and engine.cold_start_complete:
+                        return 0
             now = perf_counter()
             if now - last_idle_log >= 60:
                 last_idle_log = now
@@ -191,6 +216,7 @@ def main() -> int:
             flow_repo=flow_repo,
             assignment_writer=assignment_writer,
             snapshot_service=snapshot_service,
+            runtime_repo=runtime_repo,
             outputs=outputs,
             engine=engine,
             consumer=consumer,
@@ -198,6 +224,8 @@ def main() -> int:
             force_window=False,
             reliable_consumer=reliable_consumer,
             )
+        if cfg.cold_start_exit_on_complete and engine.cold_start_complete:
+            return 0
         if args.once:
             if cfg.process_partial_window:
                 window = buffer.flush()
@@ -208,6 +236,7 @@ def main() -> int:
                         flow_repo=flow_repo,
                         assignment_writer=assignment_writer,
                         snapshot_service=snapshot_service,
+                        runtime_repo=runtime_repo,
                         outputs=outputs,
                         engine=engine,
                         consumer=consumer,
@@ -226,6 +255,7 @@ def _process_messages(
     flow_repo: ChFlowRepository,
     assignment_writer: AssignmentWriter,
     snapshot_service: SnapshotService,
+    runtime_repo: SessionRuntimeRepository,
     outputs: TridentOutputStreams,
     engine: OnlineEngine,
     consumer: RedisListConsumer | RedisStreamConsumer,
@@ -280,6 +310,7 @@ def _process_messages(
             flow_repo=flow_repo,
             assignment_writer=assignment_writer,
             snapshot_service=snapshot_service,
+            runtime_repo=runtime_repo,
             outputs=outputs,
             engine=engine,
             consumer=consumer,
@@ -297,6 +328,7 @@ def _process_window(
     flow_repo: ChFlowRepository,
     assignment_writer: AssignmentWriter,
     snapshot_service: SnapshotService,
+    runtime_repo: SessionRuntimeRepository,
     outputs: TridentOutputStreams,
     engine: OnlineEngine,
     consumer: RedisListConsumer | RedisStreamConsumer,
@@ -320,6 +352,7 @@ def _process_window(
             record_count=len(records),
             reliable_consumer=reliable_consumer,
             redis_output_enabled=cfg.redis_output_enabled,
+            runtime_mode=cfg.runtime_mode,
         )
         timings["ingest_write_seconds"] = 0.0
         t_stage = perf_counter()
@@ -338,6 +371,16 @@ def _process_window(
             snapshots_by_learner[learner_name] = snapshot
             engine.set_snapshot_ref(learner_name, str(snapshot["snapshot_id"]), int(snapshot["snapshot_version"]))
         timings["learner_snapshot_seconds"] = perf_counter() - t_stage
+        if result.runtime_update:
+            t_stage = perf_counter()
+            runtime_repo.upsert_runtime(result.runtime_update)
+            timings["session_runtime_seconds"] = perf_counter() - t_stage
+        else:
+            timings["session_runtime_seconds"] = 0.0
+        for event in result.events:
+            event_name = str(event.get("event") or "")
+            if event_name:
+                emit_event(event_name, **{key: value for key, value in event.items() if key != "event"})
 
         assignments = _with_snapshot_refs(result.assignments, snapshots_by_learner)
         t_stage = perf_counter()
@@ -381,6 +424,7 @@ def _process_window(
             "ack_enabled": int(cfg.ack and reliable_consumer),
             "consumer_mode": cfg.consumer_mode,
             "queue_type": cfg.queue_type,
+            "runtime_mode": cfg.runtime_mode,
         }
         if reliable_consumer and cfg.ack and messages:
             t_stage = perf_counter()
@@ -406,6 +450,11 @@ def _process_window(
             queue_type=cfg.queue_type,
             redis_xlen=metrics.get("redis_xlen", -1),
             redis_pending=metrics.get("redis_pending", -1),
+            runtime_mode=cfg.runtime_mode,
+            new_learner_count=result.metrics.get("new_learner_count", 0),
+            updated_learner_count=result.metrics.get("updated_learner_count", 0),
+            cold_start_phase=result.metrics.get("cold_start_phase"),
+            cold_start_finalized=result.metrics.get("cold_start_finalized"),
         )
     except Exception:
         emit_exception(

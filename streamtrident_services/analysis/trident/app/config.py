@@ -11,6 +11,14 @@ import yaml
 
 @dataclass(slots=True)
 class TridentConfig:
+    runtime_mode: str = "inference"
+    cold_start_exit_on_complete: bool = True
+    inference_require_cold_start: bool = True
+    cold_start_stable_windows: int = 5
+    cold_start_stable_max_idle_seconds: int = 0
+    cold_start_min_learners: int = 1
+    cold_start_min_windows: int = 2
+    cold_start_min_flows: int = 0
     redis_url: str = "redis://127.0.0.1:6379/0"
     queue_type: str = "list"
     input_stream: str = "suricata:cic_flow"
@@ -121,6 +129,14 @@ def load_config(path: str | Path | None) -> TridentConfig:
     if not isinstance(payload, dict):
         raise ValueError(f"config must be a mapping: {path}")
     return TridentConfig(
+        runtime_mode=str(payload.get("runtime_mode", "inference")),
+        cold_start_exit_on_complete=_bool(payload.get("cold_start_exit_on_complete"), True),
+        inference_require_cold_start=_bool(payload.get("inference_require_cold_start"), True),
+        cold_start_stable_windows=int(payload.get("cold_start_stable_windows", 5)),
+        cold_start_stable_max_idle_seconds=int(payload.get("cold_start_stable_max_idle_seconds", 0)),
+        cold_start_min_learners=int(payload.get("cold_start_min_learners", 1)),
+        cold_start_min_windows=int(payload.get("cold_start_min_windows", 2)),
+        cold_start_min_flows=int(payload.get("cold_start_min_flows", 0)),
         redis_url=str(payload.get("redis_url", "redis://127.0.0.1:6379/0")),
         queue_type=str(payload.get("queue_type", "list")).lower(),
         input_stream=str(payload.get("input_stream", "suricata:cic_flow")),

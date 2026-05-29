@@ -19,6 +19,35 @@ python -m app.migrate --config config/trident.yaml
 python -m app.worker --config config/trident.yaml --once
 ```
 
+### 冷启动 / 推理双模式
+
+worker 支持显式运行模式：
+
+```bash
+python -m app.worker --config config/trident.yaml --mode cold_start
+python -m app.worker --config config/trident.yaml --mode inference
+```
+
+也可以使用脚本：
+
+```bash
+./start-coldstart.sh
+./start-inference.sh
+```
+
+语义：
+
+- `cold_start`：只用于良性流量建模，允许空 learner 起步，创建 `COLD_*|BENIGN`。学习稳定后 finalize session，写入 `pg_session_runtime`，并对全部 `COLD_*|BENIGN` 做一次固定良性 audit 作为冷启动产物。
+- `inference`：纯推理。启动时要求同一 `session_id` 已有 finalized cold start 和可加载的 `COLD_*|BENIGN`。推理阶段不创建 `0000|UNLABELED`，不创建 `COLD_*|BENIGN`，未知聚类只创建 `NEW_*`。
+- 冷启动结束后，`COLD_*|BENIGN` 在 inference 中视为普通已加载学习器；不做固定良性保护，也不改变当前 TSieve “非 BENIGN 优先”的匹配策略。
+
+常用流程：
+
+```bash
+./start-coldstart.sh    # 注入良性流，等待日志 cold_start_complete
+./start-inference.sh    # 同 session_id 下启动推理/攻击评估
+```
+
 worker 会：
 
 - 默认使用 Redis list pop 读取 `suricata:cic_flow`，取走即从 Redis 删除

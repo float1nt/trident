@@ -17,7 +17,7 @@ from ..window_buffer import FlowWindow
 from .model_store import ModelStore
 from .learner_overlap import LearnerOverlapConfig, LearnerOverlapSnapshot, build_learner_overlap_snapshot
 from .preprocessing import preprocess_records
-from .quality import SESSION_BASELINE_PROFILE_KEY, build_learner_audit, feature_drift_score
+from .quality import SESSION_BASELINE_PROFILE_KEY, apply_cold_start_benign_audit, build_learner_audit, feature_drift_score
 from .trident_algorithms import Learner, TMagnifier, TScissors, TSieve
 
 
@@ -42,6 +42,18 @@ class WindowResult:
     snapshot_requests: list[dict[str, Any]] = field(default_factory=list)
     metrics: dict[str, Any] = field(default_factory=dict)
     alerts: list[dict[str, Any]] = field(default_factory=list)
+    runtime_update: dict[str, Any] | None = None
+    events: list[dict[str, Any]] = field(default_factory=list)
+    control_flags: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class ColdStartTracker:
+    windows_processed: int = 0
+    flow_count: int = 0
+    stable_streak: int = 0
+    phase: str = "learning"
+    finalized: bool = False
 
 
 class OnlineEngine:
@@ -95,9 +107,22 @@ class OnlineEngine:
         self.learner_overlap_config = LearnerOverlapConfig()
         self.baseline_learner_name: str | None = None
         self.cold_start_complete = False
+        self.cold_start_tracker = ColdStartTracker()
         self._load_learners(learner_rows or [])
 
     def process_window(self, window: FlowWindow) -> WindowResult:
+        mode = str(getattr(self.cfg, "runtime_mode", "inference")).strip().lower()
+        if mode == "cold_start":
+            return self.process_window_cold_start(window)
+        return self.process_window_inference(window)
+
+    def process_window_cold_start(self, window: FlowWindow) -> WindowResult:
+        return self._process_window_impl(window, mode="cold_start")
+
+    def process_window_inference(self, window: FlowWindow) -> WindowResult:
+        return self._process_window_impl(window, mode="inference")
+
+    def _process_window_impl(self, window: FlowWindow, *, mode: str) -> WindowResult:
         raw_records = [item.record for item in window.items]
         records, preprocessing_report = preprocess_records(
             raw_records,
@@ -112,10 +137,25 @@ class OnlineEngine:
                 metrics={"flow_count": 0, "preprocessing": preprocessing_report},
             )
         x = self._records_to_matrix(records, update_schema=not self.feature_columns)
-        if not self.tsieve.learners:
-            self._create_initial_learner(records, x, window_index=window.window_index)
+        initial_new: list[str] = []
+        if not self.tsieve.learners and mode == "cold_start":
+            created = self._create_initial_learner(records, x, window_index=window.window_index)
+            if created:
+                initial_new.append(created)
 
         details = self.tsieve.classify_batch_details(x)
+        if initial_new:
+            seed_name = initial_new[0]
+            learner = self.tsieve.learners[seed_name]
+            details = [
+                {
+                    "pred": seed_name,
+                    "accepted_names": [seed_name],
+                    "losses": {seed_name: 0.0},
+                    "thresholds": {seed_name: float(learner.threshold)},
+                }
+                for _ in records
+            ]
         accepted_by_learner: dict[str, list[np.ndarray]] = defaultdict(list)
         accepted_records_by_learner: dict[str, list[FlowRecord]] = defaultdict(list)
         unknown_count = 0
@@ -130,7 +170,7 @@ class OnlineEngine:
                 unknown_count += 1
                 self.tmagnifier.add_unknown(
                     x[i],
-                    "0000|UNLABELED",
+                    self.baseline_learner_name or "UNKNOWN",
                     {"flow_uid": record.flow_uid, "window_index": window.window_index},
                 )
                 best_name, best_loss, best_threshold = _best_loss(losses, thresholds)
@@ -144,6 +184,7 @@ class OnlineEngine:
                         assignment_meta={
                             "engine": "trident-tsieve",
                             "backend": self.cfg.algorithm_backend,
+                            "runtime_mode": mode,
                             "candidate_learner": best_name,
                             "accepted_names": detail.get("accepted_names", []),
                         },
@@ -165,6 +206,7 @@ class OnlineEngine:
                     assignment_meta={
                         "engine": "trident-tsieve",
                         "backend": self.cfg.algorithm_backend,
+                        "runtime_mode": mode,
                         "accepted_names": detail.get("accepted_names", []),
                     },
                     learner_snapshot_id=snapshot_id,
@@ -176,9 +218,17 @@ class OnlineEngine:
             self.learner_record_histories[learner_name].extend(learner_records)
             self.learner_record_histories[learner_name] = self.learner_record_histories[learner_name][-10000:]
 
-        new_learner_names, promoted_flow_uids = self._create_new_learners_from_unknown(window.window_index)
-        updated_learner_names = self._incremental_update(accepted_by_learner, window_index=window.window_index)
-        recluster_created, recluster_promoted = self._maybe_recluster_small_learners(window.window_index)
+        new_learner_names, promoted_flow_uids = self._create_new_learners_from_unknown(window.window_index, mode=mode)
+        new_learner_names = [*initial_new, *new_learner_names]
+        allow_updates = mode != "cold_start" or self.cold_start_tracker.phase == "learning"
+        update_candidates = accepted_by_learner
+        if mode == "inference":
+            update_candidates = {name: samples for name, samples in accepted_by_learner.items() if str(name).startswith("NEW_")}
+        updated_learner_names = self._incremental_update(update_candidates, window_index=window.window_index) if allow_updates else []
+        if mode == "inference":
+            recluster_created, recluster_promoted = self._maybe_recluster_small_learners(window.window_index)
+        else:
+            recluster_created, recluster_promoted = [], {}
         new_learner_names.extend(recluster_created)
         for learner_name, flow_uids in recluster_promoted.items():
             promoted_flow_uids.setdefault(learner_name, set()).update(flow_uids)
@@ -189,15 +239,39 @@ class OnlineEngine:
         if promoted_assignment_count:
             unknown_count -= promoted_assignment_count
         self._refresh_learner_overlap_snapshot()
-        self._maybe_finalize_cold_start(window_flow_count=len(records))
+        runtime_update: dict[str, Any] | None = None
+        events: list[dict[str, Any]] = []
+        control_flags: dict[str, Any] = {}
+        finalized_rows: list[dict[str, Any]] = []
+        finalized_names: list[str] = []
+        if mode == "cold_start":
+            finalize_payload = self._update_cold_start_state(
+                window_index=window.window_index,
+                window_flow_count=len(records),
+                new_learner_names=new_learner_names,
+                updated_learner_names=updated_learner_names,
+                unknown_count=unknown_count,
+            )
+            events.extend(finalize_payload["events"])
+            runtime_update = finalize_payload.get("runtime_update")
+            control_flags.update(finalize_payload.get("control_flags") or {})
+            finalized_names = [str(name) for name in finalize_payload.get("finalized_learner_names") or []]
+            finalized_rows = [self._learner_row(name, cold_start_finalize=True) for name in finalized_names]
 
         snapshot_names = list(dict.fromkeys([*new_learner_names, *updated_learner_names]))
         snapshot_requests = [
             {"learner": self._learner_row(name), "reason": "new_learner" if name in new_learner_names else "window_update"}
             for name in snapshot_names
         ]
+        if finalized_rows:
+            finalized_by_name = {str(row["learner_name"]): row for row in finalized_rows}
+            snapshot_requests.extend(
+                {"learner": finalized_by_name[name], "reason": "cold_start_complete"}
+                for name in finalized_names
+            )
         metrics = {
             "window_index": window.window_index,
+            "runtime_mode": mode,
             "flow_count": len(records),
             "accepted_count": len(records) - unknown_count,
             "unknown_count": unknown_count,
@@ -211,6 +285,17 @@ class OnlineEngine:
             "gate_stats": dict(self.gate_stats),
             "preprocessing": preprocessing_report,
         }
+        if mode == "cold_start":
+            metrics.update(
+                {
+                    "cold_start_phase": self.cold_start_tracker.phase,
+                    "cold_start_stable_streak": self.cold_start_tracker.stable_streak,
+                    "cold_start_flow_count": self.cold_start_tracker.flow_count,
+                    "cold_start_windows_processed": self.cold_start_tracker.windows_processed,
+                    "cold_start_finalized": self.cold_start_complete,
+                    "baseline_learner_names": self._cold_learner_names(),
+                }
+            )
         alerts = [
             {
                 "type": "unknown_cluster_promoted",
@@ -224,17 +309,20 @@ class OnlineEngine:
             window_index=window.window_index,
             assignments=assignments,
             new_learners=[self._learner_row(name) for name in new_learner_names],
-            updated_learners=[self._learner_row(name) for name in updated_learner_names],
+            updated_learners=[self._learner_row(name) for name in updated_learner_names] + finalized_rows,
             snapshot_requests=snapshot_requests,
             metrics=metrics,
             alerts=alerts,
+            runtime_update=runtime_update,
+            events=events,
+            control_flags=control_flags,
         )
 
     def set_snapshot_ref(self, learner_name: str, snapshot_id: str, snapshot_version: int) -> None:
         self.learner_snapshot_refs[str(learner_name)] = (str(snapshot_id), int(snapshot_version))
 
-    def _create_initial_learner(self, records: list[FlowRecord], x: np.ndarray, *, window_index: int) -> None:
-        name = "0000|UNLABELED"
+    def _create_initial_learner(self, records: list[FlowRecord], x: np.ndarray, *, window_index: int) -> str | None:
+        name = self._next_cold_learner_name()
         if len(x) < self.cfg.min_class_samples:
             old_min = self.tsieve.min_class_samples
             self.tsieve.min_class_samples = max(1, len(x))
@@ -248,23 +336,14 @@ class OnlineEngine:
             self.baseline_learner_name = name
             self.learner_creation_windows[name] = window_index
             self.learner_last_seen_windows[name] = window_index
-
-    def _maybe_finalize_cold_start(self, *, window_flow_count: int) -> None:
-        if self.cold_start_complete:
-            return
-        if window_flow_count < self.cfg.window_size and len(self.tsieve.learners) <= 1:
-            return
-        self.cold_start_complete = True
-        if not self.tsieve.learners:
-            return
-        self.baseline_learner_name = max(
-            self.tsieve.learners.keys(),
-            key=lambda learner_name: int(self.tsieve.learners[learner_name].train_sample_count),
-        )
+            return name
+        return None
 
     def _create_new_learners_from_unknown(
         self,
         window_index: int,
+        *,
+        mode: str = "inference",
     ) -> tuple[list[str], dict[str, set[str]]]:
         created: list[str] = []
         promoted_flow_uids: dict[str, set[str]] = {}
@@ -277,7 +356,7 @@ class OnlineEngine:
                         meta = cluster_meta[i] if i < len(cluster_meta) else {}
                         self.tmagnifier.add_unknown(cluster_x[i], str(cluster_labels[i]), meta)
                 continue
-            name = f"NEW_{len(self.tsieve.learners)}"
+            name = self._next_cold_learner_name() if mode == "cold_start" else self._next_new_learner_name()
             ok = self.tsieve.add_learner(name, cluster_x, epochs=self.cfg.new_class_epochs)
             if ok:
                 created.append(name)
@@ -432,17 +511,17 @@ class OnlineEngine:
         matrix[~np.isfinite(matrix)] = 0.0
         return matrix
 
-    def _learner_row(self, name: str) -> dict[str, Any]:
+    def _learner_row(self, name: str, *, cold_start_finalize: bool = False) -> dict[str, Any]:
         learner = self.tsieve.learners[name]
         snapshot_id, snapshot_version = self.learner_snapshot_refs.get(name, ("", 0))
         recent_records = self.learner_record_histories.get(name, [])[-10000:]
-        audit_metric, topology_json, rule_json, risk_score, risk_band, risk_reason = build_learner_audit(
+        audit_fn = apply_cold_start_benign_audit if cold_start_finalize else build_learner_audit
+        audit_metric, topology_json, rule_json, risk_score, risk_band, risk_reason = audit_fn(
             learner_name=name,
             records=recent_records,
             flow_count=int(learner.train_sample_count),
             unknown_buffer_size=len(self.tmagnifier.unknown_buffer),
             threshold=float(learner.threshold),
-            session_baseline_learner=self.baseline_learner_name,
         )
         profile_json = {
             "algorithm": "trident_core_replicated",
@@ -452,6 +531,8 @@ class OnlineEngine:
             "threshold": float(learner.threshold),
             "backend": learner.classifier_backend,
             SESSION_BASELINE_PROFILE_KEY: self.baseline_learner_name,
+            "learner_origin": "cold_start" if str(name).startswith("COLD_") else "runtime",
+            "baseline_set": str(name).startswith("COLD_"),
             "quality_gates": {
                 "benign_confidence_filter": True,
                 "cluster_purity_gate": self.cfg.cluster_purity_gate_enabled,
@@ -535,6 +616,146 @@ class OnlineEngine:
             "model_state_hash": _state_hash(profile_json),
         }
 
+    def _update_cold_start_state(
+        self,
+        *,
+        window_index: int,
+        window_flow_count: int,
+        new_learner_names: list[str],
+        updated_learner_names: list[str],
+        unknown_count: int,
+    ) -> dict[str, Any]:
+        tracker = self.cold_start_tracker
+        if tracker.finalized:
+            return {"events": []}
+        tracker.windows_processed += 1
+        tracker.flow_count += int(window_flow_count)
+        learning_activity = bool(new_learner_names or updated_learner_names)
+        if tracker.phase == "observing" and new_learner_names:
+            tracker.phase = "learning"
+        if learning_activity:
+            tracker.stable_streak = 0
+        else:
+            tracker.stable_streak += 1
+        if tracker.phase == "learning" and self._cold_start_min_guards_met():
+            tracker.phase = "observing"
+        events = [
+            {
+                "event": "cold_start_window_state",
+                "session_id": self.session_id,
+                "window_index": window_index,
+                "learner_count": len(self.tsieve.learners),
+                "new_learner_names": list(new_learner_names),
+                "retrained_learner_names": list(updated_learner_names),
+                "unknown_count": int(unknown_count),
+                "stable_streak": int(tracker.stable_streak),
+                "windows_processed": int(tracker.windows_processed),
+                "cold_start_flow_count": int(tracker.flow_count),
+                "phase": tracker.phase,
+            }
+        ]
+        if not learning_activity and tracker.stable_streak > 0:
+            events.append(
+                {
+                    "event": "cold_start_stability_tick",
+                    "session_id": self.session_id,
+                    "window_index": window_index,
+                    "stable_streak": int(tracker.stable_streak),
+                    "required_stable_windows": int(self.cfg.cold_start_stable_windows),
+                    "idle_seconds": 0,
+                    "phase": tracker.phase,
+                }
+            )
+        if self._cold_start_ready_to_finalize():
+            return self._finalize_cold_start_session(reason="stable", window_index=window_index, events=events)
+        return {
+            "events": events,
+            "runtime_update": self._cold_start_runtime_update(finalized=False, reason=None),
+        }
+
+    def _cold_start_min_guards_met(self) -> bool:
+        tracker = self.cold_start_tracker
+        return (
+            len(self._cold_learner_names()) >= int(self.cfg.cold_start_min_learners)
+            and tracker.windows_processed >= int(self.cfg.cold_start_min_windows)
+            and tracker.flow_count >= int(self.cfg.cold_start_min_flows)
+        )
+
+    def _cold_start_ready_to_finalize(self) -> bool:
+        tracker = self.cold_start_tracker
+        return (
+            tracker.phase == "observing"
+            and self._cold_start_min_guards_met()
+            and tracker.stable_streak >= int(self.cfg.cold_start_stable_windows)
+        )
+
+    def _finalize_cold_start_session(self, *, reason: str, window_index: int, events: list[dict[str, Any]]) -> dict[str, Any]:
+        names = self._cold_learner_names()
+        if not names:
+            return {"events": events}
+        self.cold_start_tracker.finalized = True
+        self.cold_start_complete = True
+        self.baseline_learner_name = max(
+            names,
+            key=lambda learner_name: int(self.tsieve.learners[learner_name].train_sample_count),
+        )
+        complete_event = {
+            "event": "cold_start_complete",
+            "session_id": self.session_id,
+            "window_index": window_index,
+            "baseline_learner": self.baseline_learner_name,
+            "baseline_learner_names": names,
+            "total_flows": int(self.cold_start_tracker.flow_count),
+            "total_windows": int(self.cold_start_tracker.windows_processed),
+            "finalize_reason": reason,
+        }
+        return {
+            "events": [*events, complete_event],
+            "runtime_update": self._cold_start_runtime_update(finalized=True, reason=reason),
+            "control_flags": {"cold_start_completed": True, "exit_after_window": bool(self.cfg.cold_start_exit_on_complete)},
+            "finalized_learner_names": names,
+        }
+
+    def _cold_start_runtime_update(self, *, finalized: bool, reason: str | None) -> dict[str, Any]:
+        names = self._cold_learner_names()
+        return {
+            "session_id": self.session_id,
+            "runtime_mode": "cold_start",
+            "cold_start_finalized": bool(finalized),
+            "cold_start_flow_count": int(self.cold_start_tracker.flow_count),
+            "cold_start_windows_processed": int(self.cold_start_tracker.windows_processed),
+            "cold_start_finalize_reason": reason,
+            "session_baseline_learner": self.baseline_learner_name,
+            "baseline_learner_names": names,
+            "cold_start_stable_streak": int(self.cold_start_tracker.stable_streak),
+            "cold_start_finalized_at": datetime.now(timezone.utc) if finalized else None,
+        }
+
+    def _cold_learner_names(self) -> list[str]:
+        return sorted(name for name in self.tsieve.learners if str(name).startswith("COLD_"))
+
+    def _next_cold_learner_name(self) -> str:
+        return f"COLD_{self._next_numeric_suffix('COLD_')}|BENIGN"
+
+    def _next_new_learner_name(self) -> str:
+        return f"NEW_{self._next_numeric_suffix('NEW_')}"
+
+    def _next_numeric_suffix(self, prefix: str) -> int:
+        max_seen = -1
+        for name in self.tsieve.learners:
+            text = str(name)
+            if not text.startswith(prefix):
+                continue
+            rest = text[len(prefix) :]
+            digits = []
+            for char in rest:
+                if not char.isdigit():
+                    break
+                digits.append(char)
+            if digits:
+                max_seen = max(max_seen, int("".join(digits)))
+        return max_seen + 1
+
     def _refresh_learner_overlap_snapshot(self) -> None:
         if len(self.tsieve.learners) < 2:
             self.learner_overlap_snapshot = None
@@ -562,8 +783,7 @@ class OnlineEngine:
                 learner = Learner.deserialize(model_payload, device=self.device)
             except Exception:
                 continue
-            if not learner.name:
-                learner.name = str(row.get("learner_name") or "")
+            learner.name = str(row.get("learner_name") or learner.name or "")
             if not learner.name:
                 continue
             self.tsieve.learners[learner.name] = learner
@@ -716,7 +936,7 @@ class OnlineEngine:
         for name in candidates:
             history = self.learner_histories.get(name, [])
             for sample in history:
-                self.tmagnifier.add_unknown(sample, "0000|UNLABELED", {"source": "small_learner_recluster", "learner": name})
+                self.tmagnifier.add_unknown(sample, self.baseline_learner_name or "UNKNOWN", {"source": "small_learner_recluster", "learner": name})
             self.tsieve.learners.pop(name, None)
             self.learner_histories.pop(name, None)
             self.learner_record_histories.pop(name, None)

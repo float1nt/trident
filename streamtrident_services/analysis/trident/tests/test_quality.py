@@ -4,7 +4,7 @@ import numpy as np
 
 from app.flow_loader import FlowLoader
 from app.redis_consumer import RedisStreamMessage
-from app.runtime.quality import build_learner_audit, feature_drift_score, resolve_session_baseline_learner
+from app.runtime.quality import apply_cold_start_benign_audit, build_learner_audit, feature_drift_score, resolve_session_baseline_learner
 
 
 def _record(message_id: str, dst_port: int) -> object:
@@ -52,11 +52,11 @@ def test_learner_audit_emits_metrics_rules_topology_and_risk() -> None:
     assert "unknown_buffer=3" in risk_reason
 
 
-def test_baseline_learner_is_fixed_benign_even_with_scan_like_metrics() -> None:
+def test_cold_start_finalize_audit_is_fixed_benign_even_with_scan_like_metrics() -> None:
     records = [_record(f"{idx}-0", 1000 + idx) for idx in range(50)]
 
-    metrics, _topology, rules, risk_score, risk_band, risk_reason = build_learner_audit(
-        learner_name="0000|UNLABELED",
+    metrics, _topology, rules, risk_score, risk_band, risk_reason = apply_cold_start_benign_audit(
+        learner_name="COLD_0|BENIGN",
         records=records,
         flow_count=50,
         unknown_buffer_size=0,
@@ -79,23 +79,19 @@ def test_baseline_learner_is_fixed_benign_even_with_scan_like_metrics() -> None:
     assert "fixed_benign=1" in risk_reason
 
 
-def test_cold_start_dominant_learner_is_fixed_benign_even_if_named_new() -> None:
-    records = [_record(f"{idx}-0", 443) for idx in range(50)]
+def test_build_learner_audit_does_not_protect_cold_learners_after_finalize() -> None:
+    records = [_record(f"{idx}-0", 1000 + idx) for idx in range(50)]
 
-    metrics, _topology, rules, risk_score, risk_band, risk_reason = build_learner_audit(
-        learner_name="NEW_1",
+    _metrics, _topology, rules, _risk_score, _risk_band, risk_reason = build_learner_audit(
+        learner_name="COLD_0|BENIGN",
         records=records,
         flow_count=50,
         unknown_buffer_size=0,
         threshold=0.5,
-        session_baseline_learner="NEW_1",
     )
 
-    assert rules["attack_types"][0]["attack_type"] == "BENIGN_NORMAL"
-    assert risk_score == 0.35
-    assert risk_band == "low"
-    assert "fixed_benign=1" in risk_reason
-    assert metrics["flow_count"] == 50
+    assert rules["attack_types"][0]["attack_type"] != "BENIGN_NORMAL"
+    assert "fixed_benign=1" not in risk_reason
 
 
 def test_resolve_session_baseline_prefers_dominant_post_cold_start_learner() -> None:
