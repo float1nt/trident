@@ -15,3 +15,5 @@ cic2017/
 cicids2019/
 trident_stream/__pycache__/*
 __pycache__/*
+streamtrident_services/capture/.env
+streamtrident_services/analysis/.env
