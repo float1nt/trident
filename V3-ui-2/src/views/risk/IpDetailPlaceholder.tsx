@@ -218,7 +218,7 @@ export default function IpDetailPlaceholder() {
                 ) : null}
               </div>
 
-              <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+              <div className="rounded-[8px] border border-[#e8eaed] bg-[#fff] px-[16px] pt-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
                 <SectionTitle className="mb-[12px]">流量日志</SectionTitle>
                 <TrafficLogsTable
                   trafficLogs={trafficLogs}

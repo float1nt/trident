@@ -405,19 +405,19 @@ const RiskTaskList = () => {
           <>
             <div className="rounded-[8px] bg-[#fff] p-[16px] pb-[12px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
               <div className="risk-filter-row">
+              <Input
+                  className="risk-filter-field"
+                  prefix="风险主体"
+                  placeholder="请输入"
+                  value={searchInputs.subjectIp}
+                  onChange={(e) => updateSearchInput("subjectIp", e.target.value)}
+                />
                 <Input
                   className="risk-filter-field"
                   prefix="风险名称"
                   placeholder="请输入"
                   value={searchInputs.name}
                   onChange={(e) => updateSearchInput("name", e.target.value)}
-                />
-                <Input
-                  className="risk-filter-field"
-                  prefix="风险主体"
-                  placeholder="请输入"
-                  value={searchInputs.subjectIp}
-                  onChange={(e) => updateSearchInput("subjectIp", e.target.value)}
                 />
                 <div className="risk-filter-actions">
                   <Space>
