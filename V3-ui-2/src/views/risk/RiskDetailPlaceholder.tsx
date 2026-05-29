@@ -185,12 +185,27 @@ export default function RiskDetailPlaceholder() {
                   <h2 className="m-0 text-lg font-medium text-[#333]">
                     {risk?.name ?? "风险详情"}
                   </h2>
-                  {(risk?.triggerTime || risk?.description) ? (
-                    <div className="flex min-w-0 flex-nowrap items-center gap-1 text-sm leading-[22px] text-[#666]">
-                      {risk?.triggerTime ? (
-                        <span className="shrink-0 whitespace-nowrap">
-                          [{risk.triggerTime}]
-                        </span>
+                  {(risk?.firstTriggerTime ||
+                    risk?.lastTriggerTime ||
+                    risk?.triggerTime ||
+                    risk?.description) ? (
+                    <div className="flex min-w-0 flex-col gap-1 text-sm leading-[22px] text-[#666]">
+                      {risk?.firstTriggerTime ||
+                      risk?.lastTriggerTime ||
+                      risk?.triggerTime ? (
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                          {risk?.firstTriggerTime || risk?.triggerTime ? (
+                            <span className="shrink-0 whitespace-nowrap">
+                              首次触发时间：{risk.firstTriggerTime ?? risk.triggerTime}
+                            </span>
+                          ) : null}
+                          {risk?.lastTriggerTime || risk?.triggerTime ? (
+                            <span className="shrink-0 whitespace-nowrap">
+                              最近一次触发时间：
+                              {risk.lastTriggerTime ?? risk.triggerTime}
+                            </span>
+                          ) : null}
+                        </div>
                       ) : null}
                       {risk?.description ? (
                         <OverflowTooltip title={risk.description}>
@@ -203,6 +218,10 @@ export default function RiskDetailPlaceholder() {
                   ) : null}
                 </div>
                 <div className="mr-[16px] flex items-center gap-[24px]">
+                  <div className="flex flex-col items-center">
+                    <div className="text-sm text-[#8c8c8c]">累计触发次数</div>
+                    <DetailMetricValue count={risk?.triggerCount ?? 0} />
+                  </div>
                   <div className="flex flex-col items-center">
                     <div className="text-sm text-[#8c8c8c]">风险 IP 数</div>
                     <DetailMetricValue count={risk?.riskIpCount ?? 0} />

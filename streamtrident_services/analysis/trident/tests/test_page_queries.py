@@ -56,6 +56,12 @@ class FakeFlows:
             }
         }
 
+    def unique_src_ip_count_by_learner(self, **_: Any) -> int:
+        return 3
+
+    def unique_dst_port_count_by_learner(self, **_: Any) -> int:
+        return 5
+
 
 class FakeLearners:
     def list_learners(self, **_: Any) -> list[dict[str, Any]]:
@@ -162,6 +168,28 @@ def test_risk_events_default_to_attack_type_learners() -> None:
     assert data["items"][0]["risk_name"] == "DDoS攻击"
     assert data["items"][0]["risk_description"].startswith("海量分布式源IP")
     assert data["items"][0]["subject_ips"] == ["10.0.0.8"]
+
+
+def test_risk_by_id_includes_trigger_stats() -> None:
+    class DetailLearners(FakeLearners):
+        def get_learner_by_id(self, **_: Any) -> dict[str, Any]:
+            return FakeLearners().list_learners()[0]
+
+    service = PageQueryService(
+        session_id="s1",
+        flows=FakeFlows(),
+        learners=DetailLearners(),
+    )
+
+    data = service.risk_by_id(risk_id=11)
+
+    assert data["id"] == 11
+    assert data["triggerCount"] == 21
+    assert data["firstTriggerTime"] == "2026-05-27 09:30:00"
+    assert data["lastTriggerTime"] == "2026-05-27 10:05:00"
+    assert data["triggerTime"] == "2026-05-27 10:05:00"
+    assert data["riskIpCount"] == 3
+    assert data["riskPortCount"] == 5
 
 
 def test_risk_events_topology_includes_attack_type_learners_only() -> None:

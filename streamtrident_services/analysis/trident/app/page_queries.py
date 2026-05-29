@@ -617,6 +617,32 @@ class PageQueryService:
             if learner_name
             else 0
         )
+        trigger_stats = (
+            self.flows.learner_trigger_stats(
+                session_id=self.session_id,
+                learner_names=[learner_name],
+            ).get(learner_name, {})
+            if learner_name and hasattr(self.flows, "learner_trigger_stats")
+            else {}
+        )
+        last_trigger_time = (
+            _format_time((trigger_stats or {}).get("last_trigger_time"))
+            or item.get("triggerTime")
+            or "-"
+        )
+        first_trigger_time = (
+            _format_time((trigger_stats or {}).get("first_trigger_time"))
+            or last_trigger_time
+        )
+        trigger_count = int(
+            (trigger_stats or {}).get("trigger_count")
+            or learner.get("flow_count")
+            or 0
+        )
+        item["triggerTime"] = last_trigger_time
+        item["firstTriggerTime"] = first_trigger_time
+        item["lastTriggerTime"] = last_trigger_time
+        item["triggerCount"] = trigger_count
         return item
 
     def risk_network_topology(self, *, risk_id: int, top_n: int = 50) -> dict[str, Any]:
