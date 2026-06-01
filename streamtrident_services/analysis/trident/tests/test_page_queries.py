@@ -8,6 +8,8 @@ from app.page_queries import (
     _compact_application_protocol_distribution,
     _compact_protocol_distribution,
     _protocol_distribution_bucket,
+    _risk_type_count_from_active_learners,
+    _time_range_bounds,
 )
 
 
@@ -22,6 +24,7 @@ class FakeFlows:
             "normal_bytes": 7000,
             "risk_bytes": 3000,
             "risk_ip_count": 2,
+            "active_abnormal_learners": ["NEW_1"],
             "current_window_index": 4,
         }
 
@@ -131,6 +134,30 @@ def test_overview_metrics_reports_total_traffic_bytes() -> None:
     assert data["totalTraffic"] == 10000
 
 
+def test_overview_metrics_passes_unified_time_bounds() -> None:
+    captured: dict[str, Any] = {}
+
+    class CapturingFlows(FakeFlows):
+        def dashboard_summary(self, **kwargs: Any) -> dict[str, Any]:
+            captured.update(kwargs)
+            return super().dashboard_summary(**kwargs)
+
+    service = PageQueryService(session_id="s1", flows=CapturingFlows(), learners=FakeLearners())
+
+    service.overview_metrics(time_range="7d")
+
+    bounds = _time_range_bounds("7d")
+    assert captured["time_from"] == bounds["time_from"]
+    assert captured["time_to"] == bounds["time_to"]
+
+
+def test_risk_type_count_uses_active_abnormal_learners_only() -> None:
+    learners = FakeLearners().list_learners()
+    assert _risk_type_count_from_active_learners(learners, ["NEW_1"]) == 1
+    assert _risk_type_count_from_active_learners(learners, ["BASELINE_0"]) == 0
+    assert _risk_type_count_from_active_learners(learners, []) == 0
+
+
 def test_overview_metrics_reports_distinct_risk_type_count() -> None:
     class MultiLearners(FakeLearners):
         def list_learners(self, **_: Any) -> list[dict[str, Any]]:
@@ -149,7 +176,13 @@ def test_overview_metrics_reports_distinct_risk_type_count() -> None:
             baseline = FakeLearners().list_learners()[1]
             return [base, same_type, other_type, baseline]
 
-    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=MultiLearners())
+    class ActiveFlows(FakeFlows):
+        def dashboard_summary(self, **_: Any) -> dict[str, Any]:
+            data = super().dashboard_summary()
+            data["active_abnormal_learners"] = ["NEW_1", "NEW_2", "NEW_3"]
+            return data
+
+    service = PageQueryService(session_id="s1", flows=ActiveFlows(), learners=MultiLearners())
 
     data = service.overview_metrics()
 

@@ -126,10 +126,13 @@ def create_app(config_path: str | None = None) -> FastAPI:
         timeRange: str = "24h",
         top_n: int = Query(8, ge=1, le=500),
     ) -> dict[str, Any]:
-        time_from = _time_range_start(timeRange)
+        from .page_queries import _time_range_bounds
+
+        bounds = _time_range_bounds(timeRange)
         data = _pages(cfg).dashboard_topology(
             top_n=top_n,
-            time_from=time_from,
+            time_from=bounds["time_from"],
+            time_to=bounds["time_to"],
         )
         return _ok(DashboardTopologyData.model_validate(data).model_dump())
 
@@ -343,19 +346,6 @@ def _pages(cfg: TridentConfig) -> PageQueryService:
 
 def _ok(data: Any) -> dict[str, Any]:
     return {"code": 200, "message": "success", "data": data}
-
-
-def _time_range_start(value: str) -> str | None:
-    from datetime import datetime, timedelta, timezone
-
-    now = datetime.now(timezone.utc)
-    if value == "7d":
-        start = now - timedelta(days=7)
-    elif value == "30d":
-        start = now - timedelta(days=30)
-    else:
-        start = now - timedelta(hours=24)
-    return start.isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _probe(call: Any) -> dict[str, Any]:

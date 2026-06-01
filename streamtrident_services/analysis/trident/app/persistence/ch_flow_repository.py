@@ -417,7 +417,8 @@ SELECT
     countIf(NOT ({abnormal})) AS normal_flows,
     sumIf(flow_total_bytes, {abnormal}) AS risk_bytes,
     sumIf(flow_total_bytes, NOT ({abnormal})) AS normal_bytes,
-    uniqExactIf(src_ip, {abnormal}) AS risk_ip_count,
+    uniqExactIf(dst_ip, {abnormal}) AS risk_ip_count,
+    groupUniqArrayIf(assigned_learner, {abnormal}) AS active_abnormal_learners,
     max(window_index) AS current_window_index
 FROM (
     SELECT
@@ -425,7 +426,7 @@ FROM (
         {main_protocol} AS main_protocol,
         is_unknown,
         assigned_learner,
-        src_ip,
+        dst_ip,
         window_index
     FROM ch_flow
     {where}
