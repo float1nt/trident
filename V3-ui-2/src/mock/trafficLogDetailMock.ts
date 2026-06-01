@@ -130,10 +130,33 @@ export function buildTrafficLogDetailFromFlow(
   };
 }
 
+function formatPayloadDirection(direction: string): string {
+  const normalized = direction.trim().toLowerCase();
+  if (normalized === "toserver") return "发往服务端";
+  if (normalized === "toclient") return "发往客户端";
+  return direction || "-";
+}
+
+function formatPayloadStatus(truncated: boolean): string {
+  return truncated ? "已采样" : "完整样本";
+}
+
+function buildPayloadSampleFields(
+  sample: NonNullable<TrafficLogDetail["payloadSample"]>,
+): TrafficLogDetailSection["fields"] {
+  return [
+    { label: "编码", value: sample.encoding || "base64" },
+    { label: "方向", value: formatPayloadDirection(sample.direction) },
+    { label: "采样字节数", value: String(sample.sampleBytes) },
+    { label: "原始字节数", value: String(sample.originalBytes) },
+    { label: "状态", value: formatPayloadStatus(sample.truncated) },
+  ];
+}
+
 export function buildBasicInfoSections(
   detail: TrafficLogDetail,
 ): TrafficLogDetailSection[] {
-  return [
+  const sections: TrafficLogDetailSection[] = [
     {
       title: "基础信息",
       fields: [
@@ -177,27 +200,27 @@ export function buildBasicInfoSections(
         { label: "目的端口", value: detail.dstPort },
       ],
     },
-    {
-      title: "报文信息",
-      fields: [],
-      messageBlock: buildTrafficLogRequestBlock(detail),
-    },
   ];
+
+  if (detail.payloadSample) {
+    sections.push({
+      title: "采样信息",
+      fields: buildPayloadSampleFields(detail.payloadSample),
+    });
+  }
+
+  sections.push({
+    title: "报文信息",
+    fields: [],
+    messageBlock: buildTrafficLogRequestBlock(detail),
+  });
+
+  return sections;
 }
 
 function buildRequestReqRaw(_detail: TrafficLogDetail): string {
   if (_detail.payloadSample) {
-    const sample = _detail.payloadSample;
-    const status = sample.truncated ? "已截断" : "完整样本";
-    return [
-      `encoding: ${sample.encoding || "base64"}`,
-      `direction: ${sample.direction || "-"}`,
-      `sample_bytes: ${sample.sampleBytes}`,
-      `original_bytes: ${sample.originalBytes}`,
-      `status: ${status}`,
-      "",
-      sample.sampleB64 || "-",
-    ].join("\n");
+    return _detail.payloadSample.sampleB64 || "-";
   }
   // const host = detail.userVisitAddress.split(":")[0] || detail.dstIp;
   // const port = detail.userVisitAddress.split(":")[1] || detail.dstPort;
