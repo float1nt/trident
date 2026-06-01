@@ -19,6 +19,7 @@ import PageTabs from "@/components/PageTabs";
 import type { Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
 import type { IpRiskListItem } from "@/api/types";
+import AppTooltip from "@/components/AppTooltip";
 import OverflowTooltip from "@/components/OverflowTooltip";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
@@ -70,6 +71,26 @@ function getInitialViewTab(): RiskViewTab {
 
 const { RangePicker } = DatePicker;
 const { Paragraph } = Typography;
+
+function renderRiskTypeMaxTagPlaceholder(
+  omittedValues: { label?: React.ReactNode; value?: string | number }[],
+) {
+  return (
+    <AppTooltip
+      title={
+        <div className="flex max-w-[280px] flex-wrap gap-1">
+          {omittedValues.map((item) => (
+            <Tag key={String(item.value)} className="!m-0">
+              {item.label}
+            </Tag>
+          ))}
+        </div>
+      }
+    >
+      <span>+{omittedValues.length}</span>
+    </AppTooltip>
+  );
+}
 
 function formatTriggerRange(period: [Dayjs, Dayjs] | null) {
   if (!period?.[0] || !period[1]) {
@@ -331,23 +352,32 @@ const RiskTaskList = () => {
               styles={{ body: { padding: "16px 16px 12px" } }}
             >
               <div className="risk-filter-row">
-                <div className="risk-filter-select risk-filter-field">
+              <div className="risk-filter-select risk-filter-field">
                   <span className="risk-filter-select__prefix">风险类型</span>
                   <Select
                     mode="multiple"
                     allowClear
                     showSearch
+                    virtual={false}
+                    listHeight={200}
                     optionFilterProp="label"
                     className="risk-filter-select__control"
+                    classNames={{
+                      popup: {
+                        root: "app-scrollbar risk-filter-select-dropdown",
+                      },
+                    }}
                     placeholder="请选择"
                     maxTagCount="responsive"
+                    maxTagPlaceholder={renderRiskTypeMaxTagPlaceholder}
                     value={eventSearchInputs.attackTypes}
                     options={attackTypeOptions.map((item) => ({
                       value: item.code,
-                      label: item.count
-                        ? `${item.name}（${item.count}）`
-                        : item.name,
-                      title: item.desc,
+                      label: item.name,
+                      // item.count
+                      //   ? `${item.name}（${item.count}）`
+                      //   : item.name,
+                      // title: item.desc,
                     }))}
                     onChange={(value) =>
                       setEventSearchInputs((prev) => ({
@@ -357,7 +387,7 @@ const RiskTaskList = () => {
                     }
                   />
                 </div>
-                <Input
+              <Input
                   className="risk-filter-field"
                   prefix="风险名称"
                   placeholder="请输入"
@@ -369,6 +399,7 @@ const RiskTaskList = () => {
                     }))
                   }
                 />
+              
                 <div className="risk-filter-range risk-filter-field">
                   <span className="risk-filter-range__prefix">触发时段</span>
                   <RangePicker

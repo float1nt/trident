@@ -105,11 +105,26 @@ export default function HomeView() {
           onTimeRangeChange={setTimeRange}
           onRefresh={() => void loadOverview()}
         />
-        <div className="relative z-10 -mt-[36px] w-full rounded-[16px] bg-[#f6faff] p-[12px]">
-          <div className="flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
-            <span
-              className="h-[16px] w-[3px] shrink-0 rounded-[2px] bg-[#4368f0]"
-              aria-hidden
+      <div className="relative p-[12px] z-10  -mt-[36px] w-full rounded-[16px] bg-[#f6faff]">
+        <div className="flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
+          <span
+            className="h-[16px] w-[3px] shrink-0 rounded-[2px] bg-[#4368f0]"
+            aria-hidden
+          />
+          整体概览
+        </div>
+        <div className="mt-[12px] grid grid-cols-1 gap-[12px] lg:grid-cols-[2fr_3fr_2fr]">
+          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
+            <h3 className="mb-3 text-[14px] font-medium text-[#333]">流量分布</h3>
+            <EChartsRingChart option={trafficChartOption} height={CHART_HEIGHT} />
+          </div>
+          <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
+            <h3 className="mb-3 text-[14px] font-medium text-[#333]">
+         {trafficTrendChartTitle}
+            </h3>
+            <EChartsRingChart
+              option={trafficTrendChartOption}
+              height={CHART_HEIGHT}
             />
             整体概览
           </div>
@@ -170,10 +185,25 @@ export default function HomeView() {
               />
             </div>
           </div>
-          <div className="mt-[12px] flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
-            <span
-              className="h-[16px] w-[3px] shrink-0 rounded-[2px] bg-[#4368f0]"
-              aria-hidden
+        </div>
+        <div className="flex h-6 items-center gap-2 text-[16px] font-medium text-[#333] mt-[12px]">
+          <span
+            className="h-[16px] w-[3px] shrink-0 rounded-[2px] bg-[#4368f0]"
+            aria-hidden
+          />
+          流量分析
+        </div>
+        <div className="mt-[12px] grid grid-cols-1 gap-[12px] lg:min-h-[520px] lg:grid-cols-[3fr_2fr] lg:grid-rows-[1fr_1fr] lg:items-stretch">
+          <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px] lg:row-span-2">
+            <TopologyChartPane
+              title="总拓扑"
+              hostGraph={combinedView?.host}
+              endpointGraph={combinedView?.endpoint}
+              viewIsBenign={combinedView?.is_benign}
+              repulsion={TOPOLOGY_REPULSION}
+              minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+              chartHeight={TOPOLOGY_CHART_HEIGHT}
+              fillContainer
             />
             流量分析
           </div>

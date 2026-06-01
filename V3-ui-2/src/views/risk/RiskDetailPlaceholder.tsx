@@ -20,6 +20,7 @@ import {
   DEFAULT_TABLE_PAGE_SIZE,
 } from "@/constants/tablePagination";
 import { normalizeApiList } from "@/utils/normalizeApiList";
+import { formatTriggerCountText } from "@/utils/formatTotalTraffic";
 import taskDetailIcon from "@/assets/蒙版组 152.png";
 
 const CHART_HEIGHT = 320;
@@ -171,7 +172,7 @@ export default function RiskDetailPlaceholder() {
   return (
     <div className="h-[calc(100vh-100px)] w-full rounded-[8px]">
       <Spin spinning={pageLoading}>
-        <div className="rounded-[8px] bg-[#f6faff] px-[12px] py-[7px]">
+        <div className="rounded-[8px] bg-[#f6faff] px-[12px] py-[12px]">
           <div className="flex items-start gap-[12px]">
             <img
               src={taskDetailIcon}
@@ -180,22 +181,53 @@ export default function RiskDetailPlaceholder() {
               aria-hidden
             />
             <div className="min-w-0 flex-1">
-              <div className="mt-[10px] flex items-start justify-between gap-3">
+              <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <h2 className="m-0 text-lg font-medium text-[#333]">
                     {risk?.name ?? "风险详情"}
                   </h2>
-                  {(risk?.triggerTime || risk?.description) ? (
-                    <div className="flex min-w-0 flex-nowrap items-center gap-1 text-sm leading-[22px] text-[#666]">
-                      {risk?.triggerTime ? (
-                        <span className="shrink-0 whitespace-nowrap">
-                          [{risk.triggerTime}]
-                        </span>
+                  {(risk?.firstTriggerTime ||
+                    risk?.lastTriggerTime ||
+                    risk?.triggerTime ||
+                    risk?.triggerCount != null ||
+                    risk?.description) ? (
+                    <div className="flex min-w-0 flex-col gap-1 text-sm leading-[22px] text-[#666] mr-[16px]">
+                      {risk?.firstTriggerTime ||
+                      risk?.lastTriggerTime ||
+                      risk?.triggerTime ||
+                      risk?.triggerCount != null ? (
+                        <div className="flex min-w-0 items-center gap-[32px]">
+                          {risk?.firstTriggerTime || risk?.triggerTime ? (
+                            <span className="shrink-0 whitespace-nowrap">
+                              首次触发时间：{risk.firstTriggerTime ?? risk.triggerTime}
+                            </span>
+                          ) : null}
+                          {risk?.lastTriggerTime || risk?.triggerTime ? (
+                            <span className="shrink-0 whitespace-nowrap">
+                              最近一次触发时间：
+                              {risk.lastTriggerTime ?? risk.triggerTime}
+                            </span>
+                          ) : null}
+                          {risk?.triggerCount != null ? (
+                            <OverflowTooltip
+                              title={
+                                risk.triggerCount >= 10_000
+                                  ? `${risk.triggerCount.toLocaleString("zh-CN")} 次`
+                                  : undefined
+                              }
+                            >
+                              <span className="shrink-0 whitespace-nowrap">
+                                累计触发次数：
+                                {formatTriggerCountText(risk.triggerCount)}
+                              </span>
+                            </OverflowTooltip>
+                          ) : null}
+                        </div>
                       ) : null}
                       {risk?.description ? (
                         <OverflowTooltip title={risk.description}>
                           <span className="block min-w-0 truncate">
-                            {risk.description}
+                           风险说明： {risk.description}
                           </span>
                         </OverflowTooltip>
                       ) : null}

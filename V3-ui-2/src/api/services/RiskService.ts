@@ -222,6 +222,9 @@ export type IpRiskEventItem = {
 export type RiskDetail = RiskItem & {
   riskIpCount?: number;
   riskPortCount?: number;
+  triggerCount?: number;
+  firstTriggerTime?: string;
+  lastTriggerTime?: string;
 };
 
 export class RiskService {

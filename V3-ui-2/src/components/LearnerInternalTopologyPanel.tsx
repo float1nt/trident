@@ -68,7 +68,8 @@ function buildSortedLearnerOptions(
       riskId: fromView?.risk_id ?? 0,
       riskName: fromView?.risk_name ?? name,
       riskDescription: fromView?.risk_description ?? "—",
-      triggerTime: fromView?.trigger_time ?? "—",
+      triggerTime:
+        fromView?.last_trigger_time ?? fromView?.trigger_time ?? "—",
       attackRatio: fromView?.attack_ratio ?? 0,
       dominantLabel: fromView?.dominant_label ?? "—",
       flowCount: fromView?.host?.flow_count ?? fromView?.endpoint?.flow_count,

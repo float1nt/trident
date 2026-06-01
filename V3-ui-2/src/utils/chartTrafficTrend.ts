@@ -88,8 +88,12 @@ export function buildTrafficTrendBarOption(
     },
     yAxis: {
       type: "value",
-      name: unit,
-      nameTextStyle: { color: "#8c8c8c", fontSize: 12 },
+      name: `单位：${unit}`,
+      nameTextStyle: {
+        color: "#8c8c8c",
+        fontSize: 12,
+        align: "right",
+      },
       axisLine: { show: false },
       axisTick: { show: false },
       splitLine: { lineStyle: { color: "#f0f0f0", type: "dashed" } },
