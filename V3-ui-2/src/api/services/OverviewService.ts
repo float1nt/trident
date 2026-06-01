@@ -12,6 +12,7 @@ export type OverviewMetrics = {
 export type OverviewDistributions = {
   traffic: DistributionItem[];
   protocol: DistributionItem[];
+  applicationProtocol?: DistributionItem[];
 };
 
 export type TimeRange = "24h" | "7d" | "30d";
@@ -59,7 +60,11 @@ export class OverviewService {
     const res = await get<OverviewDistributions>("/overview/distributions", {
       timeRange,
     });
-    return res.data ?? { traffic: [], protocol: [] };
+    const data = res.data ?? { traffic: [], protocol: [] };
+    return {
+      ...data,
+      applicationProtocol: data.applicationProtocol ?? [],
+    };
   }
 
   static async getTrafficTrend(
