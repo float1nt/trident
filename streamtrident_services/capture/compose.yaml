@@ -1,7 +1,12 @@
+x-timezone-env: &timezone-env
+  TZ: Asia/Shanghai
+
 services:
   redis:
     image: redis:7-alpine
     container_name: streamtrident-redis
+    environment:
+      <<: *timezone-env
     command:
       - redis-server
       - --appendonly
@@ -31,6 +36,8 @@ services:
       - source: redis_config
         target: /app/config/redis.yaml
     command: ["python", "-m", "app.main", "ensure-group", "--config", "config/redis.yaml"]
+    environment:
+      <<: *timezone-env
     restart: "no"
 
   suricata-cic:
@@ -47,6 +54,7 @@ services:
       redis:
         condition: service_healthy
     environment:
+      <<: *timezone-env
       IFACE: "${SURICATA_IFACE:-eth0}"
       REDIS_HOST: "${SURICATA_REDIS_HOST:-127.0.0.1}"
       REDIS_PORT: "${REDIS_HOST_PORT:-16379}"
@@ -74,6 +82,7 @@ services:
     image: streamtrident/suricata-agent:local
     container_name: streamtrident-suricata-agent
     environment:
+      <<: *timezone-env
       SURICATA_FILTER_CONFIG_PATH: /etc/suricata-cic/filter.json
       SURICATA_CONTAINER: streamtrident-suricata-cic
       SURICATA_RESTART_TIMEOUT: "10"

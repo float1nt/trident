@@ -3,7 +3,15 @@ FROM pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime AS cuda
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    TZ=Asia/Shanghai
+
+RUN set -eux; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata; \
+    ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime; \
+    echo Asia/Shanghai > /etc/timezone; \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -29,7 +37,8 @@ FROM python:3.11-slim AS cpu
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    TZ=Asia/Shanghai
 
 WORKDIR /app
 
@@ -43,7 +52,9 @@ RUN set -eux; \
       sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list; \
     fi; \
     apt-get update; \
-    apt-get install -y --no-install-recommends libgomp1; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libgomp1 tzdata; \
+    ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime; \
+    echo Asia/Shanghai > /etc/timezone; \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

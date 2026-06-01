@@ -1,7 +1,12 @@
+x-timezone-env: &timezone-env
+  TZ: Asia/Shanghai
+
 services:
   redis:
     image: redis:7-alpine
     container_name: streamtrident-redis
+    environment:
+      <<: *timezone-env
     command:
       - redis-server
       - --appendonly
@@ -26,6 +31,7 @@ services:
       - "${CLICKHOUSE_HTTP_HOST_PORT:-18123}:8123"
       - "${CLICKHOUSE_NATIVE_HOST_PORT:-19000}:9000"
     environment:
+      <<: *timezone-env
       CLICKHOUSE_DB: default
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: trident
@@ -44,6 +50,7 @@ services:
     ports:
       - "${POSTGRES_HOST_PORT:-15432}:5432"
     environment:
+      <<: *timezone-env
       POSTGRES_DB: trident
       POSTGRES_USER: trident
       POSTGRES_PASSWORD: trident
@@ -68,6 +75,8 @@ services:
       - source: redis_config
         target: /app/config/redis.yaml
     command: ["python", "-m", "app.main", "ensure-group", "--config", "config/redis.yaml"]
+    environment:
+      <<: *timezone-env
     restart: "no"
 
   trident-migrate:
@@ -84,6 +93,7 @@ services:
       - source: trident_config
         target: /app/config/trident.yaml
     environment:
+      <<: *timezone-env
       TRIDENT_LOG_DIR: /var/log/trident
       TRIDENT_LOG_FILE: migrate.log
     volumes:
@@ -109,6 +119,7 @@ services:
       - source: trident_config
         target: /app/config/trident.yaml
     environment:
+      <<: *timezone-env
       TRIDENT_LOG_DIR: /var/log/trident
       TRIDENT_LOG_FILE: worker.log
     volumes:
@@ -137,6 +148,7 @@ services:
       - source: trident_config
         target: /app/config/trident.yaml
     environment:
+      <<: *timezone-env
       TRIDENT_LOG_DIR: /var/log/trident
       TRIDENT_LOG_FILE: api.log
       TRIDENT_SURICATA_AGENT_URLS: "${TRIDENT_SURICATA_AGENT_URLS:-http://suricata-agent:19100}"
@@ -163,6 +175,7 @@ services:
       redis:
         condition: service_healthy
     environment:
+      <<: *timezone-env
       IFACE: "${SURICATA_IFACE:-eth0}"
       REDIS_HOST: "${SURICATA_REDIS_HOST:-127.0.0.1}"
       REDIS_PORT: "${REDIS_HOST_PORT:-16379}"
@@ -190,6 +203,7 @@ services:
     image: streamtrident/suricata-agent:local
     container_name: streamtrident-suricata-agent
     environment:
+      <<: *timezone-env
       SURICATA_FILTER_CONFIG_PATH: /etc/suricata-cic/filter.json
       SURICATA_CONTAINER: streamtrident-suricata-cic
       SURICATA_RESTART_TIMEOUT: "10"

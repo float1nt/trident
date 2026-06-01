@@ -38,6 +38,8 @@ def _query_url(dsn: str, sql: str) -> str:
     if path and path != "/":
         params.setdefault("database", path.strip("/"))
         path = "/"
+    params.setdefault("session_timezone", "UTC")
+    params.setdefault("date_time_input_format", "best_effort")
     params["query"] = sql
     netloc = parsed.hostname or ""
     if parsed.port is not None:

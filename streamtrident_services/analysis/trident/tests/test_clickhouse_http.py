@@ -12,6 +12,8 @@ def test_clickhouse_dsn_path_becomes_database_parameter() -> None:
 
     assert parsed.path == "/"
     assert params["database"] == "default"
+    assert params["session_timezone"] == "UTC"
+    assert params["date_time_input_format"] == "best_effort"
     assert params["query"] == "SELECT 1"
 
 
@@ -24,3 +26,12 @@ def test_clickhouse_dsn_credentials_become_query_parameters() -> None:
     assert params["user"] == "default"
     assert params["password"] == "trident"
     assert params["database"] == "default"
+
+
+def test_clickhouse_dsn_can_override_time_settings() -> None:
+    url = _query_url("http://127.0.0.1:8123/default?session_timezone=Asia%2FShanghai", "SELECT 1")
+    parsed = parse.urlsplit(url)
+    params = dict(parse.parse_qsl(parsed.query))
+
+    assert params["session_timezone"] == "Asia/Shanghai"
+    assert params["date_time_input_format"] == "best_effort"

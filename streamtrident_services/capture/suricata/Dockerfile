@@ -1,6 +1,7 @@
 FROM ubuntu:22.04
 
-ENV DEBIAN_FRONTEND=noninteractive
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Asia/Shanghai
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -19,7 +20,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libyaml-0-2 \
     python3 \
     redis-tools \
+    tzdata \
     zlib1g \
+    && ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && echo Asia/Shanghai > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 COPY runtime/bin/suricata /opt/suricata-cic/bin/suricata
