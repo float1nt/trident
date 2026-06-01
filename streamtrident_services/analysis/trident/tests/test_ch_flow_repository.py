@@ -100,7 +100,15 @@ def test_topology_node_includes_protocol_when_provided() -> None:
     assert node["protocol"] == "TCP"
 
 
-def test_topology_graph_selects_top_edges_before_nodes() -> None:
+def test_topology_node_includes_role_when_provided() -> None:
+    victim = _topology_node("10.0.0.2", 3, node_mode="host", role="victim")
+    attacker = _topology_node("10.0.0.1", 3, node_mode="host", role="attacker")
+
+    assert victim["role"] == "victim"
+    assert attacker["role"] == "attacker"
+
+
+def test_topology_graph_selects_top_victims_with_per_victim_edges() -> None:
     class FakeClient:
         def __init__(self) -> None:
             self.sql: list[str] = []
@@ -120,28 +128,30 @@ def test_topology_graph_selects_top_edges_before_nodes() -> None:
     repo = ChFlowRepository.__new__(ChFlowRepository)
     repo.client = FakeClient()
 
-    graph = repo.topology_graph(session_id="s1", node_mode="host", top_n=50)
+    graph = repo.topology_graph(
+        session_id="s1",
+        node_mode="host",
+        top_n=8,
+        edges_per_victim=10,
+    )
 
     topology_sql = repo.client.sql[0]
-    assert "WITH edge_rows AS" in topology_sql
-    assert "topK(1)" in topology_sql
+    assert "WITH edge_agg AS" in topology_sql
+    assert "victim_rows AS" in topology_sql
+    assert "ranked_edges AS" in topology_sql
+    assert "row_number() OVER (PARTITION BY e.target ORDER BY e.value DESC, e.source ASC)" in topology_sql
+    assert "WHERE edge_rank <= 10" in topology_sql
+    assert "LIMIT 8" in topology_sql
     assert "node_protocol_rows AS" in topology_sql
-    assert "ORDER BY value DESC, source ASC, target ASC" in topology_sql
-    assert "LIMIT 50" in topology_sql
-    assert "selected_nodes AS" in topology_sql
     assert "SELECT source AS node, value AS out_count, 0 AS in_count FROM edge_rows" in topology_sql
     assert "SELECT target AS node, 0 AS out_count, value AS in_count FROM edge_rows" in topology_sql
     stats_sql = repo.client.sql[1]
     assert "unique_ip_count" in stats_sql
-    assert "unique_endpoint_count" in stats_sql
-    assert "unique_dst_port_count" in stats_sql
     assert graph["flow_count"] == 9
-    assert graph["total_flow_count"] == 9
-    assert graph["stats"]["unique_ip_count"] == 2
-    assert graph["nodes"][0]["id"] == "10.0.0.1"
-    assert graph["nodes"][0]["flow_count"] == 3
-    assert graph["nodes"][0]["out_flow_count"] == 3
-    assert graph["nodes"][0]["in_flow_count"] == 0
+    assert graph["stats"]["displayed_victim_count"] == 1
+    assert graph["stats"]["edges_per_victim"] == 10
+    assert graph["nodes"][0]["role"] == "attacker"
+    assert graph["nodes"][1]["role"] == "victim"
     assert graph["links"] == [
         {"source": "10.0.0.1", "target": "10.0.0.2", "value": 3, "is_benign": False}
     ]

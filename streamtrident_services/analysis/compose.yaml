@@ -1,3 +1,9 @@
+x-trident-build: &trident-build
+  context: ./trident
+  target: ${DEVICE_TYPE:-cuda}
+  args:
+    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+
 services:
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
@@ -37,8 +43,7 @@ services:
     restart: unless-stopped
 
   trident-migrate:
-    build:
-      context: ./trident
+    build: *trident-build
     image: streamtrident/trident:local
     container_name: streamtrident-migrate
     depends_on:
@@ -58,8 +63,7 @@ services:
     restart: "no"
 
   trident-worker:
-    build:
-      context: ./trident
+    build: *trident-build
     image: streamtrident/trident:local
     container_name: streamtrident-worker
     gpus: all
@@ -78,6 +82,7 @@ services:
       TRIDENT_LOG_FILE: worker.log
       CAPTURE_REDIS_HOST: "${CAPTURE_REDIS_HOST:-host.docker.internal}"
       CAPTURE_REDIS_PORT: "${CAPTURE_REDIS_PORT:-16379}"
+      NVIDIA_VISIBLE_DEVICES: "${NVIDIA_VISIBLE_DEVICES:-all}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -87,8 +92,7 @@ services:
     restart: unless-stopped
 
   trident-api:
-    build:
-      context: ./trident
+    build: *trident-build
     image: streamtrident/trident:local
     container_name: streamtrident-api
     depends_on:
