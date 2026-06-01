@@ -152,8 +152,7 @@ export function buildDistributionRingOption(
         radius: ["42%", "68%"],
         center: ["50%", "45%"],
         label: {
-          color: "#333",
-          formatter: "{b}: {d}%",
+          show: false,
         },
         data: data.map((item, index) => ({
           name: item.name,
