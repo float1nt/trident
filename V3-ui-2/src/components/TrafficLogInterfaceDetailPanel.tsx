@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { Tag } from "antd";
+import { Button, Tag } from "antd";
+import "./NetworkTopologyPanel.css";
 import type {
   TrafficLogInterfaceBlock,
   TrafficLogInterfaceDetail,
@@ -14,20 +15,57 @@ function CodeViewer({ content }: { content: string }) {
   const displayContent = content || " ";
 
   return (
-    <div className="flex max-h-[280px] min-h-[120px] overflow-auto rounded-[4px] border border-[#e8eaed] bg-white font-mono text-[12px] leading-[20px]">
+    <div className="flex  overflow-x-hidden overflow-y-auto rounded-[4px] border border-[#e8eaed] bg-white font-mono text-[12px] leading-[20px]">
       <div className="shrink-0 select-none border-r border-[#e8eaed] bg-[#fafafa] px-[10px] py-[8px] text-right text-[#bfbfbf]">
         {lines.map((_, index) => (
           <div key={`line-no-${index + 1}`}>{index + 1}</div>
         ))}
       </div>
-      <pre className="m-0 min-w-0 flex-1 overflow-x-auto whitespace-pre p-[8px] text-[#333]">
+      <pre className="m-0 min-w-0 flex-1 whitespace-pre-wrap break-all p-[8px] text-[#333]">
         {displayContent}
       </pre>
     </div>
   );
 }
 
-export function HttpMessageBlock({ block }: { block: TrafficLogInterfaceBlock }) {
+function MessagePaneToggle({
+  panes,
+  activePaneKey,
+  onChange,
+}: {
+  panes: TrafficLogInterfaceBlock["panes"];
+  activePaneKey: string;
+  onChange: (key: string) => void;
+}) {
+  if (panes.length <= 1) return null;
+
+  return (
+    <div className="topology-graph-mode-toggle shrink-0">
+      {panes.map((pane) => {
+        const active = pane.key === activePaneKey;
+        return (
+          <Button
+            key={pane.key}
+            type="default"
+            size="small"
+            className={active ? "ant-btn-topology-selected" : undefined}
+            onClick={() => onChange(pane.key)}
+          >
+            {pane.label}
+          </Button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function HttpMessageBlock({
+  block,
+  sectionTitle,
+}: {
+  block: TrafficLogInterfaceBlock;
+  sectionTitle?: string;
+}) {
   const [activePaneKey, setActivePaneKey] = useState(block.defaultPaneKey);
 
   const activePane = useMemo(
@@ -36,51 +74,16 @@ export function HttpMessageBlock({ block }: { block: TrafficLogInterfaceBlock })
     [activePaneKey, block.panes],
   );
 
-  return (
-    <section className="flex flex-col gap-[8px]">
-      {block.panes.length > 1 ? (
-        <div className="flex flex-wrap gap-[6px]">
-          {block.panes.map((pane) => {
-            const active = pane.key === activePaneKey;
-            return (
-              <button
-                key={pane.key}
-                type="button"
-                className={[
-                  "h-[26px] rounded-[4px] border px-[10px] text-[12px] leading-[24px] transition-colors",
-                  active
-                    ? "border-[#1777ff] bg-[#e8f1ff] text-[#1777ff]"
-                    : "border-[#d9d9d9] bg-white text-[#666] hover:border-[#1777ff] hover:text-[#1777ff]",
-                ].join(" ")}
-                onClick={() => setActivePaneKey(pane.key)}
-              >
-                {pane.label}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-      {/* <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-[6px]">
-          <span className="text-[14px] font-medium text-[#333]">
-            {block.titlePrefix} ({block.sizeLabel})
-          </span>
-          <Button
-            type="text"
-            size="small"
-            className="!h-[22px] !w-[22px] !min-w-[22px] !p-0 text-[#8c8c8c] hover:!text-[#1777ff]"
-            icon={<CopyOutlined className="text-[13px]" />}
-            aria-label={`复制${block.titlePrefix}`}
-            onClick={() => void handleCopy()}
-          />
-        </div>
-        <InterfaceSubTabs
-          panes={block.panes}
-          activeKey={activePane?.key ?? block.defaultPaneKey}
-          onChange={setActivePaneKey}
-        />
-      </div> */}
+  const paneToggle = (
+    <MessagePaneToggle
+      panes={block.panes}
+      activePaneKey={activePaneKey}
+      onChange={setActivePaneKey}
+    />
+  );
 
+  const body = (
+    <>
       {block.dataTags && block.dataTags.length > 0 ? (
         <div className="flex flex-wrap gap-[8px]">
           {block.dataTags.map((tag) => (
@@ -95,6 +98,25 @@ export function HttpMessageBlock({ block }: { block: TrafficLogInterfaceBlock })
       ) : null}
 
       <CodeViewer content={activePane?.content ?? ""} />
+    </>
+  );
+
+  if (sectionTitle) {
+    return (
+      <>
+        <div className="flex items-center justify-between gap-2 bg-[#eef4ff] px-[12px] py-[8px]">
+          <span className="text-[14px] font-medium text-[#333]">{sectionTitle}</span>
+          {paneToggle}
+        </div>
+        <div className="flex flex-col gap-[8px]">{body}</div>
+      </>
+    );
+  }
+
+  return (
+    <section className="flex flex-col gap-[8px]">
+      {paneToggle}
+      {body}
     </section>
   );
 }

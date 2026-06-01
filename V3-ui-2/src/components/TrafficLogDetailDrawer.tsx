@@ -55,6 +55,17 @@ function DetailField({
 }
 
 function DetailSection({ section }: { section: TrafficLogDetailSection }) {
+  if (section.messageBlock) {
+    return (
+      <section className="overflow-hidden rounded-[4px] border border-[#e8eaed]">
+        <HttpMessageBlock
+          block={section.messageBlock}
+          sectionTitle={section.title}
+        />
+      </section>
+    );
+  }
+
   return (
     <section className="overflow-hidden rounded-[4px] border border-[#e8eaed]">
       <div className="bg-[#eef4ff] px-[12px] py-[8px] text-[14px] font-medium text-[#333]">
@@ -74,12 +85,6 @@ function DetailSection({ section }: { section: TrafficLogDetailSection }) {
           </div>
         ) : null
       }
-
-      {section.messageBlock ? (
-        <div >
-          <HttpMessageBlock block={section.messageBlock} />
-        </div>
-      ) : null}
     </section>
   );
 }
@@ -215,7 +220,7 @@ export function TrafficLogDetailDrawer({
           {/* </div> */}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-[20px] py-[16px]">
+        <div className="flex-1 overflow-y-auto px-[20px] pt-[16px] pb-[24px]">
           <Spin spinning={detailLoading}>
           {!detail ? (
             <p className="text-[14px] text-[#8c8c8c]">暂无日志详情</p>
