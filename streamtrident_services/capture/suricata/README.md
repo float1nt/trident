@@ -45,6 +45,7 @@ Environment variables:
 - `REDIS_HOST_PORT`: Redis host port, default `16379`
 - `SURICATA_REDIS_STREAM`: Redis queue key, default `suricata:cic_flow`
 - `SURICATA_REDIS_OUTPUT_MODE`: Redis output mode, default `list`; set `stream` only for stream compatibility
+- `SURICATA_REDIS_LIST_MAXLEN`: Redis list max length in `list` mode, default `100000`; set `0` to disable trimming
 - `SURICATA_REDIS_STREAM_MAXLEN`: Redis stream maxlen when stream mode is enabled, default `1000000`
 - `CIC_MODE`: CIC output mode, default `cic-flowmeter`
 - `CIC_FLOW_TIMEOUT_US`: flow timeout, default `120000000`

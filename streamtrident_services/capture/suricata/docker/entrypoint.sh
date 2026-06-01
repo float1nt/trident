@@ -6,6 +6,7 @@ REDIS_HOST="${REDIS_HOST:-127.0.0.1}"
 REDIS_PORT="${REDIS_PORT:-16379}"
 REDIS_STREAM="${REDIS_STREAM:-suricata:cic_flow}"
 REDIS_OUTPUT_MODE="${REDIS_OUTPUT_MODE:-list}"
+REDIS_LIST_MAXLEN="${REDIS_LIST_MAXLEN:-100000}"
 REDIS_STREAM_MAXLEN="${REDIS_STREAM_MAXLEN:-1000000}"
 CIC_MODE="${CIC_MODE:-cic-flowmeter}"
 CIC_FLOW_TIMEOUT_US="${CIC_FLOW_TIMEOUT_US:-120000000}"
@@ -35,14 +36,14 @@ if ! ip link show "$IFACE" >/dev/null 2>&1; then
 fi
 
 python3 - "$BASE_CONF" "$LIVE_CONF" "$REDIS_HOST" "$REDIS_PORT" "$REDIS_STREAM" "$REDIS_OUTPUT_MODE" \
-  "$REDIS_STREAM_MAXLEN" "$CIC_MODE" "$CIC_FLOW_TIMEOUT_US" \
+  "$REDIS_LIST_MAXLEN" "$REDIS_STREAM_MAXLEN" "$CIC_MODE" "$CIC_FLOW_TIMEOUT_US" \
   "$CIC_ACTIVE_IDLE_THRESHOLD_US" "$CIC_PAYLOAD_SAMPLE_ENABLED" "$CIC_PAYLOAD_SAMPLE_MAX_BYTES" \
   "$SURICATA_FILTER_CONFIG" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-base, out, redis_host, redis_port, redis_stream, redis_mode, redis_maxlen, cic_mode, flow_timeout, active_idle, payload_sample_enabled, payload_sample_max_bytes, filter_path = sys.argv[1:]
+base, out, redis_host, redis_port, redis_stream, redis_mode, redis_list_maxlen, redis_maxlen, cic_mode, flow_timeout, active_idle, payload_sample_enabled, payload_sample_max_bytes, filter_path = sys.argv[1:]
 
 def load_filter(path: str) -> dict:
     if not path:
@@ -110,6 +111,8 @@ for line in lines:
             f"        mode: {redis_mode}",
             f"        key: {redis_stream}",
         ])
+        if redis_mode in {"list", "lpush", "rpush"}:
+            result.append(f"        list-maxlen: {redis_list_maxlen}")
         if redis_mode in {"stream", "xadd"}:
             result.append(f"        stream-maxlen: {redis_maxlen}")
         result.extend([
@@ -145,6 +148,7 @@ echo "  iface=$IFACE"
 echo "  redis=$REDIS_HOST:$REDIS_PORT"
 echo "  stream=$REDIS_STREAM"
 echo "  redis_output_mode=$REDIS_OUTPUT_MODE"
+echo "  redis_list_maxlen=$REDIS_LIST_MAXLEN"
 echo "  mode=$CIC_MODE"
 echo "  payload_sample_enabled=$CIC_PAYLOAD_SAMPLE_ENABLED"
 echo "  payload_sample_max_bytes=$CIC_PAYLOAD_SAMPLE_MAX_BYTES"
