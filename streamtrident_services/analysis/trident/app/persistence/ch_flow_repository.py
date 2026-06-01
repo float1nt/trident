@@ -308,7 +308,7 @@ FORMAT JSONEachRow
         stats["edges_per_victim"] = per_victim
         stats["top_victims_limit"] = top_victims
         total_flow_count = int(stats.get("total_flow_count") or 0)
-        displayed_flow_count = sum(link["value"] for link in links) or total
+        displayed_flow_count = sum(link["value"] for link in links) or total_flow_count
         return {
             "flow_count": total_flow_count or displayed_flow_count,
             "total_flow_count": total_flow_count or displayed_flow_count,
