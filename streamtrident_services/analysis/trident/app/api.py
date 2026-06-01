@@ -124,7 +124,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.get("/overview/network-topology", response_model=ApiResponse)
     def overview_network_topology(
         timeRange: str = "24h",
-        top_n: int = Query(50, ge=1, le=500),
+        top_n: int = Query(8, ge=1, le=500),
     ) -> dict[str, Any]:
         time_from = _time_range_start(timeRange)
         data = _pages(cfg).dashboard_topology(
@@ -160,7 +160,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         attackTypes: list[str] | None = Query(None),
         triggerStart: str | None = None,
         triggerEnd: str | None = None,
-        top_n: int = Query(50, ge=1, le=500),
+        top_n: int = Query(8, ge=1, le=500),
         limit: int = Query(6, ge=1, le=50),
         offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:
@@ -178,7 +178,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.get("/risks/{risk_id}/network-topology", response_model=ApiResponse)
     def risk_network_topology(
         risk_id: int,
-        top_n: int = Query(50, ge=1, le=500),
+        top_n: int = Query(8, ge=1, le=500),
     ) -> dict[str, Any]:
         data = _pages(cfg).risk_network_topology(risk_id=risk_id, top_n=top_n)
         return _ok(DashboardTopologyData.model_validate(data).model_dump())
@@ -211,7 +211,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.get("/risk/ips/{ip}/events/topology", response_model=ApiResponse)
     def risk_ip_events_topology(
         ip: str,
-        top_n: int = Query(50, ge=1, le=500),
+        top_n: int = Query(8, ge=1, le=500),
         limit: int = Query(6, ge=1, le=50),
         offset: int = Query(0, ge=0),
     ) -> dict[str, Any]:

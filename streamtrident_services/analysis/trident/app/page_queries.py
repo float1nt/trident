@@ -31,6 +31,13 @@ ATTACK_TYPE_DISPLAY: dict[str, dict[str, str]] = {
 
 EVENT_SCOPE_EXCLUDED_ATTACK_TYPES = frozenset({"BENIGN_NORMAL"})
 
+# Victim-centric topology: top_n = number of attacked dst IPs/ports; edges_per_victim = src→dst edges each.
+TOPOLOGY_TOP_VICTIMS_DEFAULT = 8
+TOPOLOGY_EDGES_DASHBOARD_MAIN = 10
+TOPOLOGY_EDGES_DASHBOARD_COMPACT = 8
+TOPOLOGY_EDGES_LEARNER_DETAIL = 10
+TOPOLOGY_EDGES_GRID = 6
+
 
 class PageQueryService:
     def __init__(
@@ -256,78 +263,44 @@ class PageQueryService:
         self,
         *,
         session_id: str | None = None,
-        top_n: int = 50,
+        top_n: int = TOPOLOGY_TOP_VICTIMS_DEFAULT,
         time_from: str | None = None,
         time_to: str | None = None,
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
         learner_rows = self.learners.list_learners(session_id=sid)
         risk_names = _risk_learner_names(learner_rows)
+        top_victims = max(1, min(int(top_n), 500))
+
+        def _graph(*, node_mode: str, traffic_kind: str, edges_per_victim: int) -> dict[str, Any]:
+            return self.flows.topology_graph(
+                session_id=sid,
+                node_mode=node_mode,
+                risk_learners=risk_names,
+                traffic_kind=traffic_kind,
+                time_from=time_from,
+                time_to=time_to,
+                top_n=top_victims,
+                edges_per_victim=edges_per_victim,
+            )
+
         views = {
             "__combined__": _topology_view(
                 label="总流量",
-                host=self.flows.topology_graph(
-                    session_id=sid,
-                    node_mode="host",
-                    risk_learners=risk_names,
-                    traffic_kind="combined",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
-                ),
-                endpoint=self.flows.topology_graph(
-                    session_id=sid,
-                    node_mode="endpoint",
-                    risk_learners=risk_names,
-                    traffic_kind="combined",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
-                ),
+                host=_graph(node_mode="host", traffic_kind="combined", edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_MAIN),
+                endpoint=_graph(node_mode="endpoint", traffic_kind="combined", edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_MAIN),
                 is_benign=None,
             ),
             "__benign__": _topology_view(
                 label="良性流量",
-                host=self.flows.topology_graph(
-                    session_id=sid,
-                    node_mode="host",
-                    risk_learners=risk_names,
-                    traffic_kind="benign",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
-                ),
-                endpoint=self.flows.topology_graph(
-                    session_id=sid,
-                    node_mode="endpoint",
-                    risk_learners=risk_names,
-                    traffic_kind="benign",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
-                ),
+                host=_graph(node_mode="host", traffic_kind="benign", edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_COMPACT),
+                endpoint=_graph(node_mode="endpoint", traffic_kind="benign", edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_COMPACT),
                 is_benign=True,
             ),
             "__attack__": _topology_view(
                 label="攻击流量",
-                host=self.flows.topology_graph(
-                    session_id=sid,
-                    node_mode="host",
-                    risk_learners=risk_names,
-                    traffic_kind="attack",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
-                ),
-                endpoint=self.flows.topology_graph(
-                    session_id=sid,
-                    node_mode="endpoint",
-                    risk_learners=risk_names,
-                    traffic_kind="attack",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
-                ),
+                host=_graph(node_mode="host", traffic_kind="attack", edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_COMPACT),
+                endpoint=_graph(node_mode="endpoint", traffic_kind="attack", edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_COMPACT),
                 is_benign=False,
             ),
         }
@@ -347,7 +320,8 @@ class PageQueryService:
         learner_name: str,
         session_id: str | None = None,
         subject_ip: str | None = None,
-        top_n: int = 50,
+        top_n: int = TOPOLOGY_TOP_VICTIMS_DEFAULT,
+        edges_per_victim: int = TOPOLOGY_EDGES_LEARNER_DETAIL,
         trigger_stats: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
@@ -392,6 +366,7 @@ class PageQueryService:
                 subject_ip=subject_ip,
                 traffic_kind=traffic_kind,
                 top_n=top_n,
+                edges_per_victim=edges_per_victim,
             ),
             "endpoint": self.flows.topology_graph(
                 session_id=sid,
@@ -401,6 +376,7 @@ class PageQueryService:
                 subject_ip=subject_ip,
                 traffic_kind=traffic_kind,
                 top_n=top_n,
+                edges_per_victim=edges_per_victim,
             ),
         }
         return {
@@ -525,7 +501,7 @@ class PageQueryService:
         attack_types: list[str] | None = None,
         trigger_start: str | None = None,
         trigger_end: str | None = None,
-        top_n: int = 50,
+        top_n: int = TOPOLOGY_TOP_VICTIMS_DEFAULT,
         limit: int = 6,
         offset: int = 0,
     ) -> dict[str, Any]:
@@ -577,6 +553,7 @@ class PageQueryService:
             topology = self.learner_topology(
                 learner_name=learner_name,
                 top_n=top_n,
+                edges_per_victim=TOPOLOGY_EDGES_GRID,
                 trigger_stats=trigger_stats_by_learner.get(learner_name),
             )
             view = topology["views"][learner_name]
