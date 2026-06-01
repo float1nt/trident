@@ -220,7 +220,7 @@ export function TrafficLogDetailDrawer({
           {/* </div> */}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-[20px] py-[16px]">
+        <div className="flex-1 overflow-y-auto px-[20px] pt-[16px] pb-[24px]">
           <Spin spinning={detailLoading}>
           {!detail ? (
             <p className="text-[14px] text-[#8c8c8c]">暂无日志详情</p>

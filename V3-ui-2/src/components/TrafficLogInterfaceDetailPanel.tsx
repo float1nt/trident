@@ -15,7 +15,7 @@ function CodeViewer({ content }: { content: string }) {
   const displayContent = content || " ";
 
   return (
-    <div className="flex max-h-[280px] min-h-[120px] overflow-x-hidden overflow-y-auto rounded-[4px] border border-[#e8eaed] bg-white font-mono text-[12px] leading-[20px]">
+    <div className="flex  overflow-x-hidden overflow-y-auto rounded-[4px] border border-[#e8eaed] bg-white font-mono text-[12px] leading-[20px]">
       <div className="shrink-0 select-none border-r border-[#e8eaed] bg-[#fafafa] px-[10px] py-[8px] text-right text-[#bfbfbf]">
         {lines.map((_, index) => (
           <div key={`line-no-${index + 1}`}>{index + 1}</div>
@@ -108,7 +108,7 @@ export function HttpMessageBlock({
           <span className="text-[14px] font-medium text-[#333]">{sectionTitle}</span>
           {paneToggle}
         </div>
-        <div className="flex flex-col gap-[8px] p-[12px]">{body}</div>
+        <div className="flex flex-col gap-[8px]">{body}</div>
       </>
     );
   }
