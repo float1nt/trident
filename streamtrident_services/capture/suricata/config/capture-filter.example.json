@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "sourceIpRanges": [
+    {
+      "startIp": "172.16.88.0",
+      "endIp": "172.16.88.255"
+    }
+  ],
+  "destIpRanges": [
+    {
+      "startIp": "0.0.0.0",
+      "endIp": "255.255.255.255"
+    }
+  ],
+  "protocols": ["tcp", "udp", "icmp"],
+  "extraBpf": "not arp and not broadcast and not multicast"
+}

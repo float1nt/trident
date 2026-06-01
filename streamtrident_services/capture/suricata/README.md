@@ -50,8 +50,26 @@ Environment variables:
 - `CIC_MODE`: CIC output mode, default `cic-flowmeter`
 - `CIC_FLOW_TIMEOUT_US`: flow timeout, default `120000000`
 - `CIC_ACTIVE_IDLE_THRESHOLD_US`: active/idle threshold, default `5000000`
+- `SURICATA_CAPTURE_FILTER_CONFIG`: local capture-side BPF filter config, default `/etc/suricata-cic/capture-filter.json`
+- `SURICATA_TCP_NEW_TIMEOUT`: TCP half-open flow timeout in seconds, default `10`
+- `SURICATA_TCP_EMERGENCY_NEW_TIMEOUT`: emergency TCP half-open timeout in seconds, default `1`
 - `SURICATA_RUNMODE`: Suricata runmode, default `workers`
 - `SURICATA_EXTRA_ARGS`: extra Suricata CLI args
+
+Optional local capture filter file example:
+
+```json
+{
+  "enabled": true,
+  "sourceIpRanges": [{"startIp": "172.16.0.0", "endIp": "172.16.255.255"}],
+  "destIpRanges": [{"startIp": "0.0.0.0", "endIp": "255.255.255.255"}],
+  "protocols": ["tcp", "udp", "icmp"],
+  "extraBpf": "not arp and not broadcast and not multicast"
+}
+```
+
+This file controls packet capture before Suricata creates flow state. It is
+independent from `filter.json`, which only filters emitted `cic-flow` records.
 
 Because the container uses `network_mode: host`, Redis is reached through the
 host port (`127.0.0.1:${REDIS_HOST_PORT}`), not through the compose service name.
