@@ -42,6 +42,8 @@ export type TrafficLogDetailField = {
 export type TrafficLogDetailSection = {
   title: string;
   fields: TrafficLogDetailField[];
+  /** 报文展示区块（如基本信息中的报文信息） */
+  messageBlock?: TrafficLogInterfaceBlock;
 };
 
 export type TrafficLogInterfacePane = {

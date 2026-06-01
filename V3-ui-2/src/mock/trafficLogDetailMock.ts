@@ -2,6 +2,7 @@ import type { RiskTrafficLogItem } from "@/api/services/RiskService";
 import type {
   TrafficLogDetail,
   TrafficLogDetailSection,
+  TrafficLogInterfaceBlock,
   TrafficLogInterfaceDetail,
 } from "@/types/trafficLogDetail";
 import { formatTrafficVolumeText } from "@/utils/formatTotalTraffic";
@@ -80,22 +81,22 @@ export function buildBasicInfoSections(
       fields: [
         { label: "访问时间", value: detail.accessTime },
         { label: "流量", value: detail.traffic },
-        { label: "日志来源", value: detail.logSource },
-        { label: "应用名称", value: detail.appName },
-        { label: "用户访问地址", value: detail.userVisitAddress },
-        { label: "路径", value: detail.path },
-        { label: "访问域", value: detail.visitDomain },
-        { label: "部署域", value: detail.deployDomain },
-        {
-          label: "访问账号",
-          value: detail.visitAccount,
-          hint: "暂无账号识别结果",
-        },
-        {
-          label: "用户名称",
-          value: detail.userName,
-          hint: "暂无用户识别结果",
-        },
+        // { label: "日志来源", value: detail.logSource },
+        // { label: "应用名称", value: detail.appName },
+        // { label: "用户访问地址", value: detail.userVisitAddress },
+        // { label: "路径", value: detail.path },
+        // { label: "访问域", value: detail.visitDomain },
+        // { label: "部署域", value: detail.deployDomain },
+        // {
+        //   label: "访问账号",
+        //   value: detail.visitAccount,
+        //   hint: "暂无账号识别结果",
+        // },
+        // {
+        //   label: "用户名称",
+        //   value: detail.userName,
+        //   hint: "暂无用户识别结果",
+        // },
       ],
     },
     {
@@ -119,41 +120,29 @@ export function buildBasicInfoSections(
       ],
     },
     {
-      title: "请求信息",
-      fields: [
-        { label: "API请求方法", value: detail.apiMethod },
-        { label: "API协议", value: detail.apiProtocol },
-        { label: "访问业务", value: detail.visitBusiness },
-        { label: "请求大小", value: detail.requestSize },
-        {
-          label: "MAC地址",
-          value: detail.macAddress,
-          hint: "暂无 MAC 地址",
-        },
-        { label: "Referer", value: detail.referer },
-        { label: "XFF IP", value: detail.xffIp },
-        { label: "请求数据标签", value: detail.requestDataTag },
-        { label: "识别文件", value: detail.identifiedFile },
-      ],
+      title: "报文信息",
+      fields: [],
+      messageBlock: buildTrafficLogRequestBlock(detail),
     },
   ];
 }
 
-function buildRequestReqRaw(detail: TrafficLogDetail): string {
-  const host = detail.userVisitAddress.split(":")[0] || detail.dstIp;
-  const port = detail.userVisitAddress.split(":")[1] || detail.dstPort;
+function buildRequestReqRaw(_detail: TrafficLogDetail): string {
+  // const host = detail.userVisitAddress.split(":")[0] || detail.dstIp;
+  // const port = detail.userVisitAddress.split(":")[1] || detail.dstPort;
   return [
-    `${detail.apiMethod} ${detail.path} HTTP/1.1`,
-    `Host: ${host}:${port}`,
-    `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`,
-    `Accept: application/json, text/plain, */*`,
-    `Accept-Language: zh-CN,zh;q=0.9,en;q=0.8`,
-    `Accept-Encoding: gzip, deflate`,
-    `Connection: keep-alive`,
-    `Referer: ${detail.referer === "-" ? "-" : detail.referer}`,
-    `X-Forwarded-For: ${detail.xffIp === "-" ? "-" : detail.xffIp}`,
-    `Cookie: session_id=mock_session_${detail.accessTime.replace(/\D/g, "").slice(0, 8)}`,
-    ``,
+    `-`
+    // `${detail.apiMethod} ${detail.path} HTTP/1.1`,
+    // `Host: ${host}:${port}`,
+    // `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36`,
+    // `Accept: application/json, text/plain, */*`,
+    // `Accept-Language: zh-CN,zh;q=0.9,en;q=0.8`,
+    // `Accept-Encoding: gzip, deflate`,
+    // `Connection: keep-alive`,
+    // `Referer: ${detail.referer === "-" ? "-" : detail.referer}`,
+    // `X-Forwarded-For: ${detail.xffIp === "-" ? "-" : detail.xffIp}`,
+    // `Cookie: session_id=mock_session_${detail.accessTime.replace(/\D/g, "").slice(0, 8)}`,
+    // ``,
   ].join("\n");
 }
 
@@ -214,50 +203,45 @@ function buildResponseHeader(detail: TrafficLogDetail): string {
   ].join("\n");
 }
 
-const MOCK_RESPONSE_DATA_TAGS = [
-  "服务人员姓名(1)",
-  "年龄(1)",
-  "出生日期(1)",
-  "性别(1)",
-  "身份证号(1)",
-  "手机号码(1)",
-  "联系地址(1)",
-  "电子邮箱(1)",
-];
+function buildTrafficLogRequestBlock(
+  detail: TrafficLogDetail,
+): TrafficLogInterfaceBlock {
+  return {
+    titlePrefix: "请求",
+    sizeLabel: detail.requestSize,
+    defaultPaneKey: "req-raw",
+    panes: [
+      {
+        key: "req-raw",
+        label: "Req-Raw",
+        content: buildRequestReqRaw(detail),
+      },
+      { key: "body", label: "Body", content: buildRequestBody() },
+      {
+        key: "header",
+        label: "Header",
+        content: buildRequestHeader(detail),
+      },
+      {
+        key: "query",
+        label: "Query Params",
+        content: buildRequestQueryParams(),
+      },
+    ],
+  };
+}
 
 /** 接口详情 Tab mock（请求/响应 Raw 等） */
 export function buildMockTrafficLogInterfaceDetail(
   detail: TrafficLogDetail,
 ): TrafficLogInterfaceDetail {
   return {
-    request: {
-      titlePrefix: "请求",
-      sizeLabel: detail.requestSize,
-      defaultPaneKey: "req-raw",
-      panes: [
-        {
-          key: "req-raw",
-          label: "Req-Raw",
-          content: buildRequestReqRaw(detail),
-        },
-        { key: "body", label: "Body", content: buildRequestBody() },
-        {
-          key: "header",
-          label: "Header",
-          content: buildRequestHeader(detail),
-        },
-        {
-          key: "query",
-          label: "Query Params",
-          content: buildRequestQueryParams(),
-        },
-      ],
-    },
+    request: buildTrafficLogRequestBlock(detail),
     response: {
       titlePrefix: "响应",
       sizeLabel: detail.responseSize,
       defaultPaneKey: "res-raw",
-      dataTags: MOCK_RESPONSE_DATA_TAGS,
+      // dataTags: MOCK_RESPONSE_DATA_TAGS,
       panes: [
         {
           key: "res-raw",
