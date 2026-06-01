@@ -162,9 +162,11 @@ FORMAT JSONEachRow
         traffic_kind: str = "combined",
         time_from: str | None = None,
         time_to: str | None = None,
-        top_n: int = 50,
+        top_n: int = 8,
+        edges_per_victim: int = 10,
     ) -> dict[str, Any]:
-        top_n = max(1, min(int(top_n), 500))
+        top_victims = max(1, min(int(top_n), 500))
+        per_victim = max(1, min(int(edges_per_victim), 100))
         risk_names = risk_learners or []
         abnormal = _abnormal_expr(risk_names)
         filters = [
@@ -187,7 +189,7 @@ FORMAT JSONEachRow
         is_benign_expr = f"NOT ({abnormal})"
         main_protocol = _main_protocol_sql()
         sql = f"""
-WITH edge_rows AS (
+WITH edge_agg AS (
     SELECT
         {source_expr} AS source,
         {target_expr} AS target,
@@ -197,17 +199,31 @@ WITH edge_rows AS (
     FROM ch_flow
     {where}
     GROUP BY source, target
-    ORDER BY value DESC, source ASC, target ASC
-    LIMIT {top_n}
 ),
-selected_nodes AS (
-    SELECT node
-    FROM (
-        SELECT source AS node FROM edge_rows
-        UNION ALL
-        SELECT target AS node FROM edge_rows
-    )
-    GROUP BY node
+victim_rows AS (
+    SELECT
+        target AS victim,
+        sum(value) AS victim_flow_count
+    FROM edge_agg
+    GROUP BY victim
+    ORDER BY victim_flow_count DESC, victim ASC
+    LIMIT {top_victims}
+),
+ranked_edges AS (
+    SELECT
+        e.source AS source,
+        e.target AS target,
+        e.value AS value,
+        e.is_benign AS is_benign,
+        e.protocol AS protocol,
+        row_number() OVER (PARTITION BY e.target ORDER BY e.value DESC, e.source ASC) AS edge_rank
+    FROM edge_agg AS e
+    INNER JOIN victim_rows AS v ON e.target = v.victim
+),
+edge_rows AS (
+    SELECT source, target, value, is_benign, protocol
+    FROM ranked_edges
+    WHERE edge_rank <= {per_victim}
 ),
 node_protocol_rows AS (
     SELECT node, topK(1)(main_protocol)[1] AS protocol
@@ -247,14 +263,16 @@ FORMAT JSONEachRow
         rows = [_parse_json(line) for line in text.splitlines() if line.strip()]
         nodes = []
         links = []
-        total = 0
+        victim_ids: set[str] = set()
+        for row in rows:
+            if row.get("row_type") == "edge":
+                victim_ids.add(str(row.get("target") or ""))
         for row in rows:
             if row.get("row_type") == "node":
                 node_id = str(row.get("id") or "")
                 flow_count = int(row.get("value") or 0)
                 out_flow_count = int(row.get("out_flow_count") or 0)
                 in_flow_count = int(row.get("in_flow_count") or 0)
-                total += flow_count
                 nodes.append(
                     _topology_node(
                         node_id,
@@ -263,6 +281,7 @@ FORMAT JSONEachRow
                         out_flow_count=out_flow_count,
                         in_flow_count=in_flow_count,
                         protocol=str(row.get("protocol") or "").strip() or None,
+                        role="victim" if node_id in victim_ids else "attacker",
                     )
                 )
             elif row.get("row_type") == "edge":
@@ -285,8 +304,11 @@ FORMAT JSONEachRow
             time_from=time_from,
             time_to=time_to,
         )
+        stats["displayed_victim_count"] = len(victim_ids)
+        stats["edges_per_victim"] = per_victim
+        stats["top_victims_limit"] = top_victims
         total_flow_count = int(stats.get("total_flow_count") or 0)
-        displayed_flow_count = sum(link["value"] for link in links) or total
+        displayed_flow_count = sum(link["value"] for link in links) or total_flow_count
         return {
             "flow_count": total_flow_count or displayed_flow_count,
             "total_flow_count": total_flow_count or displayed_flow_count,
@@ -395,7 +417,8 @@ SELECT
     countIf(NOT ({abnormal})) AS normal_flows,
     sumIf(flow_total_bytes, {abnormal}) AS risk_bytes,
     sumIf(flow_total_bytes, NOT ({abnormal})) AS normal_bytes,
-    uniqExactIf(src_ip, {abnormal}) AS risk_ip_count,
+    uniqExactIf(dst_ip, {abnormal}) AS risk_ip_count,
+    groupUniqArrayIf(assigned_learner, {abnormal}) AS active_abnormal_learners,
     max(window_index) AS current_window_index
 FROM (
     SELECT
@@ -403,7 +426,7 @@ FROM (
         {main_protocol} AS main_protocol,
         is_unknown,
         assigned_learner,
-        src_ip,
+        dst_ip,
         window_index
     FROM ch_flow
     {where}
@@ -841,6 +864,7 @@ def _topology_node(
     out_flow_count: int = 0,
     in_flow_count: int = 0,
     protocol: str | None = None,
+    role: str | None = None,
 ) -> dict[str, Any]:
     ip = node_id
     port: int | None = None
@@ -861,6 +885,8 @@ def _topology_node(
     }
     if protocol:
         node["protocol"] = protocol
+    if role in {"victim", "attacker"}:
+        node["role"] = role
     return node
 
 

@@ -78,7 +78,7 @@ runtime_mode: inference                # cold_start | inference
 cold_start_exit_on_complete: true
 inference_require_cold_start: true
 
-cold_start_stable_windows: 5
+cold_start_stable_windows: 20
 cold_start_stable_max_idle_seconds: 0
 cold_start_min_learners: 1
 cold_start_min_windows: 2

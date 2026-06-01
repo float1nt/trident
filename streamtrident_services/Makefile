@@ -17,6 +17,7 @@ ANALYSIS_PROD_COMPOSE := -f compose.yaml
 ANALYSIS_TEST_COMPOSE := -f compose.yaml -f compose.test.yaml
 ANALYSIS_COLDSTART_OVERRIDE := -f compose.coldstart.yaml
 ANALYSIS_INFERENCE_OVERRIDE := -f compose.inference.yaml
+DEVICE_TYPE ?= cuda
 
 define analysis_up
 	cd $(ANALYSIS_DIR) && \
@@ -26,14 +27,17 @@ define analysis_up
 		fi && \
 		set -a && . ./$(1) && set +a && \
 		export COMPOSE_PROJECT_NAME="$${COMPOSE_PROJECT_NAME:-$(2)}" && \
+		export DEVICE_TYPE="$${DEVICE_TYPE:-$(DEVICE_TYPE)}" && \
 		export CAPTURE_REDIS_HOST="$${CAPTURE_REDIS_HOST:-host.docker.internal}" && \
 		export CAPTURE_REDIS_PORT="$${CAPTURE_REDIS_PORT:-16379}" && \
 		export TRIDENT_SURICATA_AGENT_URLS="$${TRIDENT_SURICATA_AGENT_URLS:-http://host.docker.internal:19100}" && \
 		export TRIDENT_API_HOST_PORT="$${TRIDENT_API_HOST_PORT:-$(3)}" && \
+		CPU_COMPOSE="" && \
+		if [ "$$DEVICE_TYPE" = "cpu" ]; then CPU_COMPOSE="-f compose.cpu.yaml"; fi && \
 		mkdir -p $(4) && \
-		$(COMPOSE) --env-file $(1) $(5) $(6) up -d $(10) $(ANALYSIS_SERVICES) && \
+		$(COMPOSE) --env-file $(1) $(5) $(6) $$CPU_COMPOSE up -d $(10) $(ANALYSIS_SERVICES) && \
 		printf '%s\n' \
-			"分析侧已启动: 环境=$(8), 模式=$(7), project=$$COMPOSE_PROJECT_NAME" \
+			"分析侧已启动: 环境=$(8), 模式=$(7), project=$$COMPOSE_PROJECT_NAME, device=$$DEVICE_TYPE" \
 			"  API:          0.0.0.0:$$TRIDENT_API_HOST_PORT" \
 			"  Capture Redis: $$CAPTURE_REDIS_HOST:$$CAPTURE_REDIS_PORT" \
 			"  Suricata API:  $$TRIDENT_SURICATA_AGENT_URLS" \
@@ -72,6 +76,10 @@ help:
 		'  make test-stop                测试-停止分析侧' \
 		'  make test-clean-db            测试-清空 Postgres/ClickHouse 和模型卷并重新迁移' \
 		'  make test-logs                测试-查看 worker 日志' \
+		'' \
+		'GPU 构建 (默认 DEVICE_TYPE=cuda, 镜像: pytorch/pytorch:2.7.0-cuda12.8-cudnn9-runtime):' \
+		'  DEVICE_TYPE=cuda make test-rebuild-inference              CUDA 重建 (RTX 50 系需 cu128)' \
+		'  DEVICE_TYPE=cpu make test-rebuild-inference               CPU 重建' \
 		'' \
 		'采集侧:' \
 		'  make capture-start            启动采集侧 Redis/Suricata/agent' \

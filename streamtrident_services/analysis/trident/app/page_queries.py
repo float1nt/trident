@@ -31,6 +31,14 @@ ATTACK_TYPE_DISPLAY: dict[str, dict[str, str]] = {
 
 EVENT_SCOPE_EXCLUDED_ATTACK_TYPES = frozenset({"BENIGN_NORMAL"})
 
+# Victim-centric topology: top_n = number of attacked dst IPs/ports; edges_per_victim = src→dst edges each.
+TOPOLOGY_TOP_VICTIMS_DEFAULT = 8
+TOPOLOGY_TOP_VICTIMS_DASHBOARD_MAIN = 50
+TOPOLOGY_EDGES_DASHBOARD_MAIN = 15
+TOPOLOGY_EDGES_DASHBOARD_COMPACT = 13
+TOPOLOGY_EDGES_LEARNER_DETAIL = 15
+TOPOLOGY_EDGES_GRID = 11
+
 
 class PageQueryService:
     def __init__(
@@ -76,7 +84,6 @@ class PageQueryService:
         sid = session_id or self.session_id
         learner_rows = self.learners.list_learners(session_id=sid)
         risk_names = _risk_learner_names(learner_rows)
-        risk_type_names = _distinct_risk_type_names(learner_rows)
         summary = self.flows.dashboard_summary(
             session_id=sid,
             risk_learners=risk_names,
@@ -107,6 +114,11 @@ class PageQueryService:
         application_protocol_distribution = _compact_application_protocol_distribution(
             application_protocol_rows
         )
+        active_abnormal_learners = _parse_string_list(summary.get("active_abnormal_learners"))
+        risk_type_count = _risk_type_count_from_active_learners(
+            learner_rows,
+            active_abnormal_learners,
+        )
 
         return {
             "metrics": {
@@ -114,7 +126,7 @@ class PageQueryService:
                 "total_bytes": int(summary.get("total_bytes") or 0),
                 "protocol_count": int(summary.get("protocol_count") or 0),
                 "risk_learner_count": len(risk_names),
-                "risk_type_count": len(risk_type_names),
+                "risk_type_count": risk_type_count,
                 "risk_ip_count": int(summary.get("risk_ip_count") or 0),
             },
             "traffic_distribution": [
@@ -132,8 +144,11 @@ class PageQueryService:
         }
 
     def overview_metrics(self, *, time_range: str = "24h") -> dict[str, Any]:
-        time_from = _time_range_start(time_range)
-        overview = self.dashboard_overview(time_from=time_from)
+        bounds = _time_range_bounds(time_range)
+        overview = self.dashboard_overview(
+            time_from=bounds["time_from"],
+            time_to=bounds["time_to"],
+        )
         metrics = overview["metrics"]
         return {
             "totalTraffic": int(metrics["total_bytes"]),
@@ -143,8 +158,11 @@ class PageQueryService:
         }
 
     def overview_distributions(self, *, time_range: str = "24h") -> dict[str, Any]:
-        time_from = _time_range_start(time_range)
-        overview = self.dashboard_overview(time_from=time_from)
+        bounds = _time_range_bounds(time_range)
+        overview = self.dashboard_overview(
+            time_from=bounds["time_from"],
+            time_to=bounds["time_to"],
+        )
         return {
             "traffic": overview["traffic_distribution"],
             "protocol": overview["protocol_distribution"],
@@ -275,78 +293,60 @@ class PageQueryService:
         self,
         *,
         session_id: str | None = None,
-        top_n: int = 50,
+        top_n: int = TOPOLOGY_TOP_VICTIMS_DEFAULT,
         time_from: str | None = None,
         time_to: str | None = None,
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
         learner_rows = self.learners.list_learners(session_id=sid)
         risk_names = _risk_learner_names(learner_rows)
+        top_victims = max(1, min(int(top_n), 500))
+
+        def _graph(
+            *,
+            node_mode: str,
+            traffic_kind: str,
+            edges_per_victim: int,
+            top_victims_count: int | None = None,
+        ) -> dict[str, Any]:
+            return self.flows.topology_graph(
+                session_id=sid,
+                node_mode=node_mode,
+                risk_learners=risk_names,
+                traffic_kind=traffic_kind,
+                time_from=time_from,
+                time_to=time_to,
+                top_n=top_victims_count if top_victims_count is not None else top_victims,
+                edges_per_victim=edges_per_victim,
+            )
+
         views = {
             "__combined__": _topology_view(
                 label="总流量",
-                host=self.flows.topology_graph(
-                    session_id=sid,
+                host=_graph(
                     node_mode="host",
-                    risk_learners=risk_names,
                     traffic_kind="combined",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
+                    edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_MAIN,
+                    top_victims_count=TOPOLOGY_TOP_VICTIMS_DASHBOARD_MAIN,
                 ),
-                endpoint=self.flows.topology_graph(
-                    session_id=sid,
+                endpoint=_graph(
                     node_mode="endpoint",
-                    risk_learners=risk_names,
                     traffic_kind="combined",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
+                    edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_MAIN,
+                    top_victims_count=TOPOLOGY_TOP_VICTIMS_DASHBOARD_MAIN,
                 ),
                 is_benign=None,
             ),
             "__benign__": _topology_view(
                 label="良性流量",
-                host=self.flows.topology_graph(
-                    session_id=sid,
-                    node_mode="host",
-                    risk_learners=risk_names,
-                    traffic_kind="benign",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
-                ),
-                endpoint=self.flows.topology_graph(
-                    session_id=sid,
-                    node_mode="endpoint",
-                    risk_learners=risk_names,
-                    traffic_kind="benign",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
-                ),
+                host=_graph(node_mode="host", traffic_kind="benign", edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_COMPACT),
+                endpoint=_graph(node_mode="endpoint", traffic_kind="benign", edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_COMPACT),
                 is_benign=True,
             ),
             "__attack__": _topology_view(
                 label="攻击流量",
-                host=self.flows.topology_graph(
-                    session_id=sid,
-                    node_mode="host",
-                    risk_learners=risk_names,
-                    traffic_kind="attack",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
-                ),
-                endpoint=self.flows.topology_graph(
-                    session_id=sid,
-                    node_mode="endpoint",
-                    risk_learners=risk_names,
-                    traffic_kind="attack",
-                    time_from=time_from,
-                    time_to=time_to,
-                    top_n=top_n,
-                ),
+                host=_graph(node_mode="host", traffic_kind="attack", edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_COMPACT),
+                endpoint=_graph(node_mode="endpoint", traffic_kind="attack", edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_COMPACT),
                 is_benign=False,
             ),
         }
@@ -366,7 +366,8 @@ class PageQueryService:
         learner_name: str,
         session_id: str | None = None,
         subject_ip: str | None = None,
-        top_n: int = 50,
+        top_n: int = TOPOLOGY_TOP_VICTIMS_DEFAULT,
+        edges_per_victim: int = TOPOLOGY_EDGES_LEARNER_DETAIL,
         trigger_stats: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
@@ -411,6 +412,7 @@ class PageQueryService:
                 subject_ip=subject_ip,
                 traffic_kind=traffic_kind,
                 top_n=top_n,
+                edges_per_victim=edges_per_victim,
             ),
             "endpoint": self.flows.topology_graph(
                 session_id=sid,
@@ -420,6 +422,7 @@ class PageQueryService:
                 subject_ip=subject_ip,
                 traffic_kind=traffic_kind,
                 top_n=top_n,
+                edges_per_victim=edges_per_victim,
             ),
         }
         return {
@@ -544,7 +547,7 @@ class PageQueryService:
         attack_types: list[str] | None = None,
         trigger_start: str | None = None,
         trigger_end: str | None = None,
-        top_n: int = 50,
+        top_n: int = TOPOLOGY_TOP_VICTIMS_DEFAULT,
         limit: int = 6,
         offset: int = 0,
     ) -> dict[str, Any]:
@@ -596,6 +599,7 @@ class PageQueryService:
             topology = self.learner_topology(
                 learner_name=learner_name,
                 top_n=top_n,
+                edges_per_victim=TOPOLOGY_EDGES_GRID,
                 trigger_stats=trigger_stats_by_learner.get(learner_name),
             )
             view = topology["views"][learner_name]
@@ -826,6 +830,36 @@ def _risk_learner_names(rows: list[dict[str, Any]]) -> list[str]:
         if name and _is_attack_learner(row):
             names.append(name)
     return names
+
+
+def _parse_string_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value or "").strip()
+    if not text or text in {"[]"}:
+        return []
+    return [text]
+
+
+def _risk_type_count_from_active_learners(
+    learner_rows: list[dict[str, Any]],
+    active_learner_names: list[str],
+) -> int:
+    learner_by_name = {
+        str(row.get("learner_name") or ""): row
+        for row in learner_rows
+        if str(row.get("learner_name") or "")
+    }
+    names: set[str] = set()
+    for learner_name in active_learner_names:
+        row = learner_by_name.get(learner_name)
+        if not row or not _is_attack_learner(row):
+            continue
+        display = _attack_display(_rule_attack_type(row))
+        name = str(display.get("name") or "").strip()
+        if name:
+            names.add(name)
+    return len(names)
 
 
 def _is_attack_learner(row: dict[str, Any]) -> bool:
@@ -1208,18 +1242,29 @@ def _safe_int(call: Any) -> int:
         return 0
 
 
-def _time_range_start(value: str) -> str | None:
+def _time_range_bounds(value: str) -> dict[str, str]:
+    """Canonical overview window; shared by metrics, distributions, topology, and traffic trend."""
     now = datetime.now(timezone.utc)
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
     if value == "7d":
-        start = now - timedelta(days=7)
+        start = today - timedelta(days=6)
     elif value == "30d":
-        start = now - timedelta(days=30)
+        first_day = today - timedelta(days=29)
+        start = first_day - timedelta(days=first_day.weekday())
     else:
-        start = now - timedelta(hours=24)
-    return start.isoformat(timespec="seconds").replace("+00:00", "Z")
+        start = current_hour - timedelta(hours=23)
+
+    return {"time_from": _iso_z(start), "time_to": _iso_z(now)}
+
+
+def _time_range_start(value: str) -> str | None:
+    return _time_range_bounds(value)["time_from"]
 
 
 def _traffic_trend_spec(value: str) -> dict[str, Any]:
+    bounds = _time_range_bounds(value)
     now = datetime.now(timezone.utc)
     current_hour = now.replace(minute=0, second=0, microsecond=0)
     today = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -1235,8 +1280,8 @@ def _traffic_trend_spec(value: str) -> dict[str, Any]:
         ]
         return {
             "bucket": "day",
-            "time_from": _iso_z(start),
-            "time_to": _iso_z(now),
+            "time_from": bounds["time_from"],
+            "time_to": bounds["time_to"],
             "buckets": buckets,
         }
 
@@ -1256,8 +1301,8 @@ def _traffic_trend_spec(value: str) -> dict[str, Any]:
             )
         return {
             "bucket": "week",
-            "time_from": _iso_z(start),
-            "time_to": _iso_z(now),
+            "time_from": bounds["time_from"],
+            "time_to": bounds["time_to"],
             "buckets": buckets,
         }
 
@@ -1271,8 +1316,8 @@ def _traffic_trend_spec(value: str) -> dict[str, Any]:
     ]
     return {
         "bucket": "hour",
-        "time_from": _iso_z(start),
-        "time_to": _iso_z(now),
+        "time_from": bounds["time_from"],
+        "time_to": bounds["time_to"],
         "buckets": buckets,
     }
 

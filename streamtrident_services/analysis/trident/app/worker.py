@@ -122,6 +122,8 @@ def main() -> int:
         redis_output_enabled=cfg.redis_output_enabled,
         ack_enabled=cfg.ack,
         runtime_mode=cfg.runtime_mode,
+        cpu_only=cfg.cpu_only,
+        device=str(engine.device),
     )
 
     if reliable_consumer:

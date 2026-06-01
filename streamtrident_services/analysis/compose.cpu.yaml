@@ -1,0 +1,4 @@
+# CPU-only override: use with DEVICE_TYPE=cpu (no GPU passthrough on worker).
+services:
+  trident-worker:
+    gpus: []
