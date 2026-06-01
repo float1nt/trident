@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Drawer, Tooltip } from "antd";
+import { Button, Drawer, Spin, Tooltip } from "antd";
 import { CloseOutlined, InfoCircleOutlined } from "@ant-design/icons";
-import type { RiskTrafficLogItem } from "@/api/services/RiskService";
+import { RiskService, type FlowDetail, type RiskTrafficLogItem } from "@/api/services/RiskService";
 import {
   buildBasicInfoSections,
-  buildMockTrafficLogDetail,
+  buildTrafficLogDetailFromFlow,
   buildMockTrafficLogInterfaceDetail,
 } from "@/mock/trafficLogDetailMock";
 import { TrafficLogInterfaceDetailPanel, HttpMessageBlock } from "@/components/TrafficLogInterfaceDetailPanel";
@@ -92,11 +92,37 @@ export function TrafficLogDetailDrawer({
   onActiveIndexChange,
 }: TrafficLogDetailDrawerProps) {
   const [activeTab, setActiveTab] = useState<DetailTabKey>("basic");
+  const [flowDetail, setFlowDetail] = useState<FlowDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const activeLog = logs[activeIndex] ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    setFlowDetail(null);
+    if (!open || !activeLog?.id) {
+      setDetailLoading(false);
+      return;
+    }
+    setDetailLoading(true);
+    RiskService.getFlowDetail(activeLog.id)
+      .then((detail) => {
+        if (!cancelled) setFlowDetail(detail);
+      })
+      .catch(() => {
+        if (!cancelled) setFlowDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, activeLog?.id]);
+
   const detail = useMemo(
-    () => (activeLog ? buildMockTrafficLogDetail(activeLog) : null),
-    [activeLog],
+    () => (activeLog ? buildTrafficLogDetailFromFlow(activeLog, flowDetail) : null),
+    [activeLog, flowDetail],
   );
 
   const basicSections = useMemo(
@@ -190,6 +216,7 @@ export function TrafficLogDetailDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto px-[20px] py-[16px]">
+          <Spin spinning={detailLoading}>
           {!detail ? (
             <p className="text-[14px] text-[#8c8c8c]">暂无日志详情</p>
           ) : activeTab === "basic" ? (
@@ -204,6 +231,7 @@ export function TrafficLogDetailDrawer({
               data={interfaceDetail}
             />
           ) : null}
+          </Spin>
         </div>
       </div>
     </Drawer>

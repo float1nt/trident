@@ -261,6 +261,26 @@ def create_app(config_path: str | None = None) -> FastAPI:
         )
         return _ok(FlowListData.model_validate(result).model_dump())
 
+    @app.get("/api/v1/flows/{flow_uid}", response_model=ApiResponse)
+    def get_flow_detail(flow_uid: str, session_id: str | None = None) -> dict[str, Any]:
+        from fastapi import HTTPException
+
+        row = _flow_repo(cfg).get_flow_detail(
+            session_id=session_id or cfg.session_id,
+            flow_uid=flow_uid,
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="flow not found")
+        row["payload"] = {
+            "encoding": "base64",
+            "sample_b64": str(row.pop("payload_sample_b64", "") or ""),
+            "sample_bytes": int(row.pop("payload_sample_bytes", 0) or 0),
+            "original_bytes": int(row.pop("payload_original_bytes", 0) or 0),
+            "truncated": bool(int(row.pop("payload_truncated", 0) or 0)),
+            "direction": str(row.pop("payload_direction", "") or ""),
+        }
+        return _ok(row)
+
     @app.get("/api/v1/learners", response_model=ApiResponse)
     def list_learners(session_id: str | None = None) -> dict[str, Any]:
         return _ok({"items": _learner_repo(cfg).list_learners(session_id=session_id or cfg.session_id)})

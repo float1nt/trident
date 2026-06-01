@@ -1,5 +1,6 @@
 /** 流量日志详情（Drawer 展示，暂为 mock 结构） */
 export type TrafficLogDetail = {
+  id?: string;
   accessTime: string;
   traffic: string;
   logSource: string;
@@ -31,6 +32,14 @@ export type TrafficLogDetail = {
   responseDataTag: string;
   contentType: string;
   responseTime: string;
+  payloadSample?: {
+    encoding: string;
+    sampleB64: string;
+    sampleBytes: number;
+    originalBytes: number;
+    truncated: boolean;
+    direction: string;
+  };
 };
 
 export type TrafficLogDetailField = {

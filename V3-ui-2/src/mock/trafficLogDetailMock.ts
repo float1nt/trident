@@ -1,4 +1,5 @@
 import type { RiskTrafficLogItem } from "@/api/services/RiskService";
+import type { FlowDetail } from "@/api/services/RiskService";
 import type {
   TrafficLogDetail,
   TrafficLogDetailSection,
@@ -38,6 +39,7 @@ export function buildMockTrafficLogDetail(
   const trafficText = formatTrafficVolumeText(log.traffic);
 
   return {
+    id: log.id,
     accessTime: log.accessTime || "-",
     traffic: trafficText,
     logSource: "流量引擎-黑胡桃-流量引擎",
@@ -69,6 +71,62 @@ export function buildMockTrafficLogDetail(
     responseDataTag: "-",
     contentType: "application/json",
     responseTime: "12ms",
+  };
+}
+
+function formatFlowTime(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function protocolName(protocol: unknown, appProto: unknown, fallback: string): string {
+  const app = typeof appProto === "string" ? appProto.trim() : "";
+  if (app) return app.toUpperCase();
+  const numeric = Number(protocol);
+  if (numeric === 6) return "TCP";
+  if (numeric === 17) return "UDP";
+  if (numeric === 1) return "ICMP";
+  return fallback || "-";
+}
+
+export function buildTrafficLogDetailFromFlow(
+  log: RiskTrafficLogItem,
+  flow: FlowDetail | null,
+): TrafficLogDetail {
+  const base = buildMockTrafficLogDetail(log);
+  if (!flow) return base;
+  const srcIp = flow.src_ip || log.srcIp;
+  const dstIp = flow.dst_ip || log.dstIp;
+  const src = ipWithTag(srcIp);
+  const dst = ipWithTag(dstIp);
+  const srcPort = Number(flow.src_port ?? log.srcPort);
+  const dstPort = Number(flow.dst_port ?? log.dstPort);
+  const trafficText = formatTrafficVolumeText(Number(flow.total_bytes ?? log.traffic));
+  const payload = flow.payload;
+
+  return {
+    ...base,
+    id: flow.flow_uid || log.id,
+    accessTime: formatFlowTime(flow.event_time, log.accessTime || "-"),
+    traffic: trafficText,
+    userVisitAddress: `${dstIp}:${formatPort(dstPort)}`,
+    srcIp: src.value,
+    srcIpTag: src.tag,
+    srcPort: formatPort(srcPort),
+    protocol: protocolName(flow.protocol, flow.app_proto, log.protocol),
+    dstIp: dst.value,
+    dstIpTag: dst.tag,
+    dstPort: formatPort(dstPort),
+    responseSize: trafficText,
+    payloadSample: payload
+      ? {
+          encoding: payload.encoding || "base64",
+          sampleB64: payload.sample_b64 || "",
+          sampleBytes: Number(payload.sample_bytes || 0),
+          originalBytes: Number(payload.original_bytes || 0),
+          truncated: Boolean(payload.truncated),
+          direction: payload.direction || "",
+        }
+      : undefined,
   };
 }
 
@@ -128,6 +186,19 @@ export function buildBasicInfoSections(
 }
 
 function buildRequestReqRaw(_detail: TrafficLogDetail): string {
+  if (_detail.payloadSample) {
+    const sample = _detail.payloadSample;
+    const status = sample.truncated ? "已截断" : "完整样本";
+    return [
+      `encoding: ${sample.encoding || "base64"}`,
+      `direction: ${sample.direction || "-"}`,
+      `sample_bytes: ${sample.sampleBytes}`,
+      `original_bytes: ${sample.originalBytes}`,
+      `status: ${status}`,
+      "",
+      sample.sampleB64 || "-",
+    ].join("\n");
+  }
   // const host = detail.userVisitAddress.split(":")[0] || detail.dstIp;
   // const port = detail.userVisitAddress.split(":")[1] || detail.dstPort;
   return [
@@ -146,6 +217,42 @@ function buildRequestReqRaw(_detail: TrafficLogDetail): string {
   ].join("\n");
 }
 
+function decodeBase64Bytes(value: string): number[] {
+  if (!value) return [];
+  try {
+    if (typeof atob === "function") {
+      const raw = atob(value);
+      return Array.from(raw, (char) => char.charCodeAt(0));
+    }
+  } catch {
+    return [];
+  }
+  return [];
+}
+
+function formatHex(bytes: number[]): string {
+  if (!bytes.length) return "-";
+  const lines: string[] = [];
+  for (let offset = 0; offset < bytes.length; offset += 16) {
+    const chunk = bytes.slice(offset, offset + 16);
+    lines.push(
+      `${offset.toString(16).padStart(4, "0")}  ${chunk
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join(" ")}`,
+    );
+  }
+  return lines.join("\n");
+}
+
+function formatPrintable(bytes: number[]): string {
+  if (!bytes.length) return "-";
+  let out = "";
+  for (const byte of bytes) {
+    out += byte >= 32 && byte <= 126 ? String.fromCharCode(byte) : ".";
+  }
+  return out;
+}
+
 function buildRequestBody(): string {
   return "";
 }
@@ -161,10 +268,6 @@ function buildRequestHeader(detail: TrafficLogDetail): string {
     `accept-encoding: gzip, deflate`,
     `accept-language: zh-CN,zh;q=0.9`,
   ].join("\n");
-}
-
-function buildRequestQueryParams(): string {
-  return "page=1\nlimit=20\nsort=desc";
 }
 
 function buildResponseResRaw(detail: TrafficLogDetail): string {
@@ -213,19 +316,22 @@ function buildTrafficLogRequestBlock(
     panes: [
       {
         key: "req-raw",
-        label: "Req-Raw",
+        label: detail.payloadSample ? "Base64" : "Req-Raw",
         content: buildRequestReqRaw(detail),
       },
-      { key: "body", label: "Body", content: buildRequestBody() },
       {
-        key: "header",
-        label: "Header",
-        content: buildRequestHeader(detail),
+        key: "hex",
+        label: "Hex",
+        content: detail.payloadSample
+          ? formatHex(decodeBase64Bytes(detail.payloadSample.sampleB64))
+          : buildRequestBody(),
       },
       {
-        key: "query",
-        label: "Query Params",
-        content: buildRequestQueryParams(),
+        key: "printable",
+        label: "Printable",
+        content: detail.payloadSample
+          ? formatPrintable(decodeBase64Bytes(detail.payloadSample.sampleB64))
+          : buildRequestHeader(detail),
       },
     ],
   };

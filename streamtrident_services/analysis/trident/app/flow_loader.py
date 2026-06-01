@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any, Mapping
 
 from .redis_consumer import RedisStreamMessage
+
+PAYLOAD_FIELD_NAMES = frozenset(
+    {
+        "payload_sample_b64",
+        "payload_sample_bytes",
+        "payload_original_bytes",
+        "payload_truncated",
+        "payload_direction",
+    }
+)
 
 
 ALIASES: dict[str, tuple[str, ...]] = {
@@ -41,6 +51,11 @@ class FlowRecord:
     mq_message_id: str
     source_flow_id: str
     raw_event: str
+    payload_sample_b64: str
+    payload_sample_bytes: int
+    payload_original_bytes: int
+    payload_truncated: bool
+    payload_direction: str
     record_version: int
     record_stage: str = "ingested"
     window_index: int = 0
@@ -65,9 +80,24 @@ class FlowRecord:
             "mq_message_id": self.mq_message_id,
             "source_flow_id": self.source_flow_id,
             "raw_event": self.raw_event,
+            "payload_sample_b64": self.payload_sample_b64,
+            "payload_sample_bytes": self.payload_sample_bytes,
+            "payload_original_bytes": self.payload_original_bytes,
+            "payload_truncated": 1 if self.payload_truncated else 0,
+            "payload_direction": self.payload_direction,
             "record_version": self.record_version,
             "record_stage": self.record_stage,
         }
+
+    def without_payload(self) -> "FlowRecord":
+        return replace(
+            self,
+            payload_sample_b64="",
+            payload_sample_bytes=0,
+            payload_original_bytes=0,
+            payload_truncated=False,
+            payload_direction="",
+        )
 
 
 class FlowLoader:
@@ -91,6 +121,11 @@ class FlowLoader:
         source_flow_id = str(_pick(merged, "source_flow_id", ""))
         features = _features(merged)
         raw_event = _raw_event(fields, raw_payload)
+        payload_sample_b64 = str(merged.get("payload_sample_b64") or "")
+        payload_sample_bytes = _non_negative_int(merged.get("payload_sample_bytes"))
+        payload_original_bytes = _non_negative_int(merged.get("payload_original_bytes"))
+        payload_truncated = _bool(merged.get("payload_truncated"))
+        payload_direction = str(merged.get("payload_direction") or "").strip()
         flow_uid = str(merged.get("flow_uid") or f"{message.stream}:{message.message_id}")
 
         return FlowRecord(
@@ -111,6 +146,11 @@ class FlowLoader:
             mq_message_id=message.message_id,
             source_flow_id=source_flow_id,
             raw_event=raw_event,
+            payload_sample_b64=payload_sample_b64,
+            payload_sample_bytes=payload_sample_bytes,
+            payload_original_bytes=payload_original_bytes,
+            payload_truncated=payload_truncated,
+            payload_direction=payload_direction,
             record_version=_record_version(message.message_id),
         )
 
@@ -212,9 +252,23 @@ def _total_bytes(payload: Mapping[str, Any]) -> int:
 def _raw_event(fields: Mapping[str, Any], raw_payload: Mapping[str, Any]) -> str:
     raw = fields.get("raw_event_json") or fields.get("raw_event") or fields.get("eve")
     if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return raw
+        if isinstance(parsed, dict):
+            return _raw_event_without_payload_fields(parsed, fallback=raw)
         return raw
     payload = raw_payload if raw_payload else fields
-    return json.dumps(dict(payload), ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return _raw_event_without_payload_fields(payload, fallback=None)
+
+
+def _raw_event_without_payload_fields(payload: Mapping[str, Any], *, fallback: str | None) -> str:
+    if not any(str(key) in PAYLOAD_FIELD_NAMES for key in payload):
+        if fallback is not None:
+            return fallback
+    clean = {str(key): value for key, value in payload.items() if str(key) not in PAYLOAD_FIELD_NAMES}
+    return json.dumps(clean, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
 def _normalize_time(value: Any) -> str:
@@ -265,6 +319,16 @@ def _non_negative_int(value: Any) -> int:
     except (TypeError, ValueError):
         return 0
     return max(0, number)
+
+
+def _bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
 
 
 def _protocol(value: Any) -> int:

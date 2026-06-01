@@ -151,6 +151,51 @@ FORMAT JSONEachRow
             "next_cursor": rows[-1]["flow_uid"] if rows else None,
         }
 
+    def get_flow_detail(self, *, session_id: str, flow_uid: str) -> dict[str, Any] | None:
+        sql = f"""
+SELECT
+    session_id,
+    flow_uid,
+    event_time,
+    src_ip,
+    dst_ip,
+    src_port,
+    dst_port,
+    protocol,
+    app_proto,
+    total_bytes,
+    feature_profile,
+    features_json,
+    assigned_learner,
+    is_unknown,
+    window_index,
+    pred_loss,
+    threshold,
+    assignment_meta,
+    learner_snapshot_id,
+    learner_snapshot_version,
+    mq_type,
+    mq_topic,
+    mq_message_id,
+    source_flow_id,
+    raw_event,
+    payload_sample_b64,
+    payload_sample_bytes,
+    payload_original_bytes,
+    payload_truncated,
+    payload_direction,
+    record_version,
+    record_stage
+FROM ch_flow
+WHERE session_id = {_quote(session_id)} AND flow_uid = {_quote(flow_uid)}
+ORDER BY record_version DESC
+LIMIT 1
+FORMAT JSONEachRow
+"""
+        text = self.client.execute(sql)
+        rows = [_parse_json(line) for line in text.splitlines() if line.strip()]
+        return rows[0] if rows else None
+
     def topology_graph(
         self,
         *,

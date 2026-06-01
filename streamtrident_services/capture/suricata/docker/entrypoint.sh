@@ -10,6 +10,8 @@ REDIS_STREAM_MAXLEN="${REDIS_STREAM_MAXLEN:-1000000}"
 CIC_MODE="${CIC_MODE:-cic-flowmeter}"
 CIC_FLOW_TIMEOUT_US="${CIC_FLOW_TIMEOUT_US:-120000000}"
 CIC_ACTIVE_IDLE_THRESHOLD_US="${CIC_ACTIVE_IDLE_THRESHOLD_US:-5000000}"
+CIC_PAYLOAD_SAMPLE_ENABLED="${CIC_PAYLOAD_SAMPLE_ENABLED:-true}"
+CIC_PAYLOAD_SAMPLE_MAX_BYTES="${CIC_PAYLOAD_SAMPLE_MAX_BYTES:-256}"
 SURICATA_RUNMODE="${SURICATA_RUNMODE:-workers}"
 SURICATA_EXTRA_ARGS="${SURICATA_EXTRA_ARGS:-}"
 SURICATA_FILTER_CONFIG="${SURICATA_FILTER_CONFIG:-}"
@@ -34,12 +36,13 @@ fi
 
 python3 - "$BASE_CONF" "$LIVE_CONF" "$REDIS_HOST" "$REDIS_PORT" "$REDIS_STREAM" "$REDIS_OUTPUT_MODE" \
   "$REDIS_STREAM_MAXLEN" "$CIC_MODE" "$CIC_FLOW_TIMEOUT_US" \
-  "$CIC_ACTIVE_IDLE_THRESHOLD_US" "$SURICATA_FILTER_CONFIG" <<'PY'
+  "$CIC_ACTIVE_IDLE_THRESHOLD_US" "$CIC_PAYLOAD_SAMPLE_ENABLED" "$CIC_PAYLOAD_SAMPLE_MAX_BYTES" \
+  "$SURICATA_FILTER_CONFIG" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-base, out, redis_host, redis_port, redis_stream, redis_mode, redis_maxlen, cic_mode, flow_timeout, active_idle, filter_path = sys.argv[1:]
+base, out, redis_host, redis_port, redis_stream, redis_mode, redis_maxlen, cic_mode, flow_timeout, active_idle, payload_sample_enabled, payload_sample_max_bytes, filter_path = sys.argv[1:]
 
 def load_filter(path: str) -> dict:
     if not path:
@@ -116,6 +119,8 @@ for line in lines:
             f"            mode: {cic_mode}",
             f"            flow-timeout-us: {flow_timeout}",
             f"            active-idle-threshold-us: {active_idle}",
+            f"            payload-sample-enabled: {payload_sample_enabled}",
+            f"            payload-sample-max-bytes: {payload_sample_max_bytes}",
         ])
         append_filter(result, filter_payload)
         result.extend([
@@ -141,6 +146,8 @@ echo "  redis=$REDIS_HOST:$REDIS_PORT"
 echo "  stream=$REDIS_STREAM"
 echo "  redis_output_mode=$REDIS_OUTPUT_MODE"
 echo "  mode=$CIC_MODE"
+echo "  payload_sample_enabled=$CIC_PAYLOAD_SAMPLE_ENABLED"
+echo "  payload_sample_max_bytes=$CIC_PAYLOAD_SAMPLE_MAX_BYTES"
 echo "  log_dir=$LOG_DIR"
 if [ -n "$SURICATA_FILTER_CONFIG" ] && [ -r "$SURICATA_FILTER_CONFIG" ]; then
   echo "  filter_config=$SURICATA_FILTER_CONFIG"

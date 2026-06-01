@@ -4,7 +4,7 @@ import base64
 import io
 import math
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -78,6 +78,44 @@ class TScissors:
 
 
 @dataclass
+class LearnerClassification:
+    benign_state: str = "unknown"
+    primary_attack_type: str = ""
+    confidence: float = 0.0
+    risk_band: str = ""
+    source: str = ""
+    window_index: int = -1
+    version: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "benign_state": self.benign_state,
+            "primary_attack_type": self.primary_attack_type,
+            "confidence": float(self.confidence),
+            "risk_band": self.risk_band,
+            "source": self.source,
+            "window_index": int(self.window_index),
+            "version": int(self.version),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any] | None) -> "LearnerClassification":
+        if not isinstance(payload, dict):
+            return cls()
+        window_index = payload.get("window_index")
+        version = payload.get("version")
+        return cls(
+            benign_state=_normalize_benign_state(str(payload.get("benign_state") or "unknown")),
+            primary_attack_type=str(payload.get("primary_attack_type") or ""),
+            confidence=float(payload.get("confidence") or 0.0),
+            risk_band=str(payload.get("risk_band") or ""),
+            source=str(payload.get("source") or ""),
+            window_index=int(window_index) if window_index is not None else -1,
+            version=int(version) if version is not None else 0,
+        )
+
+
+@dataclass
 class Learner:
     name: str
     scaler: StandardScaler
@@ -88,6 +126,27 @@ class Learner:
     lr: float
     classifier_backend: str
     train_sample_count: int = 0
+    classification: LearnerClassification = field(default_factory=LearnerClassification)
+
+    def apply_classification(
+        self,
+        *,
+        primary_attack_type: str,
+        confidence: float = 0.0,
+        risk_band: str = "",
+        source: str = "",
+        window_index: int = -1,
+    ) -> None:
+        attack_type = str(primary_attack_type or "").strip().upper()
+        self.classification = LearnerClassification(
+            benign_state=_benign_state_for_attack_type(attack_type),
+            primary_attack_type=attack_type,
+            confidence=float(confidence or 0.0),
+            risk_band=str(risk_band or ""),
+            source=str(source or ""),
+            window_index=int(window_index),
+            version=int(self.classification.version) + 1,
+        )
 
     def reconstruction_loss(self, x: np.ndarray) -> np.ndarray:
         x_scaled = self.scaler.transform(x)
@@ -149,6 +208,7 @@ class Learner:
             "batch_size": int(self.batch_size),
             "lr": float(self.lr),
             "train_sample_count": int(self.train_sample_count),
+            "classification": self.classification.to_dict(),
             "scaler": _b64_pickle(self.scaler),
         }
         if self.classifier_backend == "iforest":
@@ -181,6 +241,7 @@ class Learner:
             lr=float(payload.get("lr", 0.001)),
             classifier_backend=backend,
             train_sample_count=int(payload.get("train_sample_count", 0)),
+            classification=LearnerClassification.from_dict(payload.get("classification")),
         )
 
 
@@ -221,7 +282,15 @@ class TSieve:
         self.last_add_train_trace: dict[str, Any] = {}
 
     def is_benign_learner(self, name: str) -> bool:
-        return "BENIGN" in str(name).upper()
+        normalized = str(name)
+        learner = self.learners.get(normalized)
+        if learner is not None:
+            state = _normalize_benign_state(learner.classification.benign_state)
+            if state == "benign":
+                return True
+            if state == "non_benign":
+                return False
+        return "BENIGN" in normalized.upper()
 
     def add_learner(self, name: str, x_train: np.ndarray, epochs: int) -> bool:
         if len(x_train) < self.min_class_samples:
@@ -437,3 +506,17 @@ def _b64_pickle(value: Any) -> str:
 
 def _unb64_pickle(value: str) -> Any:
     return pickle.loads(base64.b64decode(value.encode("ascii")))
+
+
+def _normalize_benign_state(value: str) -> str:
+    state = str(value or "").strip().lower()
+    return state if state in {"unknown", "benign", "non_benign"} else "unknown"
+
+
+def _benign_state_for_attack_type(attack_type: str) -> str:
+    normalized = str(attack_type or "").strip().upper()
+    if normalized == "BENIGN_NORMAL":
+        return "benign"
+    if normalized:
+        return "non_benign"
+    return "unknown"

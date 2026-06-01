@@ -523,6 +523,14 @@ class OnlineEngine:
             unknown_buffer_size=len(self.tmagnifier.unknown_buffer),
             threshold=float(learner.threshold),
         )
+        primary_attack_type, primary_confidence = _primary_attack(rule_json)
+        learner.apply_classification(
+            primary_attack_type=primary_attack_type,
+            confidence=primary_confidence,
+            risk_band=risk_band,
+            source="cold_start_finalize" if cold_start_finalize else "learner_audit",
+            window_index=int(self.learner_last_seen_windows.get(name, 0)),
+        )
         profile_json = {
             "algorithm": "trident_core_replicated",
             "component": "tSieve+tScissors+tMagnifier",
@@ -530,6 +538,7 @@ class OnlineEngine:
             "feature_columns": self.feature_columns,
             "threshold": float(learner.threshold),
             "backend": learner.classifier_backend,
+            "classification": learner.classification.to_dict(),
             SESSION_BASELINE_PROFILE_KEY: self.baseline_learner_name,
             "learner_origin": "cold_start" if str(name).startswith("COLD_") else "runtime",
             "baseline_set": str(name).startswith("COLD_"),
@@ -786,6 +795,16 @@ class OnlineEngine:
             learner.name = str(row.get("learner_name") or learner.name or "")
             if not learner.name:
                 continue
+            if learner.classification.benign_state == "unknown":
+                primary_attack_type, primary_confidence = _primary_attack(row.get("rule_json"))
+                if primary_attack_type:
+                    learner.apply_classification(
+                        primary_attack_type=primary_attack_type,
+                        confidence=primary_confidence,
+                        risk_band=str(row.get("risk_band") or ""),
+                        source="pg_learner_rule_json",
+                        window_index=int(row.get("last_seen_window_index") or -1),
+                    )
             self.tsieve.learners[learner.name] = learner
             self.feature_columns = [str(x) for x in profile.get("feature_columns", [])] or self.feature_columns
             self.learner_snapshot_refs[learner.name] = (
@@ -995,6 +1014,23 @@ def _to_float(value: Any) -> float | None:
             return None
         return number if np.isfinite(number) else None
     return None
+
+
+def _primary_attack(rule_json: Any) -> tuple[str, float]:
+    if not isinstance(rule_json, dict):
+        return "", 0.0
+    attack_types = rule_json.get("attack_types")
+    if not isinstance(attack_types, list):
+        return "", 0.0
+    for item in attack_types:
+        if not isinstance(item, dict):
+            continue
+        attack_type = str(item.get("attack_type") or "").strip().upper()
+        if not attack_type:
+            continue
+        confidence = _to_float(item.get("confidence"))
+        return attack_type, float(confidence or 0.0)
+    return "", 0.0
 
 
 def _state_hash(payload: dict[str, Any]) -> str:

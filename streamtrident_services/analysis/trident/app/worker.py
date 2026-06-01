@@ -391,8 +391,22 @@ def _process_window(
                 emit_event(event_name, **{key: value for key, value in event.items() if key != "event"})
 
         assignments = _with_snapshot_refs(result.assignments, snapshots_by_learner)
+        cold_start_finalized = _payload_policy_cold_start_finalized(
+            cfg=cfg,
+            runtime_repo=runtime_repo,
+        )
         t_stage = perf_counter()
-        assigned = assignment_writer.write(records, assignments, window_index=result.window_index)
+        assigned = assignment_writer.write(
+            records,
+            assignments,
+            window_index=result.window_index,
+            should_keep_payload=lambda assignment: _should_keep_payload(
+                assignment,
+                cfg=cfg,
+                engine=engine,
+                cold_start_finalized=cold_start_finalized,
+            ),
+        )
         written = assigned
         timings["assignment_write_seconds"] = perf_counter() - t_stage
         if cfg.redis_output_enabled:
@@ -528,6 +542,36 @@ def _with_snapshot_refs(
             )
         )
     return updated
+
+
+def _payload_policy_cold_start_finalized(
+    *,
+    cfg: TridentConfig,
+    runtime_repo: SessionRuntimeRepository,
+) -> bool:
+    if cfg.runtime_mode == "cold_start":
+        return False
+    runtime = runtime_repo.get(session_id=cfg.session_id)
+    return bool(runtime and runtime.get("cold_start_finalized"))
+
+
+def _should_keep_payload(
+    assignment: FlowAssignment,
+    *,
+    cfg: TridentConfig,
+    engine: OnlineEngine,
+    cold_start_finalized: bool,
+) -> bool:
+    if cfg.runtime_mode == "cold_start":
+        return False
+    if not cold_start_finalized:
+        return False
+    if assignment.is_unknown:
+        return True
+    learner_name = str(assignment.assigned_learner or "").strip()
+    if not learner_name:
+        return True
+    return not engine.tsieve.is_benign_learner(learner_name)
 
 
 def _log_batch(

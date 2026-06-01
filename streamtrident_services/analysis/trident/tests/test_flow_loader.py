@@ -92,6 +92,39 @@ def test_loads_suricata_eve_json_field() -> None:
     assert record.raw_event == json.dumps(eve)
 
 
+def test_loads_payload_sample_without_adding_it_to_raw_event_or_features() -> None:
+    loader = FlowLoader(session_id="s1", feature_profile="compact")
+    eve = {
+        "timestamp": "2026-05-12T09:50:35.026084+0000",
+        "event_type": "cic_flow",
+        "src_ip": "192.168.117.2",
+        "dest_ip": "119.147.128.50",
+        "proto": "TCP",
+        "payload_sample_b64": "AQID",
+        "payload_sample_bytes": 3,
+        "payload_original_bytes": 100,
+        "payload_truncated": True,
+        "payload_direction": "toserver",
+        "features": {"bytes": 100},
+    }
+    message = RedisStreamMessage(
+        stream="suricata:cic_flow",
+        message_id="1779958685129-3",
+        fields={"eve": json.dumps(eve)},
+    )
+
+    record = loader.load(message)
+
+    assert record.payload_sample_b64 == "AQID"
+    assert record.payload_sample_bytes == 3
+    assert record.payload_original_bytes == 100
+    assert record.payload_truncated is True
+    assert record.payload_direction == "toserver"
+    assert "payload_sample_b64" not in json.loads(record.raw_event)
+    assert json.loads(record.features_json) == {"bytes": 100}
+    assert "payload_sample_b64" not in json.loads(record.features_json)
+
+
 def test_total_bytes_falls_back_to_cic_lengths() -> None:
     loader = FlowLoader(session_id="s1", feature_profile="compact")
     message = RedisStreamMessage(

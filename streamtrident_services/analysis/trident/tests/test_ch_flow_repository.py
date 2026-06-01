@@ -42,6 +42,39 @@ def test_assignment_update_preserves_base_row_and_increments_version() -> None:
     assert row["record_version"] == 1001
 
 
+def test_assignment_update_preserves_payload_sample_columns() -> None:
+    message = RedisStreamMessage(
+        "suricata:cic_flow",
+        "1000-0",
+        {
+            "payload_sample_b64": "AQID",
+            "payload_sample_bytes": "3",
+            "payload_original_bytes": "100",
+            "payload_truncated": "true",
+            "payload_direction": "toserver",
+        },
+    )
+    record = FlowLoader(session_id="s1", feature_profile="compact").load(message)
+    assignment = FlowAssignment(
+        flow_uid=record.flow_uid,
+        assigned_learner="BASELINE_0",
+        is_unknown=False,
+        pred_loss=0.1,
+        threshold=0.35,
+        assignment_meta={"engine": "unit"},
+        learner_snapshot_id="snap-1",
+        learner_snapshot_version=1,
+    )
+
+    row = AssignmentUpdate.from_record(record, assignment, window_index=7).to_clickhouse_row()
+
+    assert row["payload_sample_b64"] == "AQID"
+    assert row["payload_sample_bytes"] == 3
+    assert row["payload_original_bytes"] == 100
+    assert row["payload_truncated"] == 1
+    assert row["payload_direction"] == "toserver"
+
+
 def test_topology_node_includes_directional_flow_counts() -> None:
     node = _topology_node(
         "192.168.10.3",

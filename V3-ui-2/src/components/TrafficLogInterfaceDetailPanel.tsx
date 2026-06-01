@@ -28,7 +28,7 @@ function CodeViewer({ content }: { content: string }) {
 }
 
 export function HttpMessageBlock({ block }: { block: TrafficLogInterfaceBlock }) {
-  const [activePaneKey] = useState(block.defaultPaneKey);
+  const [activePaneKey, setActivePaneKey] = useState(block.defaultPaneKey);
 
   const activePane = useMemo(
     () =>
@@ -38,6 +38,28 @@ export function HttpMessageBlock({ block }: { block: TrafficLogInterfaceBlock })
 
   return (
     <section className="flex flex-col gap-[8px]">
+      {block.panes.length > 1 ? (
+        <div className="flex flex-wrap gap-[6px]">
+          {block.panes.map((pane) => {
+            const active = pane.key === activePaneKey;
+            return (
+              <button
+                key={pane.key}
+                type="button"
+                className={[
+                  "h-[26px] rounded-[4px] border px-[10px] text-[12px] leading-[24px] transition-colors",
+                  active
+                    ? "border-[#1777ff] bg-[#e8f1ff] text-[#1777ff]"
+                    : "border-[#d9d9d9] bg-white text-[#666] hover:border-[#1777ff] hover:text-[#1777ff]",
+                ].join(" ")}
+                onClick={() => setActivePaneKey(pane.key)}
+              >
+                {pane.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
       {/* <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-[6px]">
           <span className="text-[14px] font-medium text-[#333]">

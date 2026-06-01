@@ -1,0 +1,2 @@
+ALTER TABLE ch_flow
+    MODIFY TTL event_time + INTERVAL 30 DAY DELETE;

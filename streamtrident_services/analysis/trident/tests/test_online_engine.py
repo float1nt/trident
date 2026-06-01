@@ -110,6 +110,11 @@ def test_online_engine_learner_row_contains_audit_payloads(tmp_path) -> None:
     assert "quality_gates" in row["profile_json"]
     assert "trident_model" not in row["profile_json"]
     assert row["profile_json"]["model_ref"]["path"]
+    assert row["profile_json"]["classification"]["primary_attack_type"]
+    assert (
+        row["profile_json"]["classification"]["benign_state"]
+        == engine.tsieve.learners["COLD_0|BENIGN"].classification.benign_state
+    )
     assert "rules" in row["rule_json"]
     assert "top" in row["topology_json"]
 
@@ -151,6 +156,8 @@ def test_online_engine_finalizes_cold_start_after_stable_observing_window() -> N
     finalized = {row["learner_name"]: row for row in stable.updated_learners}
     assert finalized["COLD_0|BENIGN"]["rule_json"]["attack_types"][0]["attack_type"] == "BENIGN_NORMAL"
     assert finalized["COLD_1|BENIGN"]["rule_json"]["attack_types"][0]["attack_type"] == "BENIGN_NORMAL"
+    assert engine.tsieve.is_benign_learner("COLD_0|BENIGN") is True
+    assert engine.tsieve.learners["COLD_0|BENIGN"].classification.benign_state == "benign"
 
 
 def test_online_engine_patches_only_current_window_assignments_on_cross_window_promotion() -> None:

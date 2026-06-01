@@ -173,6 +173,34 @@ export type RiskTrafficLogItem = {
   protocol: string;
 };
 
+export type FlowPayloadSample = {
+  encoding: string;
+  sample_b64: string;
+  sample_bytes: number;
+  original_bytes: number;
+  truncated: boolean;
+  direction: string;
+};
+
+export type FlowDetail = {
+  session_id: string;
+  flow_uid: string;
+  event_time: string;
+  src_ip: string;
+  dst_ip: string;
+  src_port: number;
+  dst_port: number;
+  protocol: number;
+  app_proto?: string;
+  total_bytes: number;
+  assigned_learner?: string;
+  is_unknown?: number;
+  window_index?: number;
+  source_flow_id?: string;
+  raw_event?: string;
+  payload?: FlowPayloadSample;
+};
+
 export type TrafficLogsPageResponse = {
   items: RiskTrafficLogItem[];
   total: number;
@@ -307,6 +335,12 @@ export class RiskService {
       { limit, offset },
     );
     return normalizeTrafficLogsPage(res.data, limit, offset);
+  }
+
+  static async getFlowDetail(flowUid: string): Promise<FlowDetail | null> {
+    if (!flowUid) return null;
+    const res = await get<FlowDetail>(`/api/v1/flows/${encodeURIComponent(flowUid)}`);
+    return res.data ?? null;
   }
 
   static async getIpSummary(ip: string): Promise<IpSummary | null> {
