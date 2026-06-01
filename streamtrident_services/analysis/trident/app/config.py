@@ -14,7 +14,7 @@ class TridentConfig:
     runtime_mode: str = "inference"
     cold_start_exit_on_complete: bool = True
     inference_require_cold_start: bool = True
-    cold_start_stable_windows: int = 20
+    cold_start_stable_windows: int = 40
     cold_start_stable_max_idle_seconds: int = 0
     cold_start_min_learners: int = 1
     cold_start_min_windows: int = 2
@@ -132,7 +132,7 @@ def load_config(path: str | Path | None) -> TridentConfig:
         runtime_mode=str(payload.get("runtime_mode", "inference")),
         cold_start_exit_on_complete=_bool(payload.get("cold_start_exit_on_complete"), True),
         inference_require_cold_start=_bool(payload.get("inference_require_cold_start"), True),
-        cold_start_stable_windows=int(payload.get("cold_start_stable_windows", 20)),
+        cold_start_stable_windows=int(payload.get("cold_start_stable_windows", 40)),
         cold_start_stable_max_idle_seconds=int(payload.get("cold_start_stable_max_idle_seconds", 0)),
         cold_start_min_learners=int(payload.get("cold_start_min_learners", 1)),
         cold_start_min_windows=int(payload.get("cold_start_min_windows", 2)),

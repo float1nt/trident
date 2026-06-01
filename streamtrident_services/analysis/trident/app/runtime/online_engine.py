@@ -52,7 +52,7 @@ class ColdStartTracker:
     windows_processed: int = 0
     flow_count: int = 0
     stable_streak: int = 0
-    phase: str = "learning"
+    phase: str = "active"
     finalized: bool = False
 
 
@@ -220,11 +220,10 @@ class OnlineEngine:
 
         new_learner_names, promoted_flow_uids = self._create_new_learners_from_unknown(window.window_index, mode=mode)
         new_learner_names = [*initial_new, *new_learner_names]
-        allow_updates = mode != "cold_start" or self.cold_start_tracker.phase == "learning"
         update_candidates = accepted_by_learner
         if mode == "inference":
             update_candidates = {name: samples for name, samples in accepted_by_learner.items() if str(name).startswith("NEW_")}
-        updated_learner_names = self._incremental_update(update_candidates, window_index=window.window_index) if allow_updates else []
+        updated_learner_names = self._incremental_update(update_candidates, window_index=window.window_index)
         if mode == "inference":
             recluster_created, recluster_promoted = self._maybe_recluster_small_learners(window.window_index)
         else:
@@ -640,14 +639,10 @@ class OnlineEngine:
         tracker.windows_processed += 1
         tracker.flow_count += int(window_flow_count)
         learning_activity = bool(new_learner_names or updated_learner_names)
-        if tracker.phase == "observing" and new_learner_names:
-            tracker.phase = "learning"
         if learning_activity:
             tracker.stable_streak = 0
         else:
             tracker.stable_streak += 1
-        if tracker.phase == "learning" and self._cold_start_min_guards_met():
-            tracker.phase = "observing"
         events = [
             {
                 "event": "cold_start_window_state",
@@ -693,8 +688,7 @@ class OnlineEngine:
     def _cold_start_ready_to_finalize(self) -> bool:
         tracker = self.cold_start_tracker
         return (
-            tracker.phase == "observing"
-            and self._cold_start_min_guards_met()
+            self._cold_start_min_guards_met()
             and tracker.stable_streak >= int(self.cfg.cold_start_stable_windows)
         )
 

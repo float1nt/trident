@@ -181,13 +181,16 @@ class PageQueryService:
             time_from=spec["time_from"],
             time_to=spec["time_to"],
         )
-        by_bucket = {
-            str(row.get("bucket_start") or ""): {
-                "normal": int(row.get("normal") or 0),
-                "abnormal": int(row.get("abnormal") or 0),
+        if spec.get("aggregate_rolling_weeks"):
+            by_bucket = _aggregate_rolling_week_traffic(rows, spec["buckets"])
+        else:
+            by_bucket = {
+                str(row.get("bucket_start") or ""): {
+                    "normal": int(row.get("normal") or 0),
+                    "abnormal": int(row.get("abnormal") or 0),
+                }
+                for row in rows
             }
-            for row in rows
-        }
         return [
             {
                 "label": item["label"],
@@ -1286,24 +1289,15 @@ def _traffic_trend_spec(value: str) -> dict[str, Any]:
         }
 
     if value == "30d":
-        first_day = today - timedelta(days=29)
-        start = first_day - timedelta(days=first_day.weekday())
-        bucket_count = int(((today - start).days // 7) + 1)
-        buckets = []
-        for index in range(bucket_count):
-            bucket_start = start + timedelta(days=index * 7)
-            bucket_end = min(bucket_start + timedelta(days=6), today)
-            buckets.append(
-                {
-                    "key": _bucket_key(bucket_start),
-                    "label": _format_chart_date_range(bucket_start, bucket_end),
-                }
-            )
+        week_count = 4
+        buckets = _rolling_week_buckets(today, week_count=week_count)
+        oldest_week_start = buckets[0]["week_start"]
         return {
-            "bucket": "week",
-            "time_from": bounds["time_from"],
+            "bucket": "day",
+            "time_from": _iso_z(oldest_week_start),
             "time_to": bounds["time_to"],
             "buckets": buckets,
+            "aggregate_rolling_weeks": True,
         }
 
     start = current_hour - timedelta(hours=23)
@@ -1335,6 +1329,59 @@ def _format_chart_date_range(start: datetime, end: datetime) -> str:
     start_day = start.astimezone(timezone.utc)
     end_day = end.astimezone(timezone.utc)
     return f"{start_day.strftime('%m-%d')}~{end_day.strftime('%m-%d')}"
+
+
+def _rolling_week_buckets(today: datetime, *, week_count: int = 4) -> list[dict[str, Any]]:
+    """Rolling 7-day windows ending at today; oldest bucket first."""
+    buckets: list[dict[str, Any]] = []
+    for index in range(week_count):
+        week_end = today - timedelta(days=(week_count - 1 - index) * 7)
+        week_start = week_end - timedelta(days=6)
+        buckets.append(
+            {
+                "key": _bucket_key(week_start),
+                "label": _format_chart_date_range(week_start, week_end),
+                "week_start": week_start,
+                "week_end": week_end,
+            }
+        )
+    return buckets
+
+
+def _aggregate_rolling_week_traffic(
+    rows: list[dict[str, Any]],
+    buckets: list[dict[str, Any]],
+) -> dict[str, dict[str, int]]:
+    totals = {
+        str(item["key"]): {"normal": 0, "abnormal": 0}
+        for item in buckets
+    }
+    for row in rows:
+        bucket_start = _parse_bucket_start(row.get("bucket_start"))
+        if bucket_start is None:
+            continue
+        for item in buckets:
+            week_start = item["week_start"]
+            week_end = item["week_end"]
+            if week_start <= bucket_start <= week_end:
+                key = str(item["key"])
+                totals[key]["normal"] += int(row.get("normal") or 0)
+                totals[key]["abnormal"] += int(row.get("abnormal") or 0)
+                break
+    return totals
+
+
+def _parse_bucket_start(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _risk_item_from_learner(

@@ -204,7 +204,7 @@ def test_overview_traffic_trend_30d_uses_date_range_labels() -> None:
 
     data = service.overview_traffic_trend(time_range="30d")
 
-    assert len(data) >= 4
+    assert len(data) == 4
     assert all("~" in item["label"] for item in data)
     assert all(len(item["label"].split("~")) == 2 for item in data)
 

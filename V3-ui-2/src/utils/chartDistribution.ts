@@ -99,7 +99,7 @@ export function buildTrafficDistributionRingOption(
   );
 }
 
-/** 构建协议分布环形图（按背景色系列循环配色） */
+/** 构建协议分布环形图（按背景色系列循环配色，tooltip 仅展示占比） */
 export function buildProtocolDistributionRingOption(
   data: DistributionItem[],
   options: { compactTransport?: boolean } = {},
@@ -114,6 +114,7 @@ export function buildProtocolDistributionRingOption(
       toEChartsLinearGradient(
         pickOverviewChartGradient(OVERVIEW_CHART_GRADIENTS, index),
       ),
+    { showTrafficVolume: false },
   );
 }
 
@@ -127,8 +128,10 @@ export function buildDistributionRingOption(
   data: DistributionItem[],
   resolveGradient: DistributionGradientResolver = (name, index) =>
     resolveTrafficDistributionGradient(name, index),
+  options: { showTrafficVolume?: boolean } = {},
 ): EChartsOption {
   const total = data.reduce((sum, item) => sum + item.value, 0);
+  const showTrafficVolume = options.showTrafficVolume !== false;
 
   return {
     backgroundColor: "transparent",
@@ -144,6 +147,9 @@ export function buildDistributionRingOption(
             ? Number(params.value ?? 0)
             : 0;
         const ratio = total > 0 ? (value / total) * 100 : 0;
+        if (!showTrafficVolume) {
+          return `${name}<br/>占比: ${ratio.toFixed(1)}%`;
+        }
         return `${name}<br/>占比: ${ratio.toFixed(1)}%<br/>流量: ${formatTrafficVolumeText(value)}`;
       },
     },
