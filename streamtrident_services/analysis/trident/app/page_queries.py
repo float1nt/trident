@@ -377,6 +377,18 @@ class PageQueryService:
                 if load_endpoint
                 else _empty_topology_graphs("endpoint")
             )
+            if hasattr(self.flows, "dashboard_topology_stats"):
+                stats_by_kind = self.flows.dashboard_topology_stats(
+                    session_id=sid,
+                    risk_learners=risk_names,
+                    time_from=time_from,
+                    time_to=time_to,
+                    approximate=True,
+                )
+                if load_host:
+                    _merge_dashboard_topology_stats(host_graphs, stats_by_kind)
+                if load_endpoint:
+                    _merge_dashboard_topology_stats(endpoint_graphs, stats_by_kind)
             views = {
                 "__combined__": _topology_view(
                     label="总流量",
@@ -1219,6 +1231,22 @@ def _topology_view(
         "host": host,
         "endpoint": endpoint,
     }
+
+
+def _merge_dashboard_topology_stats(
+    graphs: dict[str, dict[str, Any]],
+    stats_by_kind: dict[str, dict[str, Any]],
+) -> None:
+    for kind, graph in graphs.items():
+        stats = stats_by_kind.get(kind)
+        if not stats:
+            continue
+        graph_stats = dict(graph.get("stats") or {})
+        graph_stats.update(stats)
+        graph["stats"] = graph_stats
+        total_flow_count = int(stats.get("total_flow_count") or 0)
+        graph["flow_count"] = total_flow_count
+        graph["total_flow_count"] = total_flow_count
 
 
 def _risk_ip_item(

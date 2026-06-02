@@ -133,6 +133,7 @@ def test_dashboard_topology_uses_batched_graph_query() -> None:
         def __init__(self) -> None:
             self.batch_calls: list[dict[str, Any]] = []
             self.single_calls = 0
+            self.stats_calls: list[dict[str, Any]] = []
 
         def dashboard_topology_graphs(self, **kwargs: Any) -> dict[str, dict[str, Any]]:
             self.batch_calls.append(kwargs)
@@ -147,6 +148,35 @@ def test_dashboard_topology_uses_batched_graph_query() -> None:
             self.single_calls += 1
             return {"flow_count": 1, "total_flow_count": 1, "node_mode": "host", "nodes": [], "links": [], "stats": {}}
 
+        def dashboard_topology_stats(self, **kwargs: Any) -> dict[str, dict[str, Any]]:
+            self.stats_calls.append(kwargs)
+            return {
+                "combined": {
+                    "total_flow_count": 12,
+                    "unique_ip_count": 4,
+                    "unique_endpoint_count": 8,
+                    "unique_dst_port_count": 2,
+                    "top_dst_port": 443,
+                    "top_dst_port_ratio": 0.75,
+                },
+                "benign": {
+                    "total_flow_count": 7,
+                    "unique_ip_count": 3,
+                    "unique_endpoint_count": 6,
+                    "unique_dst_port_count": 1,
+                    "top_dst_port": 80,
+                    "top_dst_port_ratio": 1.0,
+                },
+                "attack": {
+                    "total_flow_count": 5,
+                    "unique_ip_count": 2,
+                    "unique_endpoint_count": 4,
+                    "unique_dst_port_count": 1,
+                    "top_dst_port": 443,
+                    "top_dst_port_ratio": 1.0,
+                },
+            }
+
     flows = BatchedFlows()
     service = PageQueryService(session_id="s1", flows=flows, learners=FakeLearners())
 
@@ -155,8 +185,12 @@ def test_dashboard_topology_uses_batched_graph_query() -> None:
     assert flows.single_calls == 0
     assert [call["node_mode"] for call in flows.batch_calls] == ["host"]
     assert all(call["compact_top_n"] == 8 for call in flows.batch_calls)
-    assert data["total_flows"] == 10
-    assert data["views"]["__attack__"]["host"]["flow_count"] == 3
+    assert len(flows.stats_calls) == 1
+    assert flows.stats_calls[0]["approximate"] is True
+    assert data["total_flows"] == 12
+    assert data["views"]["__combined__"]["host"]["stats"]["top_dst_port"] == 443
+    assert data["views"]["__combined__"]["host"]["stats"]["top_dst_port_ratio"] == 0.75
+    assert data["views"]["__attack__"]["host"]["flow_count"] == 5
     assert data["views"]["__benign__"]["endpoint"]["flow_count"] == 0
 
 

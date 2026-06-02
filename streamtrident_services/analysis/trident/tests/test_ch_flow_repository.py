@@ -392,6 +392,45 @@ def test_dashboard_topology_graphs_applies_time_bounds_to_both_queries() -> None
         assert "event_time <= parseDateTime64BestEffort('2026-06-02T01:00:00Z', 3)" in sql
 
 
+def test_dashboard_topology_stats_batches_all_kinds_with_approximate_distincts() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sql: list[str] = []
+
+        def execute(self, sql: str) -> str:
+            self.sql.append(sql)
+            return "\n".join(
+                [
+                    '{"topology_kind":"combined","total_flow_count":10,"top_dst_port":443,"top_dst_port_ratio":0.6,"unique_ip_count":4,"unique_endpoint_count":8,"unique_dst_port_count":2}',
+                    '{"topology_kind":"attack","total_flow_count":4,"top_dst_port":443,"top_dst_port_ratio":1,"unique_ip_count":2,"unique_endpoint_count":4,"unique_dst_port_count":1}',
+                    '{"topology_kind":"benign","total_flow_count":6,"top_dst_port":80,"top_dst_port_ratio":1,"unique_ip_count":3,"unique_endpoint_count":6,"unique_dst_port_count":1}',
+                ]
+            )
+
+    repo = ChFlowRepository.__new__(ChFlowRepository)
+    repo.client = FakeClient()
+
+    stats = repo.dashboard_topology_stats(
+        session_id="s1",
+        risk_learners=["NEW_1"],
+        time_from="2026-06-02T00:00:00Z",
+        time_to="2026-06-02T01:00:00Z",
+    )
+
+    assert len(repo.client.sql) == 1
+    sql = repo.client.sql[0]
+    assert "ARRAY JOIN if(assigned_learner IN ('NEW_1'), ['combined', 'attack'], ['combined', 'benign'])" in sql
+    assert "uniqCombined(ip) AS unique_ip_count" in sql
+    assert "uniqCombined(endpoint) AS unique_endpoint_count" in sql
+    assert "uniqCombined(dst_port) AS unique_dst_port_count" in sql
+    assert "row_number() OVER (PARTITION BY topology_kind ORDER BY port_count DESC, dst_port ASC)" in sql
+    assert "event_time >= parseDateTime64BestEffort('2026-06-02T00:00:00Z', 3)" in sql
+    assert "event_time <= parseDateTime64BestEffort('2026-06-02T01:00:00Z', 3)" in sql
+    assert stats["combined"]["top_dst_port"] == 443
+    assert stats["combined"]["top_dst_port_ratio"] == 0.6
+    assert stats["attack"]["total_flow_count"] == 4
+
+
 def test_learner_trigger_stats_batches_min_max_and_count() -> None:
     class FakeClient:
         def __init__(self) -> None:

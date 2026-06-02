@@ -214,6 +214,7 @@ FORMAT JSONEachRow
         top_n: int = 8,
         edges_per_victim: int = 10,
         include_stats: bool = True,
+        approximate_stats: bool = True,
     ) -> dict[str, Any]:
         top_victims = max(1, min(int(top_n), 500))
         per_victim = max(1, min(int(edges_per_victim), 100))
@@ -229,7 +230,8 @@ FORMAT JSONEachRow
                 time_to=time_to,
                 top_victims=top_victims,
                 edges_per_victim=per_victim,
-                include_stats=False,
+                include_stats=include_stats,
+                approximate_stats=approximate_stats,
             )
             graph = self._topology_endpoint_graph_from_host_edges(
                 host_graph=host_graph,
@@ -268,6 +270,7 @@ FORMAT JSONEachRow
             top_victims=top_victims,
             edges_per_victim=per_victim,
             include_stats=include_stats,
+            approximate_stats=approximate_stats,
         )
 
     def topology_graph_pair(
@@ -283,6 +286,7 @@ FORMAT JSONEachRow
         top_n: int = 8,
         edges_per_victim: int = 10,
         include_stats: bool = True,
+        approximate_stats: bool = True,
     ) -> dict[str, dict[str, Any]]:
         top_victims = max(1, min(int(top_n), 500))
         per_victim = max(1, min(int(edges_per_victim), 100))
@@ -298,6 +302,7 @@ FORMAT JSONEachRow
             top_victims=top_victims,
             edges_per_victim=per_victim,
             include_stats=include_stats,
+            approximate_stats=approximate_stats,
         )
         endpoint_graph = self._topology_endpoint_graph_from_host_edges(
             host_graph=host_graph,
@@ -339,6 +344,7 @@ FORMAT JSONEachRow
         top_victims: int,
         edges_per_victim: int,
         include_stats: bool,
+        approximate_stats: bool,
     ) -> dict[str, Any]:
         abnormal = _abnormal_expr(risk_learners)
         filters = [
@@ -494,6 +500,7 @@ FORMAT JSONEachRow
                 traffic_kind=traffic_kind,
                 time_from=time_from,
                 time_to=time_to,
+                approximate=approximate_stats,
             )
             stats["displayed_victim_count"] = graph["stats"]["displayed_victim_count"]
             stats["edges_per_victim"] = edges_per_victim
@@ -1081,9 +1088,11 @@ FORMAT JSONEachRow
         traffic_kind: str = "combined",
         time_from: str | None = None,
         time_to: str | None = None,
+        approximate: bool = True,
     ) -> dict[str, Any]:
         risk_names = risk_learners or []
         abnormal = _abnormal_expr(risk_names)
+        uniq_fn = "uniqCombined" if approximate else "uniqExact"
         filters = [
             f"session_id = {_quote(session_id)}",
             _time_filter("event_time", time_from, time_to),
@@ -1106,7 +1115,7 @@ ports AS (
     LIMIT 1
 ),
 ips AS (
-    SELECT uniqExact(ip) AS unique_ip_count
+    SELECT {uniq_fn}(ip) AS unique_ip_count
     FROM (
         SELECT src_ip AS ip FROM ch_flow {where}
         UNION ALL
@@ -1114,7 +1123,7 @@ ips AS (
     )
 ),
 endpoints AS (
-    SELECT uniqExact(endpoint) AS unique_endpoint_count
+    SELECT {uniq_fn}(endpoint) AS unique_endpoint_count
     FROM (
         SELECT concat(src_ip, ':', toString(src_port)) AS endpoint FROM ch_flow {where}
         UNION ALL
@@ -1122,7 +1131,7 @@ endpoints AS (
     )
 ),
 dst_ports AS (
-    SELECT uniqExact(dst_port) AS unique_dst_port_count
+    SELECT {uniq_fn}(dst_port) AS unique_dst_port_count
     FROM ch_flow
     {where}
 )
@@ -1144,6 +1153,119 @@ FORMAT JSONEachRow
         text = self.client.execute(sql)
         rows = [_parse_json(line) for line in text.splitlines() if line.strip()]
         return rows[0] if rows else {"top_dst_port": 0, "top_dst_port_ratio": 0}
+
+    def dashboard_topology_stats(
+        self,
+        *,
+        session_id: str,
+        risk_learners: list[str] | None = None,
+        time_from: str | None = None,
+        time_to: str | None = None,
+        approximate: bool = True,
+    ) -> dict[str, dict[str, Any]]:
+        risk_names = risk_learners or []
+        abnormal = _abnormal_expr(risk_names)
+        uniq_fn = "uniqCombined" if approximate else "uniqExact"
+        where = _where(
+            [
+                f"session_id = {_quote(session_id)}",
+                _time_filter("event_time", time_from, time_to),
+            ]
+        )
+        sql = f"""
+WITH flow_rows AS (
+    SELECT
+        topology_kind,
+        src_ip,
+        dst_ip,
+        src_port,
+        dst_port
+    FROM ch_flow
+    ARRAY JOIN if({abnormal}, ['combined', 'attack'], ['combined', 'benign']) AS topology_kind
+    {where}
+),
+total_rows AS (
+    SELECT topology_kind, count() AS total_flow_count
+    FROM flow_rows
+    GROUP BY topology_kind
+),
+port_counts AS (
+    SELECT topology_kind, dst_port, count() AS port_count
+    FROM flow_rows
+    GROUP BY topology_kind, dst_port
+),
+top_ports AS (
+    SELECT topology_kind, dst_port, port_count
+    FROM (
+        SELECT
+            topology_kind,
+            dst_port,
+            port_count,
+            row_number() OVER (PARTITION BY topology_kind ORDER BY port_count DESC, dst_port ASC) AS port_rank
+        FROM port_counts
+    )
+    WHERE port_rank = 1
+),
+ips AS (
+    SELECT topology_kind, {uniq_fn}(ip) AS unique_ip_count
+    FROM (
+        SELECT topology_kind, src_ip AS ip FROM flow_rows
+        UNION ALL
+        SELECT topology_kind, dst_ip AS ip FROM flow_rows
+    )
+    GROUP BY topology_kind
+),
+endpoints AS (
+    SELECT topology_kind, {uniq_fn}(endpoint) AS unique_endpoint_count
+    FROM (
+        SELECT topology_kind, concat(src_ip, ':', toString(src_port)) AS endpoint FROM flow_rows
+        UNION ALL
+        SELECT topology_kind, concat(dst_ip, ':', toString(dst_port)) AS endpoint FROM flow_rows
+    )
+    GROUP BY topology_kind
+),
+dst_ports AS (
+    SELECT topology_kind, {uniq_fn}(dst_port) AS unique_dst_port_count
+    FROM flow_rows
+    GROUP BY topology_kind
+)
+SELECT
+    total_rows.topology_kind AS topology_kind,
+    total_rows.total_flow_count AS total_flow_count,
+    ifNull(top_ports.dst_port, 0) AS top_dst_port,
+    if(total_rows.total_flow_count = 0, 0, ifNull(top_ports.port_count, 0) / total_rows.total_flow_count) AS top_dst_port_ratio,
+    ifNull(ips.unique_ip_count, 0) AS unique_ip_count,
+    ifNull(endpoints.unique_endpoint_count, 0) AS unique_endpoint_count,
+    ifNull(dst_ports.unique_dst_port_count, 0) AS unique_dst_port_count
+FROM total_rows
+LEFT JOIN top_ports ON total_rows.topology_kind = top_ports.topology_kind
+LEFT JOIN ips ON total_rows.topology_kind = ips.topology_kind
+LEFT JOIN endpoints ON total_rows.topology_kind = endpoints.topology_kind
+LEFT JOIN dst_ports ON total_rows.topology_kind = dst_ports.topology_kind
+FORMAT JSONEachRow
+"""
+        text = self.client.execute(sql)
+        stats = {
+            "combined": _empty_topology_stats(),
+            "benign": _empty_topology_stats(),
+            "attack": _empty_topology_stats(),
+        }
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            row = _parse_json(line)
+            kind = str(row.get("topology_kind") or "")
+            if kind not in stats:
+                continue
+            stats[kind] = {
+                "total_flow_count": int(row.get("total_flow_count") or 0),
+                "top_dst_port": int(row.get("top_dst_port") or 0),
+                "top_dst_port_ratio": float(row.get("top_dst_port_ratio") or 0),
+                "unique_ip_count": int(row.get("unique_ip_count") or 0),
+                "unique_endpoint_count": int(row.get("unique_endpoint_count") or 0),
+                "unique_dst_port_count": int(row.get("unique_dst_port_count") or 0),
+            }
+        return stats
 
     def dashboard_summary(
         self,
@@ -1683,6 +1805,17 @@ def _stat_row_from_graph(topology_kind: str, graph: dict[str, Any]) -> dict[str,
         "in_flow_count": 0,
         "is_benign": 0,
         "protocol": "",
+    }
+
+
+def _empty_topology_stats() -> dict[str, Any]:
+    return {
+        "total_flow_count": 0,
+        "top_dst_port": 0,
+        "top_dst_port_ratio": 0.0,
+        "unique_ip_count": 0,
+        "unique_endpoint_count": 0,
+        "unique_dst_port_count": 0,
     }
 
 
