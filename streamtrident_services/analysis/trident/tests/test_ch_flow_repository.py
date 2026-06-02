@@ -246,7 +246,7 @@ def test_dashboard_topology_graphs_uses_top_victim_list_for_edge_query() -> None
     assert graphs["benign"]["flow_count"] == 5
 
 
-def test_dashboard_topology_graphs_filters_endpoint_edges_by_ip_and_port_tuple() -> None:
+def test_dashboard_topology_graphs_drills_endpoint_edges_from_host_edges() -> None:
     class FakeClient:
         def __init__(self) -> None:
             self.sql: list[str] = []
@@ -256,10 +256,20 @@ def test_dashboard_topology_graphs_filters_endpoint_edges_by_ip_and_port_tuple()
             if "victim_counts AS" in sql:
                 return "\n".join(
                     [
-                        '{"row_type":"victim","topology_kind":"combined","victim":"10.0.0.2:443","victim_flow_count":9}',
-                        '{"row_type":"victim","topology_kind":"attack","victim":"10.0.0.2:443","victim_flow_count":4}',
-                        '{"row_type":"victim","topology_kind":"benign","victim":"10.0.0.3:80","victim_flow_count":5}',
+                        '{"row_type":"victim","topology_kind":"combined","victim":"10.0.0.2","victim_flow_count":9}',
+                        '{"row_type":"victim","topology_kind":"attack","victim":"10.0.0.2","victim_flow_count":4}',
+                        '{"row_type":"victim","topology_kind":"benign","victim":"10.0.0.3","victim_flow_count":5}',
                         '{"row_type":"stat","topology_kind":"combined","victim":"","victim_flow_count":9}',
+                        '{"row_type":"stat","topology_kind":"attack","victim":"","victim_flow_count":4}',
+                        '{"row_type":"stat","topology_kind":"benign","victim":"","victim_flow_count":5}',
+                    ]
+                )
+            if "WITH edge_source AS" in sql and "src_ip AS source_host" not in sql:
+                return "\n".join(
+                    [
+                        '{"row_type":"edge","topology_kind":"combined","id":"","source":"10.0.0.1","target":"10.0.0.2","value":3,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
+                        '{"row_type":"edge","topology_kind":"attack","id":"","source":"10.0.0.1","target":"10.0.0.2","value":2,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
+                        '{"row_type":"edge","topology_kind":"benign","id":"","source":"10.0.0.4","target":"10.0.0.3","value":1,"out_flow_count":0,"in_flow_count":0,"is_benign":1}',
                     ]
                 )
             return ""
@@ -273,12 +283,16 @@ def test_dashboard_topology_graphs_filters_endpoint_edges_by_ip_and_port_tuple()
         risk_learners=["NEW_1"],
     )
 
-    assert len(repo.client.sql) == 2
-    edge_sql = repo.client.sql[1]
+    assert len(repo.client.sql) == 3
+    host_edge_sql = repo.client.sql[1]
+    edge_sql = repo.client.sql[2]
+    assert "src_ip AS source_host" not in host_edge_sql
+    assert "src_ip AS source_host" in edge_sql
     assert "concat(dst_ip, ':', toString(dst_port)) AS target" in edge_sql
-    assert "dst_ip IN ('10.0.0.2', '10.0.0.3')" in edge_sql
-    assert "(dst_ip, dst_port) IN (('10.0.0.2', 443), ('10.0.0.3', 80))" in edge_sql
+    assert "(src_ip, dst_ip) IN (('10.0.0.1', '10.0.0.2'), ('10.0.0.4', '10.0.0.3'))" in edge_sql
+    assert "PARTITION BY topology_kind, source_host, target_host" in edge_sql
     assert "AND concat(dst_ip, ':', toString(dst_port)) IN" not in edge_sql
+    assert "(dst_ip, dst_port) IN" not in edge_sql
     assert edge_sql.count("FROM ch_flow") == 1
 
 

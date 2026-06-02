@@ -388,6 +388,17 @@ FORMAT JSONEachRow
             target_expr = "dst_ip"
         is_benign_expr = f"NOT ({abnormal})"
         main_protocol = _main_protocol_sql()
+        if node_mode == "endpoint":
+            return self._dashboard_endpoint_topology_from_host_edges(
+                session_id=session_id,
+                risk_learners=risk_names,
+                time_from=time_from,
+                time_to=time_to,
+                main_top_n=main_top_victims,
+                compact_top_n=compact_top_victims,
+                main_edges_per_victim=main_per_victim,
+                compact_edges_per_victim=compact_per_victim,
+            )
         victim_sql = f"""
 WITH victim_counts AS (
     SELECT
@@ -602,6 +613,193 @@ FORMAT JSONEachRow
                 node_mode=node_mode,
                 top_victims=compact_top_victims,
                 edges_per_victim=compact_per_victim,
+            ),
+        }
+
+    def _dashboard_endpoint_topology_from_host_edges(
+        self,
+        *,
+        session_id: str,
+        risk_learners: list[str],
+        time_from: str | None,
+        time_to: str | None,
+        main_top_n: int,
+        compact_top_n: int,
+        main_edges_per_victim: int,
+        compact_edges_per_victim: int,
+    ) -> dict[str, dict[str, Any]]:
+        host_graphs = self.dashboard_topology_graphs(
+            session_id=session_id,
+            node_mode="host",
+            risk_learners=risk_learners,
+            time_from=time_from,
+            time_to=time_to,
+            main_top_n=main_top_n,
+            compact_top_n=compact_top_n,
+            main_edges_per_victim=main_edges_per_victim,
+            compact_edges_per_victim=compact_edges_per_victim,
+        )
+        pairs_by_kind: dict[str, list[tuple[str, str]]] = {
+            "combined": _host_pairs_from_graph(host_graphs["combined"]),
+            "benign": _host_pairs_from_graph(host_graphs["benign"]),
+            "attack": _host_pairs_from_graph(host_graphs["attack"]),
+        }
+        all_pairs = sorted({pair for pairs in pairs_by_kind.values() for pair in pairs})
+        if not all_pairs:
+            return {
+                "combined": _empty_topology_graph_from_graph(host_graphs["combined"], "endpoint"),
+                "benign": _empty_topology_graph_from_graph(host_graphs["benign"], "endpoint"),
+                "attack": _empty_topology_graph_from_graph(host_graphs["attack"], "endpoint"),
+            }
+
+        abnormal = _abnormal_expr(risk_learners)
+        main_protocol = _main_protocol_sql()
+        source_expr = "concat(src_ip, ':', toString(src_port))"
+        target_expr = "concat(dst_ip, ':', toString(dst_port))"
+        combined_filter = _host_pair_filter("source_host", "target_host", pairs_by_kind["combined"]) or "0"
+        benign_filter = _host_pair_filter("source_host", "target_host", pairs_by_kind["benign"]) or "0"
+        attack_filter = _host_pair_filter("source_host", "target_host", pairs_by_kind["attack"]) or "0"
+        edge_where = _where(
+            [
+                f"session_id = {_quote(session_id)}",
+                _time_filter("event_time", time_from, time_to),
+                _host_pair_filter("src_ip", "dst_ip", all_pairs),
+            ]
+        )
+        # Endpoint topology is a drill-down of the displayed host edges. Keep only
+        # the strongest port combinations per host edge so high-cardinality
+        # client ports cannot explode the overview graph.
+        main_per_host_edge = max(1, min(int(main_edges_per_victim), 5))
+        compact_per_host_edge = max(1, min(int(compact_edges_per_victim), 3))
+        sql = f"""
+WITH edge_source AS (
+    SELECT
+        src_ip AS source_host,
+        dst_ip AS target_host,
+        {source_expr} AS source,
+        {target_expr} AS target,
+        {abnormal} AS is_attack,
+        {main_protocol} AS main_protocol
+    FROM ch_flow
+    {edge_where}
+),
+edge_agg AS (
+    SELECT
+        source_host,
+        target_host,
+        source,
+        target,
+        countIf({combined_filter}) AS combined_value,
+        countIf({benign_filter} AND NOT is_attack) AS benign_value,
+        countIf({attack_filter} AND is_attack) AS attack_value,
+        topKIf(1)(main_protocol, {combined_filter})[1] AS combined_protocol,
+        topKIf(1)(main_protocol, {benign_filter} AND NOT is_attack)[1] AS benign_protocol,
+        topKIf(1)(main_protocol, {attack_filter} AND is_attack)[1] AS attack_protocol
+    FROM edge_source
+    GROUP BY source_host, target_host, source, target
+),
+expanded_edges AS (
+    SELECT
+        tupleElement(kind_row, 1) AS topology_kind,
+        source_host,
+        target_host,
+        source,
+        target,
+        tupleElement(kind_row, 2) AS value,
+        tupleElement(kind_row, 3) AS is_benign,
+        tupleElement(kind_row, 4) AS protocol
+    FROM edge_agg
+    ARRAY JOIN [
+        ('combined', combined_value, 0, combined_protocol),
+        ('benign', benign_value, 1, benign_protocol),
+        ('attack', attack_value, 0, attack_protocol)
+    ] AS kind_row
+    WHERE value > 0
+),
+ranked_edges AS (
+    SELECT
+        topology_kind,
+        source_host,
+        target_host,
+        source,
+        target,
+        value,
+        is_benign,
+        protocol,
+        row_number() OVER (
+            PARTITION BY topology_kind, source_host, target_host
+            ORDER BY value DESC, source ASC, target ASC
+        ) AS edge_rank
+    FROM expanded_edges
+),
+edge_rows AS (
+    SELECT topology_kind, source, target, value, is_benign, protocol
+    FROM ranked_edges
+    WHERE edge_rank <= if(topology_kind = 'combined', {main_per_host_edge}, {compact_per_host_edge})
+),
+node_protocol_rows AS (
+    SELECT topology_kind, node, topK(1)(edge_protocol)[1] AS protocol
+    FROM (
+        SELECT topology_kind, source AS node, protocol AS edge_protocol
+        FROM edge_rows
+        UNION ALL
+        SELECT topology_kind, target AS node, protocol AS edge_protocol
+        FROM edge_rows
+    )
+    GROUP BY topology_kind, node
+),
+node_rows AS (
+    SELECT
+        topology_kind,
+        node AS id,
+        sum(out_count) AS out_flow_count,
+        sum(in_count) AS in_flow_count,
+        sum(out_count) + sum(in_count) AS flow_count
+    FROM (
+        SELECT topology_kind, source AS node, value AS out_count, 0 AS in_count FROM edge_rows
+        UNION ALL
+        SELECT topology_kind, target AS node, 0 AS out_count, value AS in_count FROM edge_rows
+    )
+    GROUP BY topology_kind, node
+)
+SELECT 'node' AS row_type, nr.topology_kind AS topology_kind, nr.id, '' AS source, '' AS target, nr.flow_count AS value, nr.out_flow_count, nr.in_flow_count, 0 AS is_benign, ifNull(npr.protocol, '') AS protocol
+FROM node_rows nr
+LEFT JOIN node_protocol_rows npr ON nr.topology_kind = npr.topology_kind AND nr.id = npr.node
+UNION ALL
+SELECT 'edge' AS row_type, topology_kind, '' AS id, source, target, value, 0 AS out_flow_count, 0 AS in_flow_count, is_benign, ifNull(protocol, '') AS protocol
+FROM edge_rows
+FORMAT JSONEachRow
+"""
+        text = self.client.execute(sql)
+        rows_by_kind: dict[str, list[dict[str, Any]]] = {
+            kind: [_stat_row_from_graph(kind, graph)]
+            for kind, graph in host_graphs.items()
+        }
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            row = _parse_json(line)
+            kind = str(row.get("topology_kind") or "")
+            if kind in rows_by_kind:
+                rows_by_kind[kind].append(row)
+        return {
+            "combined": _build_topology_graph_from_rows(
+                rows_by_kind["combined"],
+                node_mode="endpoint",
+                top_victims=main_top_n,
+                edges_per_victim=main_per_host_edge,
+            ),
+            "benign": _build_topology_graph_from_rows(
+                rows_by_kind["benign"],
+                node_mode="endpoint",
+                top_victims=compact_top_n,
+                edges_per_victim=compact_per_host_edge,
+            ),
+            "attack": _build_topology_graph_from_rows(
+                rows_by_kind["attack"],
+                node_mode="endpoint",
+                top_victims=compact_top_n,
+                edges_per_victim=compact_per_host_edge,
             ),
         }
 
@@ -1147,6 +1345,69 @@ def _endpoint_target_filter(values: list[str]) -> str | None:
     ips = sorted({host for host, _port in pairs})
     tuple_values = ", ".join(f"({_quote(host)}, {port})" for host, port in pairs)
     return f"dst_ip IN ({', '.join(_quote(ip) for ip in ips)}) AND (dst_ip, dst_port) IN ({tuple_values})"
+
+
+def _host_pair_filter(source_column: str, target_column: str, pairs: list[tuple[str, str]]) -> str | None:
+    clean: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for source, target in pairs:
+        source_text = str(source or "")
+        target_text = str(target or "")
+        if not source_text or not target_text:
+            continue
+        pair = (source_text, target_text)
+        if pair in seen:
+            continue
+        seen.add(pair)
+        clean.append(pair)
+    if not clean:
+        return None
+    values = ", ".join(f"({_quote(source)}, {_quote(target)})" for source, target in clean)
+    return f"({source_column}, {target_column}) IN ({values})"
+
+
+def _host_pairs_from_graph(graph: dict[str, Any]) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for link in graph.get("links") or []:
+        source = str(link.get("source") or "")
+        target = str(link.get("target") or "")
+        if not source or not target:
+            continue
+        pair = (source, target)
+        if pair in seen:
+            continue
+        seen.add(pair)
+        pairs.append(pair)
+    return pairs
+
+
+def _stat_row_from_graph(topology_kind: str, graph: dict[str, Any]) -> dict[str, Any]:
+    value = int(graph.get("total_flow_count") or graph.get("flow_count") or 0)
+    return {
+        "row_type": "stat",
+        "topology_kind": topology_kind,
+        "id": "",
+        "source": "",
+        "target": "",
+        "value": value,
+        "out_flow_count": 0,
+        "in_flow_count": 0,
+        "is_benign": 0,
+        "protocol": "",
+    }
+
+
+def _empty_topology_graph_from_graph(graph: dict[str, Any], node_mode: str) -> dict[str, Any]:
+    value = int(graph.get("total_flow_count") or graph.get("flow_count") or 0)
+    return {
+        "flow_count": value,
+        "total_flow_count": value,
+        "node_mode": node_mode,
+        "nodes": [],
+        "links": [],
+        "stats": {"total_flow_count": value},
+    }
 
 
 def _contains_filter(column: str, value: str | None) -> str | None:
