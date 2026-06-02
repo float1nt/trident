@@ -28,4 +28,5 @@ CREATE TABLE IF NOT EXISTS ch_flow (
 )
 ENGINE = ReplacingMergeTree(record_version)
 PARTITION BY toYYYYMM(event_time)
-ORDER BY (session_id, flow_uid);
+ORDER BY (session_id, flow_uid)
+SETTINGS deduplicate_merge_projection_mode = 'rebuild';
