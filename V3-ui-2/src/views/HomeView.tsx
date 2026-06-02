@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Spin } from "antd";
-import { useApi } from "@/hooks/useApi";
+import { API_SUCCESS_MESSAGE } from "@/hooks/useApi";
 import DataFlowMetricsSection from "@/components/DataFlowMetricsSection";
+import { message } from "@/utils/message";
+import { getErrorMessage, isErrorToastShown } from "@/utils/apiError";
 import EChartsRingChart from "@/components/EChartsRingChart";
 import { TopologyChartPane } from "@/components/NetworkTopologyPanel";
 import {
@@ -36,6 +38,21 @@ const EMPTY_METRICS: OverviewMetrics = {
   suspiciousIpCount: 0,
 };
 
+type OverviewLoadingKey =
+  | "metrics"
+  | "trafficDist"
+  | "trafficTrend"
+  | "protocolDist"
+  | "topology";
+
+const INITIAL_LOADING: Record<OverviewLoadingKey, boolean> = {
+  metrics: false,
+  trafficDist: false,
+  trafficTrend: false,
+  protocolDist: false,
+  topology: false,
+};
+
 /** 总览：数据流动看板 */
 export default function HomeView() {
   const [timeRange, setTimeRange] = useState<TimeRange>("24h");
@@ -51,36 +68,88 @@ export default function HomeView() {
     useState<DatasetNetworkTopologyJson | null>(null);
   const [topologyMode, setTopologyMode] = useState<TopologyGraphMode>("host");
   const [trafficTrend, setTrafficTrend] = useState<TrafficTrendPoint[]>([]);
-  const { loading, run } = useApi();
+  const [loadingState, setLoadingState] =
+    useState<Record<OverviewLoadingKey, boolean>>(INITIAL_LOADING);
 
-  const loadOverview = useCallback(async (mode: TopologyGraphMode = topologyMode) => {
-    await run(async () => {
-      const [metricsData, distributions, topology, trend] = await Promise.all([
-        OverviewService.getMetrics(timeRange),
-        OverviewService.getDistributions(timeRange),
-        OverviewService.getNetworkTopology(timeRange, mode),
-        OverviewService.getTrafficTrend(timeRange),
+  const runSection = useCallback(
+    async <T,>(
+      keys: OverviewLoadingKey | OverviewLoadingKey[],
+      fn: () => Promise<T>,
+      onSuccess: (data: T) => void,
+    ) => {
+      const keyList = Array.isArray(keys) ? keys : [keys];
+      setLoadingState((prev) => ({
+        ...prev,
+        ...Object.fromEntries(keyList.map((key) => [key, true])),
+      }));
+      try {
+        const data = await fn();
+        onSuccess(data);
+      } catch (error) {
+        console.error(error);
+        if (!isErrorToastShown(error)) {
+          message.error(getErrorMessage(error));
+        }
+      } finally {
+        setLoadingState((prev) => ({
+          ...prev,
+          ...Object.fromEntries(keyList.map((key) => [key, false])),
+        }));
+      }
+    },
+    [],
+  );
+
+  const loadOverview = useCallback(
+    async (
+      mode: TopologyGraphMode = topologyMode,
+      options?: { showSuccess?: boolean },
+    ) => {
+      await Promise.all([
+        runSection(
+          "metrics",
+          () => OverviewService.getMetrics(timeRange),
+          setMetrics,
+        ),
+        runSection(
+          ["trafficDist", "protocolDist"],
+          () => OverviewService.getDistributions(timeRange),
+          (distributions) => {
+            setTrafficDist(distributions.traffic);
+            setProtocolDist(distributions.protocol);
+            setApplicationProtocolDist(distributions.applicationProtocol ?? []);
+          },
+        ),
+        runSection(
+          "trafficTrend",
+          () => OverviewService.getTrafficTrend(timeRange),
+          setTrafficTrend,
+        ),
+        runSection(
+          "topology",
+          () => OverviewService.getNetworkTopology(timeRange, mode),
+          setNetworkTopology,
+        ),
       ]);
-      setMetrics(metricsData);
-      setTrafficDist(distributions.traffic);
-      setProtocolDist(distributions.protocol);
-      setApplicationProtocolDist(distributions.applicationProtocol ?? []);
-      setNetworkTopology(topology);
-      setTrafficTrend(trend);
-    });
-  }, [timeRange, topologyMode, run]);
+      if (options?.showSuccess) {
+        message.success(API_SUCCESS_MESSAGE);
+      }
+    },
+    [runSection, timeRange, topologyMode],
+  );
 
   const handleTopologyModeChange = useCallback(
     (mode: TopologyGraphMode) => {
       if (mode !== topologyMode) {
         setTopologyMode(mode);
-        void run(async () => {
-          const topology = await OverviewService.getNetworkTopology(timeRange, mode);
-          setNetworkTopology(topology);
-        });
+        void runSection(
+          "topology",
+          () => OverviewService.getNetworkTopology(timeRange, mode),
+          setNetworkTopology,
+        );
       }
     },
-    [run, timeRange, topologyMode],
+    [runSection, timeRange, topologyMode],
   );
 
   useEffect(() => {
@@ -114,13 +183,14 @@ export default function HomeView() {
   const attackView = networkTopology?.views.__attack__;
 
   return (
-    <Spin spinning={loading} className="block w-full">
+    <div className="block w-full">
       <div className="h-[calc(100vh-85px)] w-full overflow-y-auto rounded-[8px]">
         <DataFlowMetricsSection
           timeRange={timeRange}
           metrics={metrics}
+          loading={loadingState.metrics}
           onTimeRangeChange={setTimeRange}
-          onRefresh={() => void loadOverview(topologyMode)}
+          onRefresh={() => void loadOverview(topologyMode, { showSuccess: true })}
         />
         <div className="relative z-10 -mt-[36px] w-full rounded-[16px] bg-[#f6faff] p-[12px]">
           <div className="flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
@@ -135,19 +205,23 @@ export default function HomeView() {
               <h3 className="mb-3 text-[14px] font-medium text-[#333]">
                 流量分布
               </h3>
-              <EChartsRingChart
-                option={trafficChartOption}
-                height={CHART_HEIGHT}
-              />
+              <Spin spinning={loadingState.trafficDist}>
+                <EChartsRingChart
+                  option={trafficChartOption}
+                  height={CHART_HEIGHT}
+                />
+              </Spin>
             </div>
             <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
               <h3 className="mb-3 text-[14px] font-medium text-[#333]">
                 {trafficTrendChartTitle}
               </h3>
-              <EChartsRingChart
-                option={trafficTrendChartOption}
-                height={CHART_HEIGHT}
-              />
+              <Spin spinning={loadingState.trafficTrend}>
+                <EChartsRingChart
+                  option={trafficTrendChartOption}
+                  height={CHART_HEIGHT}
+                />
+              </Spin>
             </div>
             <div className="min-w-0 rounded-[8px] border border-[#e8eaed] bg-white p-4">
               <div className="mb-3 flex items-center justify-between gap-2">
@@ -181,10 +255,12 @@ export default function HomeView() {
                   </Button>
                 </div>
               </div>
-              <EChartsRingChart
-                option={protocolChartOption}
-                height={CHART_HEIGHT}
-              />
+              <Spin spinning={loadingState.protocolDist}>
+                <EChartsRingChart
+                  option={protocolChartOption}
+                  height={CHART_HEIGHT}
+                />
+              </Spin>
             </div>
           </div>
           <div className="mt-[12px] flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
@@ -194,7 +270,7 @@ export default function HomeView() {
             />
             流量分析
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-[12px] lg:min-h-[520px] lg:grid-cols-[3fr_2fr] lg:grid-rows-[1fr_1fr] lg:items-stretch">
+          <div className="relative mt-4 grid grid-cols-1 gap-[12px] lg:min-h-[520px] lg:grid-cols-[3fr_2fr] lg:grid-rows-[1fr_1fr] lg:items-stretch">
             <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px] lg:row-span-2">
               <TopologyChartPane
                 title="总拓扑"
@@ -241,9 +317,14 @@ export default function HomeView() {
                 onGraphModeChange={handleTopologyModeChange}
               />
             </div>
+            {loadingState.topology ? (
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[8px] bg-white/60">
+                <Spin spinning />
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
-    </Spin>
+    </div>
   );
 }

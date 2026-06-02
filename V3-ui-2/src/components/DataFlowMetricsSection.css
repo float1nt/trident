@@ -53,6 +53,15 @@
   gap: 16px;
 }
 
+.data-flow-metrics__cards-spin {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.data-flow-metrics__cards-spin .ant-spin-container {
+  width: 100%;
+}
+
 .data-flow-metrics__cards {
   display: flex;
   flex-wrap: nowrap;
