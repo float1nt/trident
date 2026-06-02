@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 from ipaddress import ip_address
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime
 from typing import Any
 
@@ -310,11 +310,11 @@ def _build_topology_json(learner_name: str, records: list[FlowRecord]) -> dict[s
 
 
 def _build_host_evidence_json(learner_name: str, records: list[FlowRecord]) -> dict[str, Any]:
-    by_src: dict[str, list[FlowRecord]] = defaultdict(list)
-    by_dst: dict[str, list[FlowRecord]] = defaultdict(list)
+    by_src: dict[str, list[FlowRecord]] = {}
+    by_dst: dict[str, list[FlowRecord]] = {}
     for record in records:
-        by_src[record.src_ip].append(record)
-        by_dst[record.dst_ip].append(record)
+        by_src.setdefault(record.src_ip, []).append(record)
+        by_dst.setdefault(record.dst_ip, []).append(record)
 
     top_source_hosts = []
     for host, host_records in sorted(by_src.items(), key=lambda item: len(item[1]), reverse=True)[:5]:
@@ -426,7 +426,7 @@ def _match_attack_rules(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     scores: dict[str, float] = {}
     rule_hits: list[dict[str, Any]] = []
-    rule_refs: dict[str, list[str]] = defaultdict(list)
+    rule_refs: dict[str, list[str]] = {}
 
     def add_rule(
         *,
@@ -438,7 +438,7 @@ def _match_attack_rules(
         explain: str,
     ) -> None:
         scores[attack_type] = max(scores.get(attack_type, 0.0), confidence)
-        rule_refs[attack_type].append(rule_id)
+        rule_refs.setdefault(attack_type, []).append(rule_id)
         rule_hits.append(
             {
                 "rule_id": rule_id,

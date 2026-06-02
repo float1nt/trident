@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -98,11 +97,11 @@ class OnlineEngine:
         self.learner_snapshot_refs: dict[str, tuple[str, int]] = {}
         self.learner_creation_windows: dict[str, int] = {}
         self.learner_last_seen_windows: dict[str, int] = {}
-        self.learner_histories: dict[str, list[np.ndarray]] = defaultdict(list)
-        self.learner_record_histories: dict[str, list[FlowRecord]] = defaultdict(list)
+        self.learner_histories: dict[str, list[np.ndarray]] = {}
+        self.learner_record_histories: dict[str, list[FlowRecord]] = {}
         self.increment_iforest_guards: dict[str, dict[str, Any]] = {}
         self.small_recluster_counter = 0
-        self.gate_stats: dict[str, int] = defaultdict(int)
+        self.gate_stats: dict[str, int] = {}
         self.learner_overlap_snapshot: LearnerOverlapSnapshot | None = None
         self.learner_overlap_config = LearnerOverlapConfig()
         self.baseline_learner_name: str | None = None
@@ -215,7 +214,7 @@ class OnlineEngine:
             )
 
         for learner_name, learner_records in accepted_records_by_learner.items():
-            self.learner_record_histories[learner_name].extend(learner_records)
+            self.learner_record_histories.setdefault(learner_name, []).extend(learner_records)
             self.learner_record_histories[learner_name] = self.learner_record_histories[learner_name][-10000:]
 
         new_learner_names, promoted_flow_uids = self._create_new_learners_from_unknown(window.window_index, mode=mode)
@@ -349,7 +348,7 @@ class OnlineEngine:
         clusters = self.tmagnifier.pop_new_class_clusters()
         for cluster_x, cluster_labels, cluster_meta in clusters:
             if self.cfg.cluster_purity_gate_enabled and not self._cluster_purity_gate(cluster_x):
-                self.gate_stats["cluster_purity_reject"] += 1
+                self._increment_gate_stat("cluster_purity_reject")
                 if self.cfg.cluster_gate_rejected_action == "reinject_unknown":
                     for i in range(len(cluster_x)):
                         meta = cluster_meta[i] if i < len(cluster_meta) else {}
@@ -418,7 +417,7 @@ class OnlineEngine:
             if self.tsieve.is_benign_learner(name):
                 keep = self._filter_benign_confident_mask(arr_new)
                 if not np.all(keep):
-                    self.gate_stats["benign_confidence_filtered"] += int(len(keep) - int(np.sum(keep)))
+                    self._increment_gate_stat("benign_confidence_filtered", int(len(keep) - int(np.sum(keep))))
                 arr_new = arr_new[keep]
                 if len(arr_new) == 0:
                     self.learner_last_seen_windows[name] = window_index
@@ -428,7 +427,7 @@ class OnlineEngine:
                 self.learner_last_seen_windows[name] = window_index
                 continue
             if self.cfg.increment_drift_gate_enabled and not self._passes_drift_gate(name, arr_new):
-                self.gate_stats["increment_drift_reject"] += 1
+                self._increment_gate_stat("increment_drift_reject")
                 self.learner_last_seen_windows[name] = window_index
                 continue
             if self.cfg.increment_route_gate_enabled and self._route_gate_applies(name, arr_new):
@@ -437,13 +436,13 @@ class OnlineEngine:
                     route_keep = np.asarray(route_eval.get("keep_mask"), dtype=bool)
                     if len(route_keep) == len(arr_new):
                         arr_new = arr_new[route_keep]
-                        self.gate_stats["increment_route_filtered"] += int(len(route_keep) - int(np.sum(route_keep)))
+                        self._increment_gate_stat("increment_route_filtered", int(len(route_keep) - int(np.sum(route_keep))))
                     if float(route_eval.get("confident_ratio", 1.0)) < self.cfg.increment_route_min_confident_ratio:
-                        self.gate_stats["increment_route_reject"] += 1
+                        self._increment_gate_stat("increment_route_reject")
                         self.learner_last_seen_windows[name] = window_index
                         continue
                 if len(arr_new) < self.cfg.increment_min_samples:
-                    self.gate_stats["increment_route_min_reject"] += 1
+                    self._increment_gate_stat("increment_route_min_reject")
                     self.learner_last_seen_windows[name] = window_index
                     continue
             if self.cfg.increment_iforest_guard_enabled and self._iforest_guard_applies(name, arr_new):
@@ -452,9 +451,9 @@ class OnlineEngine:
                     guard_keep = np.asarray(guard_eval.get("keep_mask"), dtype=bool)
                     if len(guard_keep) == len(arr_new):
                         arr_new = arr_new[guard_keep]
-                        self.gate_stats["increment_iforest_filtered"] += int(len(guard_keep) - int(np.sum(guard_keep)))
+                        self._increment_gate_stat("increment_iforest_filtered", int(len(guard_keep) - int(np.sum(guard_keep))))
                 if len(arr_new) < self.cfg.increment_min_samples:
-                    self.gate_stats["increment_iforest_min_reject"] += 1
+                    self._increment_gate_stat("increment_iforest_min_reject")
                     self.learner_last_seen_windows[name] = window_index
                     continue
             if len(arr_new) > self.cfg.max_increment_samples:
@@ -471,7 +470,7 @@ class OnlineEngine:
     def _append_history(self, name: str, samples: np.ndarray) -> None:
         if len(samples) == 0:
             return
-        self.learner_histories[name].extend([row.copy() for row in samples])
+        self.learner_histories.setdefault(name, []).extend([row.copy() for row in samples])
         max_hist = max(1, self.cfg.max_history_samples_per_learner)
         if len(self.learner_histories[name]) > max_hist:
             idx = np.linspace(0, len(self.learner_histories[name]) - 1, num=max_hist, dtype=int)
@@ -954,8 +953,11 @@ class OnlineEngine:
             self.learner_histories.pop(name, None)
             self.learner_record_histories.pop(name, None)
             self.learner_snapshot_refs.pop(name, None)
-            self.gate_stats["small_learner_recluster_destroyed"] += 1
+            self._increment_gate_stat("small_learner_recluster_destroyed")
         return self._create_new_learners_from_unknown(window_index)
+
+    def _increment_gate_stat(self, name: str, value: int = 1) -> None:
+        self.gate_stats[name] = int(self.gate_stats.get(name, 0)) + int(value)
 
 
 def assignment_meta_json(assignment: FlowAssignment) -> str:
