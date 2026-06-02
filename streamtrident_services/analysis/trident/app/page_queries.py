@@ -485,6 +485,7 @@ class PageQueryService:
         top_n: int = TOPOLOGY_TOP_VICTIMS_DEFAULT,
         edges_per_victim: int = TOPOLOGY_EDGES_LEARNER_DETAIL,
         trigger_stats: dict[str, Any] | None = None,
+        include_stats: bool = True,
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
         learner = self.learners.get_learner(session_id=sid, learner_name=learner_name) or {}
@@ -508,6 +509,42 @@ class PageQueryService:
         last_trigger_time = self._fmt((trigger_stats or {}).get("last_trigger_time")) or event["trigger_time"]
         first_trigger_time = self._fmt((trigger_stats or {}).get("first_trigger_time")) or last_trigger_time
         trigger_count = int((trigger_stats or {}).get("trigger_count") or event["flow_count"] or 0)
+        if hasattr(self.flows, "topology_graph_pair"):
+            graphs = self.flows.topology_graph_pair(
+                session_id=sid,
+                risk_learners=topology_risk_learners,
+                learner_name=learner_name,
+                subject_ip=subject_ip,
+                traffic_kind=traffic_kind,
+                top_n=top_n,
+                edges_per_victim=edges_per_victim,
+                include_stats=include_stats,
+            )
+        else:
+            graphs = {
+                "host": self.flows.topology_graph(
+                    session_id=sid,
+                    node_mode="host",
+                    risk_learners=topology_risk_learners,
+                    learner_name=learner_name,
+                    subject_ip=subject_ip,
+                    traffic_kind=traffic_kind,
+                    top_n=top_n,
+                    edges_per_victim=edges_per_victim,
+                    include_stats=include_stats,
+                ),
+                "endpoint": self.flows.topology_graph(
+                    session_id=sid,
+                    node_mode="endpoint",
+                    risk_learners=topology_risk_learners,
+                    learner_name=learner_name,
+                    subject_ip=subject_ip,
+                    traffic_kind=traffic_kind,
+                    top_n=top_n,
+                    edges_per_victim=edges_per_victim,
+                    include_stats=include_stats,
+                ),
+            }
         view = {
             "learner": learner_name,
             "risk_id": event["risk_id"],
@@ -521,26 +558,8 @@ class PageQueryService:
             "dominant_label": event["dominant_label"],
             "dominant_ratio": event["risk_score"],
             "is_benign": is_benign,
-            "host": self.flows.topology_graph(
-                session_id=sid,
-                node_mode="host",
-                risk_learners=topology_risk_learners,
-                learner_name=learner_name,
-                subject_ip=subject_ip,
-                traffic_kind=traffic_kind,
-                top_n=top_n,
-                edges_per_victim=edges_per_victim,
-            ),
-            "endpoint": self.flows.topology_graph(
-                session_id=sid,
-                node_mode="endpoint",
-                risk_learners=topology_risk_learners,
-                learner_name=learner_name,
-                subject_ip=subject_ip,
-                traffic_kind=traffic_kind,
-                top_n=top_n,
-                edges_per_victim=edges_per_victim,
-            ),
+            "host": graphs["host"],
+            "endpoint": graphs["endpoint"],
         }
         return {
             "version": 1,
@@ -719,6 +738,7 @@ class PageQueryService:
                 top_n=top_n,
                 edges_per_victim=TOPOLOGY_EDGES_GRID,
                 trigger_stats=trigger_stats_by_learner.get(learner_name),
+                include_stats=False,
             )
             view = topology["views"][learner_name]
             learners.append(learner_name)
@@ -888,7 +908,12 @@ class PageQueryService:
             if not learner_name:
                 continue
             key = f"ip_risk_{item['id']}"
-            topology = self.learner_topology(learner_name=learner_name, subject_ip=ip, top_n=top_n)
+            topology = self.learner_topology(
+                learner_name=learner_name,
+                subject_ip=ip,
+                top_n=top_n,
+                include_stats=False,
+            )
             view = topology["views"][learner_name]
             view["learner"] = key
             learners.append(key)
