@@ -419,7 +419,7 @@ const RiskTaskList = () => {
                     allowClear
                     showSearch
                     virtual={false}
-                    listHeight={200}
+                    listHeight={300}
                     treeNodeFilterProp="searchLabel"
                     className="risk-filter-select__control"
                     classNames={{
