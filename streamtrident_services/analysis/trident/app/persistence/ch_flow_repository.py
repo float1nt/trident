@@ -658,7 +658,7 @@ FORMAT JSONEachRow
 
         abnormal = _abnormal_expr(risk_learners)
         main_protocol = _main_protocol_sql()
-        source_expr = "concat(src_ip, ':', toString(src_port))"
+        source_expr = "src_ip"
         target_expr = "concat(dst_ip, ':', toString(dst_port))"
         combined_filter = _host_pair_filter("source_host", "target_host", pairs_by_kind["combined"]) or "0"
         benign_filter = _host_pair_filter("source_host", "target_host", pairs_by_kind["benign"]) or "0"
@@ -670,9 +670,9 @@ FORMAT JSONEachRow
                 _time_filter("event_time", time_from, time_to),
             ]
         )
-        # Endpoint topology is a drill-down of the displayed host edges. Keep only
-        # the strongest port combinations per host edge so high-cardinality
-        # client ports cannot explode the overview graph.
+        # Endpoint topology is a drill-down of the displayed host edges. Keep the
+        # destination service port, but aggregate client-side ephemeral ports into
+        # the source host so high-cardinality ports cannot explode the overview graph.
         main_per_host_edge = 2
         compact_per_host_edge = 1
         sql = f"""

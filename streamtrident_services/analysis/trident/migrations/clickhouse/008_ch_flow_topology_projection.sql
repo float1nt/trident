@@ -1,4 +1,5 @@
 ALTER TABLE ch_flow
+    DROP PROJECTION IF EXISTS p_topology_host,
     ADD PROJECTION IF NOT EXISTS p_topology_host
     (
         SELECT

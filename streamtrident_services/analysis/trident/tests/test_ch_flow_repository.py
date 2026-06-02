@@ -288,6 +288,8 @@ def test_dashboard_topology_graphs_drills_endpoint_edges_from_host_edges() -> No
     edge_sql = repo.client.sql[2]
     assert "src_ip AS source_host" not in host_edge_sql
     assert "src_ip AS source_host" in edge_sql
+    assert "src_ip AS source" in edge_sql
+    assert "concat(src_ip, ':', toString(src_port)) AS source" not in edge_sql
     assert "concat(dst_ip, ':', toString(dst_port)) AS target" in edge_sql
     assert "dst_ip IN ('10.0.0.2', '10.0.0.3')" in edge_sql
     assert "(dst_ip, src_ip) IN (('10.0.0.2', '10.0.0.1'), ('10.0.0.3', '10.0.0.4'))" in edge_sql
