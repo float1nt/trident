@@ -154,6 +154,23 @@ service.interceptors.response.use(
             message.error(errorMessage);
           }
           break;
+        case 502: {
+          const dataAny = data as Record<string, any>;
+          const detail = dataAny?.detail;
+          const failedAgents = Array.isArray(detail?.agents)
+            ? detail.agents.filter((agent: Record<string, any>) => !agent.ok)
+            : [];
+          if (failedAgents.length > 0) {
+            const agentErrors = failedAgents
+              .map((agent: Record<string, any>) => `${agent.name || agent.url}: ${agent.error || "下发失败"}`)
+              .join("; ");
+            const prefix = detail?.saved ? "配置已保存，但采集机未全部生效" : "采集机未全部生效";
+            message.error(`${prefix}：${agentErrors}`);
+          } else {
+            message.error(dataAny?.message || detail?.message || "采集侧配置下发失败");
+          }
+          break;
+        }
         case 503:
           // vLLM 未就绪：展示 warning 而非 error
           if (data?.data?.errorCode === VLLM_NOT_READY_ERROR_CODE) {
@@ -294,5 +311,3 @@ export function del<T = any>(
     data,
   });
 }
-
-

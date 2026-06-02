@@ -21,8 +21,9 @@ def test_collection_settings_compiles_suricata_policy() -> None:
         }
     )
 
-    policy = compile_suricata_filter_policy(settings)
+    policy = compile_suricata_filter_policy(settings, revision=7)
 
+    assert policy["version"] == 7
     assert policy["sourceIpRanges"] == [{"startIp": "10.0.0.1", "endIp": "10.0.0.9"}]
     assert policy["destIpRanges"] == [{"startIp": "8.8.8.8", "endIp": "8.8.8.8"}]
     assert policy["protocols"] == ["dns", "tcp", "tls"]
@@ -51,7 +52,7 @@ def test_apply_suricata_config_returns_pending_without_agents(monkeypatch) -> No
         }
     )
 
-    result = apply_suricata_config(settings)
+    result = apply_suricata_config(settings, revision=3)
 
     assert result["applied"] is False
     assert result["restartRequired"] is True
@@ -90,9 +91,10 @@ def test_apply_suricata_config_posts_policy_to_agent(monkeypatch) -> None:
         }
     )
 
-    result = apply_suricata_config(settings)
+    result = apply_suricata_config(settings, revision=9)
 
     assert result["applied"] is True
     assert captured["url"] == "http://agent-1:19100/agent/v1/suricata/filter/apply"
+    assert captured["payload"]["version"] == 9
     assert captured["payload"]["protocols"] == ["tls"]
     assert captured["authorization"] == "Bearer secret"

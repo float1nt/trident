@@ -55,6 +55,21 @@ redis-cli -h 172.16.88.12 -p 16379 PING
 curl -sS http://172.16.88.12:19100/agent/v1/health
 ```
 
+生产部署请为 agent 配置共享 token。采集机 `capture/.env` 与分析机
+`analysis/.env`（或 `analysis/.env.test`）中的值必须一致：
+
+```dotenv
+TRIDENT_SURICATA_AGENT_TOKEN=<shared-secret>
+```
+
+agent 写入新过滤配置后会重启 Suricata，并等待容器恢复运行。慢速机器可在
+`capture/.env` 中增加等待时间：
+
+```dotenv
+SURICATA_START_TIMEOUT=15
+SURICATA_AGENT_MAX_BODY_BYTES=262144
+```
+
 ## 2. 分析侧（本机）
 
 ```bash
@@ -111,3 +126,57 @@ redis-cli -h 172.16.88.12 -p 16379 LLEN suricata:cic_flow
 - 分析机：编辑 `analysis/.env.test` 中的 `CAPTURE_REDIS_HOST`、`TRIDENT_SURICATA_AGENT_URLS`。
 
 两处端口与 token 需保持一致。
+
+## 5. 验证采集配置下发
+
+分析机执行：
+
+```bash
+curl -sS -X PUT http://127.0.0.1:9090/collection/settings \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "maxTrafficLimitGbps": 10,
+    "sourceIpRanges": [{"startIp":"10.0.0.1","endIp":"10.0.0.255"}],
+    "destIpRanges": [{"startIp":"0.0.0.0","endIp":"255.255.255.255"}],
+    "protocols": ["TCP","UDP","HTTPS","DNS"]
+  }'
+```
+
+成功响应会返回配置 `revision` 和逐 agent 下发结果。若返回 `502`，期望配置
+已经保存到 PostgreSQL，但至少一台采集机尚未生效，可使用以下接口重试：
+
+```bash
+curl -sS -X POST http://127.0.0.1:9090/collection/settings/apply
+```
+
+采集机检查当前动态过滤配置和 Suricata 状态：
+
+```bash
+cat streamtrident_services/capture/suricata/config/filter.json
+docker inspect -f '{{.State.Running}}' streamtrident-suricata-cic
+```
+
+## 6. 验证采集状态回传
+
+阶段二由分析侧主动读取采集机状态，不新增采集机到分析机的反向 HTTP 连接。
+
+分析机直接检查采集侧 agent：
+
+```bash
+curl -sS \
+  -H "Authorization: Bearer ${TRIDENT_SURICATA_AGENT_TOKEN}" \
+  http://172.16.88.12:19100/agent/v1/status
+```
+
+响应包含采集网卡、当前动态过滤配置版本、Suricata 运行状态，以及 Redis 队列
+类型和长度。默认 `list` 模式使用 `LLEN`；切换为 `stream` 模式后使用 `XLEN`。
+
+刷新并读取分析侧缓存：
+
+```bash
+curl -sS -X POST http://127.0.0.1:9090/collection/agents/refresh
+curl -sS http://127.0.0.1:9090/collection/agents/status
+```
+
+配置页会在打开时立即刷新一次状态，之后每 15 秒读取分析侧缓存。若状态接口
+暂时不可用，配置编辑与下发仍可继续。

@@ -20,6 +20,7 @@ from .collection_settings import (
     PROTOCOL_OPTIONS,
     apply_suricata_config,
 )
+from .collection_agent_state import refresh_collection_agent_states
 from .config import TridentConfig, load_config
 from .logging_utils import configure_logging, emit_event
 
@@ -46,22 +47,38 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     @app.get("/collection/settings", response_model=ApiResponse)
     def get_collection_settings() -> dict[str, Any]:
-        settings = _collection_settings_repo(cfg).get_settings(session_id=cfg.session_id)
-        return _ok(settings.model_dump())
+        state = _collection_settings_repo(cfg).get_state(session_id=cfg.session_id)
+        return _ok(state.model_dump())
 
     @app.put("/collection/settings", response_model=ApiResponse)
     def put_collection_settings(payload: CollectionSettings) -> dict[str, Any]:
-        settings = _collection_settings_repo(cfg).save_settings(
+        repo = _collection_settings_repo(cfg)
+        state = repo.save_settings(
             session_id=cfg.session_id,
             settings=payload,
         )
-        apply_result = apply_suricata_config(settings)
+        apply_result = apply_suricata_config(state.settings, revision=state.revision)
+        repo.record_apply_result(session_id=cfg.session_id, apply_result=apply_result)
         if not apply_result.get("applied"):
             emit_event("collection_settings_apply_failed", apply_result=apply_result)
             from fastapi import HTTPException
 
-            raise HTTPException(status_code=502, detail=apply_result)
-        return _ok(settings.model_dump())
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "saved": True,
+                    "settings": state.settings.model_dump(),
+                    "revision": state.revision,
+                    **apply_result,
+                },
+            )
+        return _ok(
+            {
+                "settings": state.settings.model_dump(),
+                "revision": state.revision,
+                "apply": apply_result,
+            }
+        )
 
     @app.get("/collection/protocols", response_model=ApiResponse)
     def collection_protocols() -> dict[str, Any]:
@@ -69,14 +86,37 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     @app.post("/collection/settings/apply", response_model=ApiResponse)
     def apply_collection_settings() -> dict[str, Any]:
-        settings = _collection_settings_repo(cfg).get_settings(session_id=cfg.session_id)
-        apply_result = apply_suricata_config(settings)
+        repo = _collection_settings_repo(cfg)
+        state = repo.get_state(session_id=cfg.session_id)
+        apply_result = apply_suricata_config(state.settings, revision=state.revision)
+        repo.record_apply_result(session_id=cfg.session_id, apply_result=apply_result)
         if not apply_result.get("applied"):
             emit_event("collection_settings_apply_failed", apply_result=apply_result)
             from fastapi import HTTPException
 
             raise HTTPException(status_code=502, detail=apply_result)
         return _ok(apply_result)
+
+    @app.get("/collection/agents/status", response_model=ApiResponse)
+    def collection_agents_status() -> dict[str, Any]:
+        state = _collection_settings_repo(cfg).get_state(session_id=cfg.session_id)
+        return _ok(
+            _collection_agent_state_repo(cfg).list_states(
+                session_id=cfg.session_id,
+                desired_revision=state.revision,
+            )
+        )
+
+    @app.post("/collection/agents/refresh", response_model=ApiResponse)
+    def refresh_collection_agents() -> dict[str, Any]:
+        state = _collection_settings_repo(cfg).get_state(session_id=cfg.session_id)
+        return _ok(
+            refresh_collection_agent_states(
+                session_id=cfg.session_id,
+                desired_revision=state.revision,
+                repo=_collection_agent_state_repo(cfg),
+            )
+        )
 
     @app.get("/api/v1/health", response_model=ApiResponse)
     def health() -> dict[str, Any]:
@@ -355,6 +395,12 @@ def _collection_settings_repo(cfg: TridentConfig):
     from .collection_settings import CollectionSettingsRepository
 
     return CollectionSettingsRepository(cfg.postgres_dsn)
+
+
+def _collection_agent_state_repo(cfg: TridentConfig):
+    from .collection_agent_state import CollectionAgentStateRepository
+
+    return CollectionAgentStateRepository(cfg.postgres_dsn)
 
 
 def _pages(cfg: TridentConfig) -> PageQueryService:

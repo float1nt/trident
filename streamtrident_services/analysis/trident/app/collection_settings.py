@@ -75,11 +75,20 @@ class CollectionSettings(BaseModel):
         return normalized
 
 
+class CollectionSettingsState(BaseModel):
+    settings: CollectionSettings
+    revision: int = Field(ge=1)
+    lastApply: dict[str, Any] | None = None
+
+
 class CollectionSettingsRepository:
     def __init__(self, dsn: str) -> None:
         self.dsn = dsn
 
     def get_settings(self, *, session_id: str) -> CollectionSettings:
+        return self.get_state(session_id=session_id).settings
+
+    def get_state(self, *, session_id: str) -> CollectionSettingsState:
         import psycopg
         from psycopg.rows import dict_row
 
@@ -87,7 +96,7 @@ class CollectionSettingsRepository:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-SELECT settings_json
+SELECT settings_json, revision, last_apply_json
 FROM pg_collection_settings
 WHERE session_id = %s
 LIMIT 1
@@ -96,15 +105,23 @@ LIMIT 1
                 )
                 row = cur.fetchone()
         if not row:
-            return CollectionSettings.model_validate(DEFAULT_SETTINGS)
-        return CollectionSettings.model_validate(row["settings_json"])
+            return CollectionSettingsState(
+                settings=CollectionSettings.model_validate(DEFAULT_SETTINGS),
+                revision=1,
+            )
+        return CollectionSettingsState(
+            settings=CollectionSettings.model_validate(row["settings_json"]),
+            revision=row["revision"],
+            lastApply=row["last_apply_json"],
+        )
 
-    def save_settings(self, *, session_id: str, settings: CollectionSettings) -> CollectionSettings:
+    def save_settings(self, *, session_id: str, settings: CollectionSettings) -> CollectionSettingsState:
         import psycopg
+        from psycopg.rows import dict_row
         from psycopg.types.json import Jsonb
 
         payload = settings.model_dump()
-        with psycopg.connect(self.dsn) as conn:
+        with psycopg.connect(self.dsn, row_factory=dict_row) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
@@ -112,17 +129,43 @@ INSERT INTO pg_collection_settings (session_id, settings_json)
 VALUES (%s, %s)
 ON CONFLICT (session_id) DO UPDATE SET
     settings_json = EXCLUDED.settings_json,
+    revision = pg_collection_settings.revision + 1,
+    last_apply_json = NULL,
+    last_apply_at = NULL,
     updated_at = NOW()
+RETURNING settings_json, revision, last_apply_json
 """,
                     (session_id, Jsonb(payload)),
                 )
-        return settings
+                row = cur.fetchone()
+        return CollectionSettingsState(
+            settings=CollectionSettings.model_validate(row["settings_json"]),
+            revision=row["revision"],
+            lastApply=row["last_apply_json"],
+        )
+
+    def record_apply_result(self, *, session_id: str, apply_result: dict[str, Any]) -> None:
+        import psycopg
+        from psycopg.types.json import Jsonb
+
+        with psycopg.connect(self.dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+UPDATE pg_collection_settings
+SET last_apply_json = %s,
+    last_apply_at = NOW(),
+    updated_at = NOW()
+WHERE session_id = %s
+""",
+                    (Jsonb(apply_result), session_id),
+                )
 
 
-def compile_suricata_filter_policy(settings: CollectionSettings) -> dict[str, Any]:
+def compile_suricata_filter_policy(settings: CollectionSettings, *, revision: int = 1) -> dict[str, Any]:
     protocols = sorted({_POLICY_PROTOCOL_ALIASES.get(value, value.lower()) for value in settings.protocols})
     return {
-        "version": 1,
+        "version": revision,
         "updatedAt": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "sourceIpRanges": [item.model_dump() for item in settings.sourceIpRanges],
         "destIpRanges": [item.model_dump() for item in settings.destIpRanges],
@@ -130,8 +173,8 @@ def compile_suricata_filter_policy(settings: CollectionSettings) -> dict[str, An
     }
 
 
-def apply_suricata_config(settings: CollectionSettings) -> dict[str, Any]:
-    policy = compile_suricata_filter_policy(settings)
+def apply_suricata_config(settings: CollectionSettings, *, revision: int = 1) -> dict[str, Any]:
+    policy = compile_suricata_filter_policy(settings, revision=revision)
     agents = _suricata_agents_from_env()
     if not agents:
         return {
