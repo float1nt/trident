@@ -666,8 +666,8 @@ FORMAT JSONEachRow
         edge_where = _where(
             [
                 f"session_id = {_quote(session_id)}",
+                _target_source_pair_filter("dst_ip", "src_ip", all_pairs),
                 _time_filter("event_time", time_from, time_to),
-                _host_pair_filter("src_ip", "dst_ip", all_pairs),
             ]
         )
         # Endpoint topology is a drill-down of the displayed host edges. Keep only
@@ -1368,6 +1368,26 @@ def _host_pair_filter(source_column: str, target_column: str, pairs: list[tuple[
         return None
     values = ", ".join(f"({_quote(source)}, {_quote(target)})" for source, target in clean)
     return f"({source_column}, {target_column}) IN ({values})"
+
+
+def _target_source_pair_filter(target_column: str, source_column: str, pairs: list[tuple[str, str]]) -> str | None:
+    clean: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for source, target in pairs:
+        source_text = str(source or "")
+        target_text = str(target or "")
+        if not source_text or not target_text:
+            continue
+        pair = (target_text, source_text)
+        if pair in seen:
+            continue
+        seen.add(pair)
+        clean.append(pair)
+    if not clean:
+        return None
+    targets = sorted({target for target, _source in clean})
+    tuple_values = ", ".join(f"({_quote(target)}, {_quote(source)})" for target, source in clean)
+    return f"{target_column} IN ({', '.join(_quote(target) for target in targets)}) AND ({target_column}, {source_column}) IN ({tuple_values})"
 
 
 def _host_pairs_from_graph(graph: dict[str, Any]) -> list[tuple[str, str]]:

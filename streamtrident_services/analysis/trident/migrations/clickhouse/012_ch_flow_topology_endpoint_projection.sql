@@ -1,5 +1,5 @@
 ALTER TABLE ch_flow
-    ADD PROJECTION IF NOT EXISTS p_topology_host
+    ADD PROJECTION IF NOT EXISTS p_topology_endpoint_pair
     (
         SELECT
             session_id,
@@ -14,5 +14,5 @@ ALTER TABLE ch_flow
             app_proto,
             total_bytes,
             record_version
-        ORDER BY (session_id, dst_ip, src_ip, event_time, flow_uid)
+        ORDER BY (session_id, dst_ip, src_ip, event_time, dst_port, src_port, flow_uid)
     );
