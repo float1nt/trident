@@ -94,6 +94,7 @@ class TridentConfig:
     model_store_dir: str = "/tmp/trident-model-store"
     preprocessing_enabled: bool = True
     preprocessing_drop_all_zero: bool = False
+    display_timezone: str = ""
 
 
 def _bool(value: Any, default: bool) -> bool:
@@ -212,4 +213,5 @@ def load_config(path: str | Path | None) -> TridentConfig:
         model_store_dir=str(payload.get("model_store_dir", "/tmp/trident-model-store")),
         preprocessing_enabled=_bool(payload.get("preprocessing_enabled"), True),
         preprocessing_drop_all_zero=_bool(payload.get("preprocessing_drop_all_zero"), False),
+        display_timezone=str(payload.get("display_timezone") or os.getenv("TRIDENT_DISPLAY_TIMEZONE") or os.getenv("TZ") or ""),
     )

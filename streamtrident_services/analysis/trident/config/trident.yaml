@@ -13,6 +13,10 @@ session_id: trident-session-dev
 window_size: 10000
 feature_profile: compact_stats_no_env
 
+# API query windows and display labels; storage remains UTC.
+# Falls back to TRIDENT_DISPLAY_TIMEZONE, then TZ, then UTC when empty.
+display_timezone: ${TZ:-}
+
 clickhouse_dsn: http://127.0.0.1:8123/default
 postgres_dsn: postgresql://trident:trident@127.0.0.1:5432/trident
 

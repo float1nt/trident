@@ -3,6 +3,8 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from zoneinfo import ZoneInfo
+
 from app.page_queries import (
     PageQueryService,
     _compact_application_protocol_distribution,
@@ -146,7 +148,7 @@ def test_overview_metrics_passes_unified_time_bounds() -> None:
 
     service.overview_metrics(time_range="7d")
 
-    bounds = _time_range_bounds("7d")
+    bounds = _time_range_bounds("7d", display_tz=ZoneInfo("UTC"))
     assert captured["time_from"] == bounds["time_from"]
     assert captured["time_to"] == bounds["time_to"]
 

@@ -56,8 +56,13 @@ class AssignmentUpdate:
 
 
 class ChFlowRepository:
-    def __init__(self, dsn: str) -> None:
-        self.client = ClickHouseHTTPClient(dsn)
+    def __init__(self, dsn: str, *, display_timezone: str | None = None) -> None:
+        from ..timezone_utils import display_timezone_name
+
+        self.client = ClickHouseHTTPClient(
+            dsn,
+            session_timezone=display_timezone_name(display_timezone),
+        )
 
     def insert_assignments(self, updates: list[AssignmentUpdate]) -> int:
         rows = [update.to_clickhouse_row() for update in updates]

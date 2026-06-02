@@ -1,11 +1,20 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
+
+from zoneinfo import ZoneInfo
 
 from .persistence.ch_flow_repository import ChFlowRepository
 from .persistence.learner_repository import LearnerRepository
+from .timezone_utils import (
+    bucket_key,
+    format_display_time,
+    parse_bucket_start,
+    resolve_display_timezone,
+    to_utc_iso,
+)
 from .protocol_utils import (
     is_meaningful_app_proto,
     resolve_flow_protocol_from_row,
@@ -48,11 +57,19 @@ class PageQueryService:
         flows: ChFlowRepository,
         learners: LearnerRepository,
         redis: RedisListConsumer | RedisStreamConsumer | None = None,
+        display_timezone: str | None = None,
     ) -> None:
         self.session_id = session_id
         self.flows = flows
         self.learners = learners
         self.redis = redis
+        self.display_tz = resolve_display_timezone(display_timezone)
+
+    def _fmt(self, value: Any) -> str:
+        return format_display_time(value, self.display_tz)
+
+    def time_range_bounds(self, time_range: str) -> dict[str, str]:
+        return _time_range_bounds(time_range, display_tz=self.display_tz)
 
     def _session_baseline_learner(self, session_id: str | None = None) -> str | None:
         sid = session_id or self.session_id
@@ -144,7 +161,7 @@ class PageQueryService:
         }
 
     def overview_metrics(self, *, time_range: str = "24h") -> dict[str, Any]:
-        bounds = _time_range_bounds(time_range)
+        bounds = self.time_range_bounds(time_range)
         overview = self.dashboard_overview(
             time_from=bounds["time_from"],
             time_to=bounds["time_to"],
@@ -158,7 +175,7 @@ class PageQueryService:
         }
 
     def overview_distributions(self, *, time_range: str = "24h") -> dict[str, Any]:
-        bounds = _time_range_bounds(time_range)
+        bounds = self.time_range_bounds(time_range)
         overview = self.dashboard_overview(
             time_from=bounds["time_from"],
             time_to=bounds["time_to"],
@@ -171,7 +188,7 @@ class PageQueryService:
 
     def overview_traffic_trend(self, *, time_range: str = "24h") -> list[dict[str, Any]]:
         sid = self.session_id
-        spec = _traffic_trend_spec(time_range)
+        spec = _traffic_trend_spec(time_range, display_tz=self.display_tz)
         learner_rows = self.learners.list_learners(session_id=sid)
         risk_names = _risk_learner_names(learner_rows)
         rows = self.flows.traffic_trend(
@@ -182,7 +199,7 @@ class PageQueryService:
             time_to=spec["time_to"],
         )
         if spec.get("aggregate_rolling_weeks"):
-            by_bucket = _aggregate_rolling_week_traffic(rows, spec["buckets"])
+            by_bucket = _aggregate_rolling_week_traffic(rows, spec["buckets"], display_tz=self.display_tz)
         else:
             by_bucket = {
                 str(row.get("bucket_start") or ""): {
@@ -219,6 +236,7 @@ class PageQueryService:
                 row,
                 session_baseline_learner=session_baseline,
                 display_sequence_by_name=display_sequence_by_name,
+                display_tz=self.display_tz,
             )
             for index, row in enumerate(
                 _filter_learner_rows(
@@ -229,6 +247,7 @@ class PageQueryService:
                     time_to=time_to,
                     display_sequence_by_name=display_sequence_by_name,
                     session_baseline_learner=session_baseline,
+                    display_tz=self.display_tz,
                 ),
                 start=1,
             )
@@ -288,6 +307,7 @@ class PageQueryService:
                     learner_by_name.get(learner_name),
                     is_risk_learner=True,
                     display_sequence_by_name=display_sequence_by_name,
+                    display_tz=self.display_tz,
                 )
             )
         return {"items": items, "total": int(result["total"])}
@@ -383,6 +403,7 @@ class PageQueryService:
                 learner,
                 session_baseline_learner=session_baseline,
                 display_sequence_by_name=display_sequence_by_name,
+                display_tz=self.display_tz,
             )
             if learner
             else _empty_event_item(learner_name)
@@ -391,8 +412,8 @@ class PageQueryService:
         is_benign = primary_attack == "BENIGN_NORMAL"
         traffic_kind = "benign" if is_benign else "attack"
         topology_risk_learners = [] if is_benign else [learner_name]
-        last_trigger_time = _format_time((trigger_stats or {}).get("last_trigger_time")) or event["trigger_time"]
-        first_trigger_time = _format_time((trigger_stats or {}).get("first_trigger_time")) or last_trigger_time
+        last_trigger_time = self._fmt((trigger_stats or {}).get("last_trigger_time")) or event["trigger_time"]
+        first_trigger_time = self._fmt((trigger_stats or {}).get("first_trigger_time")) or last_trigger_time
         trigger_count = int((trigger_stats or {}).get("trigger_count") or event["flow_count"] or 0)
         view = {
             "learner": learner_name,
@@ -570,6 +591,7 @@ class PageQueryService:
             include_all_bands=False,
             display_sequence_by_name=display_sequence_by_name,
             session_baseline_learner=session_baseline,
+            display_tz=self.display_tz,
         )
         rows = [row for row in rows if int(row.get("flow_count") or 0) > 0]
         event_total = len(rows)
@@ -625,6 +647,7 @@ class PageQueryService:
             learner,
             subject_ip=_first_subject_ip(self, learner),
             display_sequence_by_name=display_sequence_by_name,
+            display_tz=self.display_tz,
         )
         learner_name = str(learner.get("learner_name") or "")
         item["riskIpCount"] = (
@@ -652,12 +675,12 @@ class PageQueryService:
             else {}
         )
         last_trigger_time = (
-            _format_time((trigger_stats or {}).get("last_trigger_time"))
+            self._fmt((trigger_stats or {}).get("last_trigger_time"))
             or item.get("triggerTime")
             or "-"
         )
         first_trigger_time = (
-            _format_time((trigger_stats or {}).get("first_trigger_time"))
+            self._fmt((trigger_stats or {}).get("first_trigger_time"))
             or last_trigger_time
         )
         trigger_count = int(
@@ -709,7 +732,7 @@ class PageQueryService:
         if not learner_name:
             return _traffic_logs_page(items=[], total=0, limit=limit, offset=offset)
         flows = self.flows.list_flows(session_id=self.session_id, learner_name=learner_name, limit=limit, offset=offset)
-        items = [_traffic_log_item(row) for row in flows["items"]]
+        items = [_traffic_log_item(row, display_tz=self.display_tz) for row in flows["items"]]
         return _traffic_logs_page(
             items=items,
             total=flows.get("total"),
@@ -787,7 +810,7 @@ class PageQueryService:
 
     def ip_traffic_logs(self, *, ip: str, limit: int = 100, offset: int = 0) -> dict[str, Any]:
         flows = self.flows.list_flows(session_id=self.session_id, src_ip=ip, limit=limit, offset=offset)
-        items = [_traffic_log_item(row) for row in flows["items"]]
+        items = [_traffic_log_item(row, display_tz=self.display_tz) for row in flows["items"]]
         return _traffic_logs_page(
             items=items,
             total=flows.get("total"),
@@ -926,6 +949,7 @@ def _filter_learner_rows(
     include_all_bands: bool = False,
     display_sequence_by_name: dict[str, int] | None = None,
     session_baseline_learner: str | None = None,
+    display_tz: ZoneInfo,
 ) -> list[dict[str, Any]]:
     time_from = _clean_trigger_bound(time_from)
     time_to = _clean_trigger_bound(time_to)
@@ -953,7 +977,7 @@ def _filter_learner_rows(
             if name_text not in display_name:
                 continue
         seen = row.get("last_seen_at")
-        seen_text = _format_time(seen)
+        seen_text = format_display_time(seen, display_tz)
         if time_from and seen_text and seen_text < time_from:
             continue
         if time_to and seen_text and seen_text > time_to:
@@ -963,7 +987,7 @@ def _filter_learner_rows(
         filtered,
         key=lambda row: (
             -_float(row.get("risk_score")),
-            _format_time(row.get("last_seen_at")),
+            format_display_time(row.get("last_seen_at"), display_tz),
             str(row.get("learner_name") or ""),
         ),
     )
@@ -1018,6 +1042,7 @@ def _learner_event_item(
     *,
     session_baseline_learner: str | None = None,
     display_sequence_by_name: dict[str, int] | None = None,
+    display_tz: ZoneInfo,
 ) -> dict[str, Any]:
     learner_name = str(row.get("learner_name") or "")
     risk_score = _float(row.get("risk_score"))
@@ -1036,7 +1061,7 @@ def _learner_event_item(
         "risk_id": int(row.get("id") or index),
         "risk_name": risk_name,
         "risk_description": risk_description,
-        "trigger_time": _format_time(row.get("last_seen_at")) or "-",
+        "trigger_time": format_display_time(row.get("last_seen_at"), display_tz) or "-",
         "attack_ratio": risk_score,
         "dominant_label": display["name"] if primary_attack else risk_band,
         "flow_count": int(row.get("flow_count") or 0),
@@ -1085,6 +1110,7 @@ def _risk_ip_item(
     *,
     is_risk_learner: bool,
     display_sequence_by_name: dict[str, int] | None = None,
+    display_tz: ZoneInfo,
 ) -> dict[str, Any]:
     learner_name = str(row.get("assigned_learner") or "")
     attack_type = _primary_attack_type(learner or {})
@@ -1100,7 +1126,7 @@ def _risk_ip_item(
         "id": int((learner or {}).get("id") or 0),
         "subjectIp": str(row.get("subject_ip") or ""),
         "name": display["name"] if attack_type else learner_name or "UNKNOWN",
-        "triggerTime": _format_time(row.get("trigger_time")) or "-",
+        "triggerTime": format_display_time(row.get("trigger_time"), display_tz) or "-",
         "description": f"risk_band={risk_band}; learner={learner_name or 'UNKNOWN'}; 风险类型={display['name'] if attack_type else '未知'}; 说明={display['desc'] if attack_type else '-'}; top_protocol={protocol}; top_dst_port={top_dst_port}",
         "features": f"flows={flow_count}; unknown={unknown_count}; top_dst_ip={top_dst_ip}",
         "riskScore": risk_score,
@@ -1213,19 +1239,8 @@ def _call_protocol_distribution(
     return method(**kwargs)
 
 
-def _format_time(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%d %H:%M:%S")
-    text = str(value)
-    if "T" in text:
-        text = text.replace("T", " ").replace("Z", "")
-    if "." in text:
-        text = text.split(".", 1)[0]
-    if "+" in text:
-        text = text.split("+", 1)[0].strip()
-    return text
+def _format_time(value: Any, *, display_tz: ZoneInfo) -> str:
+    return format_display_time(value, display_tz)
 
 
 def _float(value: Any) -> float:
@@ -1245,11 +1260,11 @@ def _safe_int(call: Any) -> int:
         return 0
 
 
-def _time_range_bounds(value: str) -> dict[str, str]:
+def _time_range_bounds(value: str, *, display_tz: ZoneInfo) -> dict[str, str]:
     """Canonical overview window; shared by metrics, distributions, topology, and traffic trend."""
-    now = datetime.now(timezone.utc)
-    current_hour = now.replace(minute=0, second=0, microsecond=0)
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    now_local = datetime.now(display_tz)
+    current_hour = now_local.replace(minute=0, second=0, microsecond=0)
+    today = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
 
     if value == "7d":
         start = today - timedelta(days=6)
@@ -1259,24 +1274,24 @@ def _time_range_bounds(value: str) -> dict[str, str]:
     else:
         start = current_hour - timedelta(hours=23)
 
-    return {"time_from": _iso_z(start), "time_to": _iso_z(now)}
+    return {"time_from": to_utc_iso(start), "time_to": to_utc_iso(now_local)}
 
 
-def _time_range_start(value: str) -> str | None:
-    return _time_range_bounds(value)["time_from"]
+def _time_range_start(value: str, *, display_tz: ZoneInfo) -> str | None:
+    return _time_range_bounds(value, display_tz=display_tz)["time_from"]
 
 
-def _traffic_trend_spec(value: str) -> dict[str, Any]:
-    bounds = _time_range_bounds(value)
-    now = datetime.now(timezone.utc)
-    current_hour = now.replace(minute=0, second=0, microsecond=0)
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+def _traffic_trend_spec(value: str, *, display_tz: ZoneInfo) -> dict[str, Any]:
+    bounds = _time_range_bounds(value, display_tz=display_tz)
+    now_local = datetime.now(display_tz)
+    current_hour = now_local.replace(minute=0, second=0, microsecond=0)
+    today = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
 
     if value == "7d":
         start = today - timedelta(days=6)
         buckets = [
             {
-                "key": _bucket_key(start + timedelta(days=index)),
+                "key": bucket_key(start + timedelta(days=index), display_tz),
                 "label": (start + timedelta(days=index)).strftime("%m-%d"),
             }
             for index in range(7)
@@ -1290,11 +1305,11 @@ def _traffic_trend_spec(value: str) -> dict[str, Any]:
 
     if value == "30d":
         week_count = 4
-        buckets = _rolling_week_buckets(today, week_count=week_count)
+        buckets = _rolling_week_buckets(today, week_count=week_count, display_tz=display_tz)
         oldest_week_start = buckets[0]["week_start"]
         return {
             "bucket": "day",
-            "time_from": _iso_z(oldest_week_start),
+            "time_from": to_utc_iso(oldest_week_start),
             "time_to": bounds["time_to"],
             "buckets": buckets,
             "aggregate_rolling_weeks": True,
@@ -1303,7 +1318,7 @@ def _traffic_trend_spec(value: str) -> dict[str, Any]:
     start = current_hour - timedelta(hours=23)
     buckets = [
         {
-            "key": _bucket_key(start + timedelta(hours=index)),
+            "key": bucket_key(start + timedelta(hours=index), display_tz),
             "label": (start + timedelta(hours=index)).strftime("%H:00"),
         }
         for index in range(24)
@@ -1316,22 +1331,19 @@ def _traffic_trend_spec(value: str) -> dict[str, Any]:
     }
 
 
-def _iso_z(value: datetime) -> str:
-    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def _bucket_key(value: datetime) -> str:
-    return value.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-
-def _format_chart_date_range(start: datetime, end: datetime) -> str:
+def _format_chart_date_range(start: datetime, end: datetime, *, display_tz: ZoneInfo) -> str:
     """Chart x-axis label for weekly buckets, e.g. 05-01~05-07."""
-    start_day = start.astimezone(timezone.utc)
-    end_day = end.astimezone(timezone.utc)
+    start_day = start.astimezone(display_tz)
+    end_day = end.astimezone(display_tz)
     return f"{start_day.strftime('%m-%d')}~{end_day.strftime('%m-%d')}"
 
 
-def _rolling_week_buckets(today: datetime, *, week_count: int = 4) -> list[dict[str, Any]]:
+def _rolling_week_buckets(
+    today: datetime,
+    *,
+    week_count: int = 4,
+    display_tz: ZoneInfo,
+) -> list[dict[str, Any]]:
     """Rolling 7-day windows ending at today; oldest bucket first."""
     buckets: list[dict[str, Any]] = []
     for index in range(week_count):
@@ -1339,8 +1351,8 @@ def _rolling_week_buckets(today: datetime, *, week_count: int = 4) -> list[dict[
         week_start = week_end - timedelta(days=6)
         buckets.append(
             {
-                "key": _bucket_key(week_start),
-                "label": _format_chart_date_range(week_start, week_end),
+                "key": bucket_key(week_start, display_tz),
+                "label": _format_chart_date_range(week_start, week_end, display_tz=display_tz),
                 "week_start": week_start,
                 "week_end": week_end,
             }
@@ -1351,13 +1363,15 @@ def _rolling_week_buckets(today: datetime, *, week_count: int = 4) -> list[dict[
 def _aggregate_rolling_week_traffic(
     rows: list[dict[str, Any]],
     buckets: list[dict[str, Any]],
+    *,
+    display_tz: ZoneInfo,
 ) -> dict[str, dict[str, int]]:
     totals = {
         str(item["key"]): {"normal": 0, "abnormal": 0}
         for item in buckets
     }
     for row in rows:
-        bucket_start = _parse_bucket_start(row.get("bucket_start"))
+        bucket_start = parse_bucket_start(row.get("bucket_start"), display_tz=display_tz)
         if bucket_start is None:
             continue
         for item in buckets:
@@ -1371,32 +1385,20 @@ def _aggregate_rolling_week_traffic(
     return totals
 
 
-def _parse_bucket_start(value: Any) -> datetime | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-
-
 def _risk_item_from_learner(
     learner: dict[str, Any],
     *,
     subject_ip: str = "",
     include_count: bool = False,
     display_sequence_by_name: dict[str, int] | None = None,
+    display_tz: ZoneInfo,
 ) -> dict[str, Any]:
     display = _display_for_learner(learner, display_sequence_by_name=display_sequence_by_name)
     item = {
         "id": int(learner.get("id") or 0),
         "subjectIp": subject_ip or "-",
         "name": display["name"],
-        "triggerTime": _format_time(learner.get("last_seen_at")) or "-",
+        "triggerTime": format_display_time(learner.get("last_seen_at"), display_tz) or "-",
         "description": display["desc"],
         "features": _learner_features(learner),
     }
@@ -1540,7 +1542,7 @@ def _traffic_logs_page(
     }
 
 
-def _traffic_log_item(row: dict[str, Any]) -> dict[str, Any]:
+def _traffic_log_item(row: dict[str, Any], *, display_tz: ZoneInfo) -> dict[str, Any]:
     src_port = row.get("src_port")
     dst_port = row.get("dst_port")
     return {
@@ -1549,7 +1551,7 @@ def _traffic_log_item(row: dict[str, Any]) -> dict[str, Any]:
         "srcPort": int(src_port) if src_port is not None else 0,
         "dstIp": str(row.get("dst_ip") or ""),
         "dstPort": int(dst_port) if dst_port is not None else 0,
-        "accessTime": _format_time(row.get("event_time")) or "-",
+        "accessTime": format_display_time(row.get("event_time"), display_tz) or "-",
         "traffic": int(row.get("total_bytes") or 0),
         "protocol": resolve_flow_protocol_from_row(row),
     }

@@ -10,9 +10,14 @@ from urllib import parse, request
 class ClickHouseHTTPClient:
     dsn: str
     timeout: float = 10.0
+    session_timezone: str = "UTC"
 
     def execute(self, sql: str) -> str:
-        req = request.Request(_query_url(self.dsn, sql), data=b"", method="POST")
+        req = request.Request(
+            _query_url(self.dsn, sql, session_timezone=self.session_timezone),
+            data=b"",
+            method="POST",
+        )
         with request.urlopen(req, timeout=self.timeout) as response:
             return response.read().decode("utf-8")
 
@@ -21,13 +26,17 @@ class ClickHouseHTTPClient:
             return
         sql = f"INSERT INTO {table} FORMAT JSONEachRow"
         body = "\n".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) for row in rows).encode("utf-8")
-        req = request.Request(_query_url(self.dsn, sql), data=body, method="POST")
+        req = request.Request(
+            _query_url(self.dsn, sql, session_timezone=self.session_timezone),
+            data=body,
+            method="POST",
+        )
         req.add_header("Content-Type", "application/x-ndjson")
         with request.urlopen(req, timeout=self.timeout) as response:
             response.read()
 
 
-def _query_url(dsn: str, sql: str) -> str:
+def _query_url(dsn: str, sql: str, *, session_timezone: str = "UTC") -> str:
     parsed = parse.urlsplit(dsn)
     params = dict(parse.parse_qsl(parsed.query, keep_blank_values=True))
     if parsed.username:
@@ -38,7 +47,7 @@ def _query_url(dsn: str, sql: str) -> str:
     if path and path != "/":
         params.setdefault("database", path.strip("/"))
         path = "/"
-    params.setdefault("session_timezone", "UTC")
+    params.setdefault("session_timezone", session_timezone)
     params.setdefault("date_time_input_format", "best_effort")
     params["query"] = sql
     netloc = parsed.hostname or ""

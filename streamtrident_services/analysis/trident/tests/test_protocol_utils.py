@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from zoneinfo import ZoneInfo
+
 from app.page_queries import _traffic_log_item
 from app.protocol_utils import (
     is_meaningful_app_proto,
@@ -42,7 +44,8 @@ def test_traffic_log_item_resolves_tcp_from_numeric_protocol() -> None:
             "total_bytes": 100,
             "app_proto": "unknown",
             "protocol": 6,
-        }
+        },
+        display_tz=ZoneInfo("UTC"),
     )
 
     assert item["protocol"] == "TCP"

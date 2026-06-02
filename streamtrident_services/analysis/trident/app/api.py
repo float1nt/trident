@@ -127,8 +127,12 @@ def create_app(config_path: str | None = None) -> FastAPI:
         top_n: int = Query(8, ge=1, le=500),
     ) -> dict[str, Any]:
         from .page_queries import _time_range_bounds
+        from .timezone_utils import resolve_display_timezone
 
-        bounds = _time_range_bounds(timeRange)
+        bounds = _time_range_bounds(
+            timeRange,
+            display_tz=resolve_display_timezone(cfg.display_timezone),
+        )
         data = _pages(cfg).dashboard_topology(
             top_n=top_n,
             time_from=bounds["time_from"],
@@ -332,7 +336,7 @@ def _redis(cfg: TridentConfig) -> RedisStreamConsumer:
 def _flow_repo(cfg: TridentConfig):
     from .persistence.ch_flow_repository import ChFlowRepository
 
-    return ChFlowRepository(cfg.clickhouse_dsn)
+    return ChFlowRepository(cfg.clickhouse_dsn, display_timezone=cfg.display_timezone)
 
 
 def _learner_repo(cfg: TridentConfig):
@@ -361,6 +365,7 @@ def _pages(cfg: TridentConfig) -> PageQueryService:
         flows=_flow_repo(cfg),
         learners=_learner_repo(cfg),
         redis=_redis(cfg),
+        display_timezone=cfg.display_timezone,
     )
 
 
