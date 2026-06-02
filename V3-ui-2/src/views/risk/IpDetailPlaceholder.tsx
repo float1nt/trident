@@ -154,7 +154,7 @@ export default function IpDetailPlaceholder() {
                       {summary?.description ? (
                         <OverflowTooltip title={summary.description}>
                           <span className="block min-w-0 truncate">
-                            IP说明：{summary.description}
+                            说明：{summary.description}
                           </span>
                         </OverflowTooltip>
                       ) : null}
