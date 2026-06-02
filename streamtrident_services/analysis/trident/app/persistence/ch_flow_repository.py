@@ -240,25 +240,38 @@ FORMAT JSONEachRow
         is_benign_expr = f"NOT ({abnormal})"
         main_protocol = _main_protocol_sql()
         sql = f"""
-WITH edge_agg AS (
+WITH flow_rows AS (
     SELECT
         {source_expr} AS source,
         {target_expr} AS target,
-        count() AS value,
-        min({is_benign_expr}) AS is_benign,
-        topK(1)({main_protocol})[1] AS protocol
+        {is_benign_expr} AS is_benign,
+        {main_protocol} AS main_protocol
     FROM ch_flow
     {where}
-    GROUP BY source, target
 ),
-victim_rows AS (
+victim_counts AS (
     SELECT
         target AS victim,
-        sum(value) AS victim_flow_count
-    FROM edge_agg
+        count() AS victim_flow_count
+    FROM flow_rows
     GROUP BY victim
+),
+victim_rows AS (
+    SELECT victim
+    FROM victim_counts
     ORDER BY victim_flow_count DESC, victim ASC
     LIMIT {top_victims}
+),
+edge_agg AS (
+    SELECT
+        f.source AS source,
+        f.target AS target,
+        count() AS value,
+        min(f.is_benign) AS is_benign,
+        topK(1)(f.main_protocol)[1] AS protocol
+    FROM flow_rows AS f
+    INNER JOIN victim_rows AS v ON f.target = v.victim
+    GROUP BY source, target
 ),
 ranked_edges AS (
     SELECT
@@ -277,8 +290,8 @@ edge_rows AS (
     WHERE edge_rank <= {per_victim}
 ),
 graph_stats AS (
-    SELECT sum(value) AS total_flow_count
-    FROM edge_agg
+    SELECT sum(victim_flow_count) AS total_flow_count
+    FROM victim_counts
 ),
 node_protocol_rows AS (
     SELECT node, topK(1)(edge_protocol)[1] AS protocol
@@ -377,25 +390,23 @@ FORMAT JSONEachRow
         is_benign_expr = f"NOT ({abnormal})"
         main_protocol = _main_protocol_sql()
         sql = f"""
-WITH edge_agg AS (
+WITH flow_rows AS (
     SELECT
         topology_kind,
         {source_expr} AS source,
         {target_expr} AS target,
-        count() AS value,
-        min({is_benign_expr}) AS is_benign,
-        topK(1)({main_protocol})[1] AS protocol
+        {is_benign_expr} AS is_benign,
+        {main_protocol} AS main_protocol
     FROM ch_flow
     ARRAY JOIN if({abnormal}, ['combined', 'attack'], ['combined', 'benign']) AS topology_kind
     {where}
-    GROUP BY topology_kind, source, target
 ),
 victim_counts AS (
     SELECT
         topology_kind,
         target AS victim,
-        sum(value) AS victim_flow_count
-    FROM edge_agg
+        count() AS victim_flow_count
+    FROM flow_rows
     GROUP BY topology_kind, victim
 ),
 victim_rows AS (
@@ -409,6 +420,18 @@ victim_rows AS (
         FROM victim_counts
     )
     WHERE victim_rank <= if(topology_kind = 'combined', {main_top_victims}, {compact_top_victims})
+),
+edge_agg AS (
+    SELECT
+        f.topology_kind AS topology_kind,
+        f.source AS source,
+        f.target AS target,
+        count() AS value,
+        min(f.is_benign) AS is_benign,
+        topK(1)(f.main_protocol)[1] AS protocol
+    FROM flow_rows AS f
+    INNER JOIN victim_rows AS v ON f.topology_kind = v.topology_kind AND f.target = v.victim
+    GROUP BY f.topology_kind, f.source, f.target
 ),
 ranked_edges AS (
     SELECT
@@ -428,8 +451,8 @@ edge_rows AS (
     WHERE edge_rank <= if(topology_kind = 'combined', {main_per_victim}, {compact_per_victim})
 ),
 graph_stats AS (
-    SELECT topology_kind, sum(value) AS total_flow_count
-    FROM edge_agg
+    SELECT topology_kind, sum(victim_flow_count) AS total_flow_count
+    FROM victim_counts
     GROUP BY topology_kind
 ),
 node_protocol_rows AS (

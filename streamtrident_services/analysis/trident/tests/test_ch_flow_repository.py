@@ -136,8 +136,11 @@ def test_topology_graph_selects_top_victims_with_per_victim_edges() -> None:
     )
 
     topology_sql = repo.client.sql[0]
-    assert "WITH edge_agg AS" in topology_sql
+    assert "WITH flow_rows AS" in topology_sql
+    assert "victim_counts AS" in topology_sql
     assert "victim_rows AS" in topology_sql
+    assert topology_sql.index("victim_rows AS") < topology_sql.index("edge_agg AS")
+    assert "INNER JOIN victim_rows AS v ON f.target = v.victim" in topology_sql
     assert "ranked_edges AS" in topology_sql
     assert "row_number() OVER (PARTITION BY e.target ORDER BY e.value DESC, e.source ASC)" in topology_sql
     assert "WHERE edge_rank <= 10" in topology_sql
@@ -216,7 +219,10 @@ def test_dashboard_topology_graphs_batches_traffic_kinds_in_one_query() -> None:
     assert len(repo.client.sql) == 1
     sql = repo.client.sql[0]
     assert "ARRAY JOIN if(assigned_learner IN ('NEW_1'), ['combined', 'attack'], ['combined', 'benign']) AS topology_kind" in sql
-    assert "GROUP BY topology_kind, source, target" in sql
+    assert "victim_counts AS" in sql
+    assert sql.index("victim_rows AS") < sql.index("edge_agg AS")
+    assert "INNER JOIN victim_rows AS v ON f.topology_kind = v.topology_kind AND f.target = v.victim" in sql
+    assert "GROUP BY f.topology_kind, f.source, f.target" in sql
     assert "PARTITION BY topology_kind" in sql
     assert "SELECT src_ip AS node" not in sql
     assert graphs["combined"]["flow_count"] == 9
