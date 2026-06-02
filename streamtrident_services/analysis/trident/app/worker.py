@@ -75,7 +75,11 @@ def main() -> int:
     reliable_consumer = queue_type == "stream" and cfg.consumer_mode == "reliable"
     if reliable_consumer:
         consumer.ensure_group()
-    loader = FlowLoader(session_id=cfg.session_id, feature_profile=cfg.feature_profile)
+    loader = FlowLoader(
+        session_id=cfg.session_id,
+        feature_profile=cfg.feature_profile,
+        store_cic_features=cfg.store_cic_features,
+    )
     flow_repo = ChFlowRepository(cfg.clickhouse_dsn)
     learner_repo = LearnerRepository(cfg.postgres_dsn)
     runtime_repo = SessionRuntimeRepository(cfg.postgres_dsn)
@@ -119,6 +123,7 @@ def main() -> int:
         block_ms=cfg.block_ms,
         window_size=cfg.window_size,
         feature_profile=cfg.feature_profile,
+        store_cic_features=cfg.store_cic_features,
         redis_output_enabled=cfg.redis_output_enabled,
         ack_enabled=cfg.ack,
         runtime_mode=cfg.runtime_mode,

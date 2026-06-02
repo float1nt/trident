@@ -9,7 +9,7 @@ from urllib import parse, request
 @dataclass(frozen=True, slots=True)
 class ClickHouseHTTPClient:
     dsn: str
-    timeout: float = 10.0
+    timeout: float = 30.0
     session_timezone: str = "UTC"
 
     def execute(self, sql: str) -> str:

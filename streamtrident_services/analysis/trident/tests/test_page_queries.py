@@ -128,6 +128,64 @@ def test_dashboard_overview_maps_database_rows_to_page_shape() -> None:
     ]
 
 
+def test_dashboard_topology_uses_batched_graph_query() -> None:
+    class BatchedFlows(FakeFlows):
+        def __init__(self) -> None:
+            self.batch_calls: list[dict[str, Any]] = []
+            self.single_calls = 0
+
+        def dashboard_topology_graphs(self, **kwargs: Any) -> dict[str, dict[str, Any]]:
+            self.batch_calls.append(kwargs)
+            node_mode = str(kwargs["node_mode"])
+            return {
+                "combined": {"flow_count": 10, "total_flow_count": 10, "node_mode": node_mode, "nodes": [], "links": [], "stats": {}},
+                "benign": {"flow_count": 7, "total_flow_count": 7, "node_mode": node_mode, "nodes": [], "links": [], "stats": {}},
+                "attack": {"flow_count": 3, "total_flow_count": 3, "node_mode": node_mode, "nodes": [], "links": [], "stats": {}},
+            }
+
+        def topology_graph(self, **_: Any) -> dict[str, Any]:
+            self.single_calls += 1
+            return {"flow_count": 1, "total_flow_count": 1, "node_mode": "host", "nodes": [], "links": [], "stats": {}}
+
+    flows = BatchedFlows()
+    service = PageQueryService(session_id="s1", flows=flows, learners=FakeLearners())
+
+    data = service.dashboard_topology(top_n=8)
+
+    assert flows.single_calls == 0
+    assert [call["node_mode"] for call in flows.batch_calls] == ["host"]
+    assert all(call["compact_top_n"] == 8 for call in flows.batch_calls)
+    assert data["total_flows"] == 10
+    assert data["views"]["__attack__"]["host"]["flow_count"] == 3
+    assert data["views"]["__benign__"]["endpoint"]["flow_count"] == 0
+
+
+def test_dashboard_topology_can_load_endpoint_only() -> None:
+    class BatchedFlows(FakeFlows):
+        def __init__(self) -> None:
+            self.batch_calls: list[dict[str, Any]] = []
+
+        def dashboard_topology_graphs(self, **kwargs: Any) -> dict[str, dict[str, Any]]:
+            self.batch_calls.append(kwargs)
+            node_mode = str(kwargs["node_mode"])
+            return {
+                "combined": {"flow_count": 10, "total_flow_count": 10, "node_mode": node_mode, "nodes": [], "links": [], "stats": {}},
+                "benign": {"flow_count": 7, "total_flow_count": 7, "node_mode": node_mode, "nodes": [], "links": [], "stats": {}},
+                "attack": {"flow_count": 3, "total_flow_count": 3, "node_mode": node_mode, "nodes": [], "links": [], "stats": {}},
+            }
+
+    flows = BatchedFlows()
+    service = PageQueryService(session_id="s1", flows=flows, learners=FakeLearners())
+
+    data = service.dashboard_topology(top_n=8, node_mode="endpoint")
+
+    assert [call["node_mode"] for call in flows.batch_calls] == ["endpoint"]
+    assert data["default_node_mode"] == "endpoint"
+    assert data["total_flows"] == 10
+    assert data["views"]["__combined__"]["host"]["flow_count"] == 0
+    assert data["views"]["__combined__"]["endpoint"]["flow_count"] == 10
+
+
 def test_overview_metrics_reports_total_traffic_bytes() -> None:
     service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=FakeLearners())
 

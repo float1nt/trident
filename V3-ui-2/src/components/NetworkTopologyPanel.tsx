@@ -449,6 +449,8 @@ export function TopologyChartPane({
   chartHeight = 320,
   compact = false,
   fillContainer = false,
+  activeGraphMode,
+  onGraphModeChange,
 }: {
   /** 标题文本，默认「拓扑图」 */
   title?: string;
@@ -464,9 +466,13 @@ export function TopologyChartPane({
   compact?: boolean;
   /** 画布占满父容器剩余高度（首页等大图区域）；否则使用固定 chartHeight */
   fillContainer?: boolean;
+  activeGraphMode?: TopologyGraphMode;
+  onGraphModeChange?: (mode: TopologyGraphMode) => void;
 }) {
   const hasDualGraph = hostGraph !== undefined || endpointGraph !== undefined;
-  const [graphMode, setGraphMode] = useState<TopologyGraphMode>("host");
+  const [internalGraphMode, setInternalGraphMode] =
+    useState<TopologyGraphMode>("host");
+  const graphMode = activeGraphMode ?? internalGraphMode;
   const activeGraph = hasDualGraph
     ? graphMode === "host"
       ? hostGraph
@@ -520,7 +526,10 @@ export function TopologyChartPane({
           {hasDualGraph ? (
             <TopologyGraphModeToggle
               value={graphMode}
-              onChange={setGraphMode}
+              onChange={(mode) => {
+                setInternalGraphMode(mode);
+                onGraphModeChange?.(mode);
+              }}
               compact={compact}
             />
           ) : null}

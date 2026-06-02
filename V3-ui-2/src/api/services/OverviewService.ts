@@ -1,5 +1,8 @@
 import { get } from "@/utils/request";
-import type { DatasetNetworkTopologyJson } from "@/components/NetworkTopologyPanel";
+import type {
+  DatasetNetworkTopologyJson,
+  TopologyGraphMode,
+} from "@/components/NetworkTopologyPanel";
 import type { DistributionItem } from "@/utils/chartDistribution";
 
 export type OverviewMetrics = {
@@ -85,10 +88,11 @@ export class OverviewService {
 
   static async getNetworkTopology(
     timeRange: TimeRange = "24h",
+    nodeMode: TopologyGraphMode = "host",
   ): Promise<DatasetNetworkTopologyJson> {
     const res = await get<DatasetNetworkTopologyJson>(
       "/overview/network-topology",
-      { timeRange },
+      { timeRange, nodeMode },
     );
       return (
         res.data ?? {
