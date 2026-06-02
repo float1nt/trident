@@ -270,9 +270,10 @@ def _restart_container(container: str) -> int:
         path=f"/containers/{container}/restart?t={timeout}",
     )
     if status not in {204, 304}:
+        body_text = body.decode("utf-8", errors="replace")
         raise HTTPException(
             status_code=502,
-            detail=f"failed to restart {container}: docker status={status} body={body[:300]}",
+            detail=f"failed to restart {container}: docker status={status} body={body_text[:300]}",
         )
     return status
 
@@ -301,7 +302,7 @@ def _container_state(container: str) -> dict[str, Any]:
     )
     if status != 200:
         return {"running": False, "status": f"docker-http-{status}"}
-    payload = json.loads(body)
+    payload = _load_json_object(body)
     state = payload.get("State", {})
     return {
         "running": bool(state.get("Running")),
@@ -309,7 +310,65 @@ def _container_state(container: str) -> dict[str, Any]:
     }
 
 
-def _docker_unix_request(*, socket_path: str, method: str, path: str) -> tuple[int, str]:
+def _load_json_object(body: bytes) -> dict[str, Any]:
+    text = body.decode("utf-8", errors="replace").strip()
+    if not text:
+        raise ValueError("empty docker JSON body")
+    payload = json.loads(text)
+    if not isinstance(payload, dict):
+        raise ValueError("docker JSON body must be an object")
+    return payload
+
+
+def _decode_chunked_body(data: bytes) -> bytes:
+    out = bytearray()
+    pos = 0
+    while pos < len(data):
+        line_end = data.find(b"\r\n", pos)
+        if line_end < 0:
+            break
+        size_token = data[pos:line_end].split(b";", 1)[0].strip()
+        if not size_token:
+            break
+        try:
+            chunk_size = int(size_token, 16)
+        except ValueError:
+            break
+        pos = line_end + 2
+        if chunk_size == 0:
+            break
+        out.extend(data[pos : pos + chunk_size])
+        pos += chunk_size + 2
+    return bytes(out)
+
+
+def _parse_http_response(response: bytes) -> tuple[int, bytes]:
+    header_bytes, _, body_bytes = response.partition(b"\r\n\r\n")
+    header_lines = header_bytes.split(b"\r\n")
+    if not header_lines:
+        raise RuntimeError("invalid docker response: missing status line")
+    status_line = header_lines[0].decode("ascii", errors="replace")
+    parts = status_line.split(" ", 2)
+    if len(parts) < 2 or not parts[1].isdigit():
+        raise RuntimeError(f"invalid docker response: {status_line}")
+
+    headers: dict[str, bytes] = {}
+    for line in header_lines[1:]:
+        if b":" not in line:
+            continue
+        name, value = line.split(b":", 1)
+        headers[name.strip().lower()] = value.strip()
+
+    if headers.get(b"transfer-encoding", b"").lower() == b"chunked":
+        body_bytes = _decode_chunked_body(body_bytes)
+    elif b"content-length" in headers:
+        content_length = int(headers[b"content-length"])
+        body_bytes = body_bytes[:content_length]
+
+    return int(parts[1]), body_bytes
+
+
+def _docker_unix_request(*, socket_path: str, method: str, path: str) -> tuple[int, bytes]:
     request = (
         f"{method} {path} HTTP/1.1\r\n"
         "Host: docker\r\n"
@@ -327,13 +386,7 @@ def _docker_unix_request(*, socket_path: str, method: str, path: str) -> tuple[i
             if not chunk:
                 break
             chunks.append(chunk)
-    response = b"".join(chunks)
-    header, _, body = response.partition(b"\r\n\r\n")
-    status_line = header.splitlines()[0].decode("ascii", errors="replace") if header else ""
-    parts = status_line.split(" ", 2)
-    if len(parts) < 2 or not parts[1].isdigit():
-        raise RuntimeError(f"invalid docker response: {status_line}")
-    return int(parts[1]), body.decode("utf-8", errors="replace")
+    return _parse_http_response(b"".join(chunks))
 
 
 def main() -> int:
