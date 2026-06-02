@@ -7,17 +7,30 @@ from app.redis_consumer import RedisStreamMessage
 from app.runtime.quality import apply_cold_start_benign_audit, build_learner_audit, feature_drift_score, resolve_session_baseline_learner
 
 
-def _record(message_id: str, dst_port: int) -> object:
+def _record(
+    message_id: str,
+    dst_port: int,
+    *,
+    src_ip: str = "10.0.0.1",
+    dst_ip: str = "10.0.0.2",
+    src_port: int = 1234,
+    protocol: str = "TCP",
+    fwd_packets: int = 5,
+    bwd_packets: int = 5,
+) -> object:
     message = RedisStreamMessage(
         "suricata:cic_flow",
         message_id,
         {
-            "src_ip": "10.0.0.1",
-            "dst_ip": "10.0.0.2",
-            "src_port": "1234",
+            "src_ip": src_ip,
+            "dst_ip": dst_ip,
+            "src_port": str(src_port),
             "dst_port": str(dst_port),
-            "protocol": "TCP",
-            "features_json": "{\"bytes\":100}",
+            "protocol": protocol,
+            "features_json": (
+                f'{{"bytes":100,"Total Fwd Packet":{fwd_packets},'
+                f'"Total Bwd packets":{bwd_packets}}}'
+            ),
         },
     )
     return FlowLoader(session_id="s1", feature_profile="compact").load(message)
@@ -92,6 +105,134 @@ def test_build_learner_audit_does_not_protect_cold_learners_after_finalize() -> 
 
     assert rules["attack_types"][0]["attack_type"] != "BENIGN_NORMAL"
     assert "fixed_benign=1" not in risk_reason
+
+
+def test_balanced_cic_flows_can_fall_back_to_benign_normal() -> None:
+    records = [
+        _record(
+            f"{idx}-0",
+            443 if idx % 2 == 0 else 80,
+            src_ip=f"10.0.0.{idx + 1}",
+            dst_ip=f"10.0.1.{idx + 1}",
+            src_port=20000 + idx,
+        )
+        for idx in range(20)
+    ]
+
+    metrics, _topology, rules, _risk_score, _risk_band, _risk_reason = build_learner_audit(
+        learner_name="NEW_NORMAL",
+        records=records,
+        flow_count=len(records),
+        unknown_buffer_size=0,
+        threshold=0.5,
+    )
+
+    assert metrics["low_reciprocity"] == 50.0
+    assert rules["attack_types"][0]["attack_type"] == "BENIGN_NORMAL"
+
+
+def test_internal_scan_uses_confirmed_taxonomy_and_category() -> None:
+    records = [_record(f"{idx}-0", 1000 + idx, src_port=20000 + idx) for idx in range(80)]
+
+    _metrics, _topology, rules, _risk_score, _risk_band, _risk_reason = build_learner_audit(
+        learner_name="NEW_SCAN",
+        records=records,
+        flow_count=len(records),
+        unknown_buffer_size=0,
+        threshold=0.5,
+    )
+
+    primary = rules["attack_types"][0]
+    assert primary["attack_type"] == "ENCRYPTED_INTERNAL_SCAN"
+    assert primary["attack_category"] == "恶意攻击类"
+
+
+def test_p2p_botnet_communication_uses_graph_only_shape() -> None:
+    records = [
+        _record(
+            f"{idx}-0",
+            8443,
+            dst_ip=f"8.8.8.{idx + 1}",
+            src_port=20000 + idx,
+        )
+        for idx in range(80)
+    ]
+
+    _metrics, _topology, rules, _risk_score, _risk_band, _risk_reason = build_learner_audit(
+        learner_name="NEW_P2P",
+        records=records,
+        flow_count=len(records),
+        unknown_buffer_size=0,
+        threshold=0.5,
+    )
+
+    primary = rules["attack_types"][0]
+    assert primary["attack_type"] == "P2P_BOTNET_COMMUNICATION"
+    assert primary["attack_category"] == "恶意攻击类"
+
+
+def test_encrypted_protocol_brute_force_uses_confirmed_taxonomy() -> None:
+    records = [_record(f"{idx}-0", 443) for idx in range(80)]
+
+    _metrics, _topology, rules, _risk_score, _risk_band, _risk_reason = build_learner_audit(
+        learner_name="NEW_BRUTE_FORCE",
+        records=records,
+        flow_count=len(records),
+        unknown_buffer_size=0,
+        threshold=0.5,
+    )
+
+    primary = rules["attack_types"][0]
+    assert primary["attack_type"] == "ENCRYPTED_PROTOCOL_BRUTE_FORCE"
+    assert primary["attack_category"] == "恶意攻击类"
+
+
+def test_automated_vulnerability_sweep_uses_external_to_internal_https_graph() -> None:
+    records = [
+        _record(
+            f"{idx}-0",
+            443,
+            src_ip="8.8.4.4",
+            dst_ip=f"10.0.1.{idx + 1}",
+            src_port=20000 + idx,
+        )
+        for idx in range(40)
+    ]
+
+    _metrics, _topology, rules, _risk_score, _risk_band, _risk_reason = build_learner_audit(
+        learner_name="NEW_VULN_SWEEP",
+        records=records,
+        flow_count=len(records),
+        unknown_buffer_size=0,
+        threshold=0.5,
+    )
+
+    primary = rules["attack_types"][0]
+    assert primary["attack_type"] == "ENCRYPTED_AUTOMATED_VULNERABILITY_SWEEP"
+    assert primary["attack_category"] == "恶意攻击类"
+
+
+def test_multi_hop_proxy_uses_bidirectional_hub_graph() -> None:
+    records = [
+        _record("1-0", 443, src_ip="10.0.0.1", dst_ip="10.0.0.5"),
+        _record("2-0", 443, src_ip="10.0.0.2", dst_ip="10.0.0.5"),
+        _record("3-0", 443, src_ip="10.0.0.3", dst_ip="10.0.0.5"),
+        _record("4-0", 443, src_ip="10.0.0.5", dst_ip="8.8.8.1"),
+        _record("5-0", 443, src_ip="10.0.0.5", dst_ip="8.8.8.2"),
+        _record("6-0", 443, src_ip="10.0.0.5", dst_ip="8.8.8.3"),
+    ]
+
+    _metrics, _topology, rules, _risk_score, _risk_band, _risk_reason = build_learner_audit(
+        learner_name="NEW_PROXY",
+        records=records,
+        flow_count=len(records),
+        unknown_buffer_size=0,
+        threshold=0.5,
+    )
+
+    primary = rules["attack_types"][0]
+    assert primary["attack_type"] == "ENCRYPTED_MULTI_HOP_PROXY"
+    assert primary["attack_category"] == "恶意攻击类"
 
 
 def test_resolve_session_baseline_prefers_dominant_post_cold_start_learner() -> None:
