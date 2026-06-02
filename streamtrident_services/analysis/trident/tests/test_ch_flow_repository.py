@@ -246,6 +246,42 @@ def test_dashboard_topology_graphs_uses_top_victim_list_for_edge_query() -> None
     assert graphs["benign"]["flow_count"] == 5
 
 
+def test_dashboard_topology_graphs_filters_endpoint_edges_by_ip_and_port_tuple() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sql: list[str] = []
+
+        def execute(self, sql: str) -> str:
+            self.sql.append(sql)
+            if "victim_counts AS" in sql:
+                return "\n".join(
+                    [
+                        '{"row_type":"victim","topology_kind":"combined","victim":"10.0.0.2:443","victim_flow_count":9}',
+                        '{"row_type":"victim","topology_kind":"attack","victim":"10.0.0.2:443","victim_flow_count":4}',
+                        '{"row_type":"victim","topology_kind":"benign","victim":"10.0.0.3:80","victim_flow_count":5}',
+                        '{"row_type":"stat","topology_kind":"combined","victim":"","victim_flow_count":9}',
+                    ]
+                )
+            return ""
+
+    repo = ChFlowRepository.__new__(ChFlowRepository)
+    repo.client = FakeClient()
+
+    repo.dashboard_topology_graphs(
+        session_id="s1",
+        node_mode="endpoint",
+        risk_learners=["NEW_1"],
+    )
+
+    assert len(repo.client.sql) == 2
+    edge_sql = repo.client.sql[1]
+    assert "concat(dst_ip, ':', toString(dst_port)) AS target" in edge_sql
+    assert "dst_ip IN ('10.0.0.2', '10.0.0.3')" in edge_sql
+    assert "(dst_ip, dst_port) IN (('10.0.0.2', 443), ('10.0.0.3', 80))" in edge_sql
+    assert "AND concat(dst_ip, ':', toString(dst_port)) IN" not in edge_sql
+    assert edge_sql.count("FROM ch_flow") == 1
+
+
 def test_dashboard_topology_graphs_applies_time_bounds_to_both_queries() -> None:
     class FakeClient:
         def __init__(self) -> None:

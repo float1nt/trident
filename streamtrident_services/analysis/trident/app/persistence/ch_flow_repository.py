@@ -480,7 +480,7 @@ FORMAT JSONEachRow
             [
                 f"session_id = {_quote(session_id)}",
                 _time_filter("event_time", time_from, time_to),
-                _in_filter(target_expr, all_targets),
+                _endpoint_target_filter(all_targets) if node_mode == "endpoint" else _in_filter(target_expr, all_targets),
             ]
         )
         sql = f"""
@@ -1119,6 +1119,34 @@ def _in_filter(column: str, values: list[str]) -> str | None:
     if not clean:
         return None
     return f"{column} IN ({', '.join(_quote(value) for value in clean)})"
+
+
+def _endpoint_target_filter(values: list[str]) -> str | None:
+    pairs: list[tuple[str, int]] = []
+    seen: set[tuple[str, int]] = set()
+    for value in values:
+        text = str(value or "")
+        if ":" not in text:
+            continue
+        host, port_text = text.rsplit(":", 1)
+        if not host:
+            continue
+        try:
+            port = int(port_text)
+        except ValueError:
+            continue
+        if port < 0 or port > 65535:
+            continue
+        pair = (host, port)
+        if pair in seen:
+            continue
+        seen.add(pair)
+        pairs.append(pair)
+    if not pairs:
+        return _in_filter("concat(dst_ip, ':', toString(dst_port))", values)
+    ips = sorted({host for host, _port in pairs})
+    tuple_values = ", ".join(f"({_quote(host)}, {port})" for host, port in pairs)
+    return f"dst_ip IN ({', '.join(_quote(ip) for ip in ips)}) AND (dst_ip, dst_port) IN ({tuple_values})"
 
 
 def _contains_filter(column: str, value: str | None) -> str | None:
