@@ -13,6 +13,7 @@ import {
   Spin,
   Typography,
   Pagination,
+  Select,
   TreeSelect,
 } from "antd";
 import type { TreeSelectProps } from "antd";
@@ -24,7 +25,10 @@ import AppTooltip from "@/components/AppTooltip";
 import OverflowTooltip from "@/components/OverflowTooltip";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
-import { RiskService } from "@/api/services/RiskService";
+import {
+  RiskService,
+  type AttackTypeOption,
+} from "@/api/services/RiskService";
 import {
   MOCK_ATTACK_TYPE_TREE,
   type MockAttackTypeTreeNode,
@@ -51,15 +55,26 @@ const EMPTY_SEARCH: RiskSearchForm = {
 
 type EventSearchForm = {
   name: string;
+  /** 树状风险类型（mock） */
   attackTypes: string[];
+  /** 旧版扁平风险类型（接口 /risk/attack-types） */
+  legacyAttackTypes: string[];
   triggerPeriod: [Dayjs, Dayjs] | null;
 };
 
 const EMPTY_EVENT_SEARCH: EventSearchForm = {
   name: "",
   attackTypes: [],
+  legacyAttackTypes: [],
   triggerPeriod: null,
 };
+
+function mergeEventAttackTypes(
+  treeTypes: string[],
+  legacyTypes: string[],
+): string[] {
+  return [...new Set([...treeTypes, ...legacyTypes])];
+}
 
 type RiskViewTab = "event" | "ip";
 
@@ -152,20 +167,39 @@ const RiskTaskList = () => {
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
   const [eventLoadError, setEventLoadError] = useState<string | null>(null);
   const [eventPage, setEventPage] = useState(1);
+  const [legacyAttackTypeOptions, setLegacyAttackTypeOptions] = useState<
+    AttackTypeOption[]
+  >([]);
   const attackTypeTreeData = useMemo(
     () => buildAttackTypeTreeData(MOCK_ATTACK_TYPE_TREE),
     [],
   );
 
+  useEffect(() => {
+    if (activeView !== "event") return;
+    let cancelled = false;
+    void RiskService.getAttackTypes({ scope: "event", includeCount: true })
+      .then((items) => {
+        if (!cancelled) setLegacyAttackTypeOptions(items);
+      })
+      .catch(() => {
+        if (!cancelled) setLegacyAttackTypeOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView]);
+
   const fetchEventTopologyPage = useCallback(
     async (offset: number, limit: number) => {
       const range = formatTriggerRange(eventFilters.triggerPeriod);
+      const attackTypes = mergeEventAttackTypes(
+        eventFilters.attackTypes,
+        eventFilters.legacyAttackTypes,
+      );
       return RiskService.getEventTopology({
         name: eventFilters.name || undefined,
-        attackTypes:
-          eventFilters.attackTypes.length > 0
-            ? eventFilters.attackTypes
-            : undefined,
+        attackTypes: attackTypes.length > 0 ? attackTypes : undefined,
         ...range,
         limit,
         offset,
@@ -394,6 +428,37 @@ const RiskTaskList = () => {
                       setEventSearchInputs((prev) => ({
                         ...prev,
                         attackTypes: normalizeAttackTypeValues(value as string[]),
+                      }))
+                    }
+                  />
+                </div>
+                <div className="risk-filter-select risk-filter-field">
+                  <span className="risk-filter-select__prefix">旧版风险类型</span>
+                  <Select
+                    mode="multiple"
+                    allowClear
+                    showSearch
+                    virtual={false}
+                    listHeight={200}
+                    optionFilterProp="label"
+                    className="risk-filter-select__control"
+                    classNames={{
+                      popup: {
+                        root: "app-scrollbar risk-filter-select-dropdown",
+                      },
+                    }}
+                    placeholder="请选择"
+                    maxTagCount="responsive"
+                    maxTagPlaceholder={renderRiskTypeMaxTagPlaceholder}
+                    value={eventSearchInputs.legacyAttackTypes}
+                    options={legacyAttackTypeOptions.map((item) => ({
+                      value: item.code,
+                      label: item.name,
+                    }))}
+                    onChange={(value) =>
+                      setEventSearchInputs((prev) => ({
+                        ...prev,
+                        legacyAttackTypes: value,
                       }))
                     }
                   />
