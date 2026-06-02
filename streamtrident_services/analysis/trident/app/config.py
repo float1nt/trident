@@ -33,6 +33,7 @@ class TridentConfig:
     session_id: str = "trident-session-dev"
     window_size: int = 10000
     feature_profile: str = "compact_stats_no_env"
+    store_cic_features: bool = False
     clickhouse_dsn: str = "http://127.0.0.1:8123/default"
     postgres_dsn: str = "postgresql://trident:trident@127.0.0.1:5432/trident"
     assignment_stream: str = "trident:assignments"
@@ -152,6 +153,7 @@ def load_config(path: str | Path | None) -> TridentConfig:
         session_id=str(payload.get("session_id", "trident-session-dev")),
         window_size=int(payload.get("window_size", 10000)),
         feature_profile=str(payload.get("feature_profile", "compact_stats_no_env")),
+        store_cic_features=_bool(payload.get("store_cic_features"), False),
         clickhouse_dsn=str(payload.get("clickhouse_dsn", "http://127.0.0.1:8123/default")),
         postgres_dsn=str(payload.get("postgres_dsn", "postgresql://trident:trident@127.0.0.1:5432/trident")),
         assignment_stream=str(payload.get("assignment_stream", "trident:assignments")),

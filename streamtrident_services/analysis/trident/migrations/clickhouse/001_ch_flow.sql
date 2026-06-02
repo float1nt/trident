@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS ch_flow (
     mq_topic String,
     mq_message_id String,
     source_flow_id String DEFAULT '',
-    raw_event String DEFAULT '',
     record_version UInt64,
     record_stage LowCardinality(String) DEFAULT 'ingested'
 )

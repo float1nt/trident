@@ -8,17 +8,6 @@ from typing import Any, Mapping
 
 from .redis_consumer import RedisStreamMessage
 
-PAYLOAD_FIELD_NAMES = frozenset(
-    {
-        "payload_sample_b64",
-        "payload_sample_bytes",
-        "payload_original_bytes",
-        "payload_truncated",
-        "payload_direction",
-    }
-)
-
-
 ALIASES: dict[str, tuple[str, ...]] = {
     "event_time": ("event_time", "timestamp", "Timestamp", "time", "flow_start"),
     "src_ip": ("src_ip", "source_ip", "Source IP", "Src IP"),
@@ -50,7 +39,6 @@ class FlowRecord:
     mq_topic: str
     mq_message_id: str
     source_flow_id: str
-    raw_event: str
     payload_sample_b64: str
     payload_sample_bytes: int
     payload_original_bytes: int
@@ -79,7 +67,6 @@ class FlowRecord:
             "mq_topic": self.mq_topic,
             "mq_message_id": self.mq_message_id,
             "source_flow_id": self.source_flow_id,
-            "raw_event": self.raw_event,
             "payload_sample_b64": self.payload_sample_b64,
             "payload_sample_bytes": self.payload_sample_bytes,
             "payload_original_bytes": self.payload_original_bytes,
@@ -101,9 +88,16 @@ class FlowRecord:
 
 
 class FlowLoader:
-    def __init__(self, *, session_id: str, feature_profile: str) -> None:
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        feature_profile: str,
+        store_cic_features: bool = False,
+    ) -> None:
         self.session_id = session_id
         self.feature_profile = feature_profile
+        self.store_cic_features = store_cic_features
 
     def load(self, message: RedisStreamMessage) -> FlowRecord:
         fields = dict(message.fields)
@@ -119,8 +113,7 @@ class FlowLoader:
         app_proto = _app_proto(_pick(merged, "app_proto", ""))
         total_bytes = _total_bytes(merged)
         source_flow_id = str(_pick(merged, "source_flow_id", ""))
-        features = _features(merged)
-        raw_event = _raw_event(fields, raw_payload)
+        features = _features(merged, include_cic=self.store_cic_features)
         payload_sample_b64 = str(merged.get("payload_sample_b64") or "")
         payload_sample_bytes = _non_negative_int(merged.get("payload_sample_bytes"))
         payload_original_bytes = _non_negative_int(merged.get("payload_original_bytes"))
@@ -145,7 +138,6 @@ class FlowLoader:
             mq_topic=message.stream,
             mq_message_id=message.message_id,
             source_flow_id=source_flow_id,
-            raw_event=raw_event,
             payload_sample_b64=payload_sample_b64,
             payload_sample_bytes=payload_sample_bytes,
             payload_original_bytes=payload_original_bytes,
@@ -194,7 +186,7 @@ def _pick(payload: Mapping[str, Any], key: str, default: Any) -> Any:
 
 
 def _parse_raw_payload(fields: Mapping[str, Any]) -> dict[str, Any]:
-    for key in ("raw_event_json", "raw_event", "eve"):
+    for key in ("eve",):
         value = fields.get(key)
         if isinstance(value, str) and value.strip():
             try:
@@ -206,7 +198,7 @@ def _parse_raw_payload(fields: Mapping[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _features(payload: Mapping[str, Any]) -> dict[str, Any]:
+def _features(payload: Mapping[str, Any], *, include_cic: bool = False) -> dict[str, Any]:
     value = payload.get("features")
     if isinstance(value, dict):
         return value
@@ -217,6 +209,10 @@ def _features(payload: Mapping[str, Any]) -> dict[str, Any]:
         except json.JSONDecodeError:
             return {}
         return parsed if isinstance(parsed, dict) else {}
+    if include_cic:
+        value = payload.get("cic")
+        if isinstance(value, dict):
+            return value
     return {}
 
 
@@ -247,28 +243,6 @@ def _total_bytes(payload: Mapping[str, Any]) -> int:
     if cic_style_total > 0:
         return cic_style_total
     return _non_negative_int(features.get("totlen_fwd_pkts")) + _non_negative_int(features.get("totlen_bwd_pkts"))
-
-
-def _raw_event(fields: Mapping[str, Any], raw_payload: Mapping[str, Any]) -> str:
-    raw = fields.get("raw_event_json") or fields.get("raw_event") or fields.get("eve")
-    if isinstance(raw, str) and raw.strip():
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError:
-            return raw
-        if isinstance(parsed, dict):
-            return _raw_event_without_payload_fields(parsed, fallback=raw)
-        return raw
-    payload = raw_payload if raw_payload else fields
-    return _raw_event_without_payload_fields(payload, fallback=None)
-
-
-def _raw_event_without_payload_fields(payload: Mapping[str, Any], *, fallback: str | None) -> str:
-    if not any(str(key) in PAYLOAD_FIELD_NAMES for key in payload):
-        if fallback is not None:
-            return fallback
-    clean = {str(key): value for key, value in payload.items() if str(key) not in PAYLOAD_FIELD_NAMES}
-    return json.dumps(clean, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
 def _normalize_time(value: Any) -> str:

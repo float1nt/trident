@@ -21,7 +21,7 @@ def test_loads_redis_fields_to_normalized_flow() -> None:
             "app_proto": "tls",
             "total_bytes": "1234",
             "features_json": "{\"bytes\":100}",
-            "raw_event_json": "{\"source\":\"unit\"}",
+            "eve": "{\"source\":\"unit\"}",
         },
     )
 
@@ -38,6 +38,7 @@ def test_loads_redis_fields_to_normalized_flow() -> None:
     assert record.to_clickhouse_row()["event_time"] == "2026-05-26 10:00:00.000"
     assert record.to_clickhouse_row()["app_proto"] == "tls"
     assert record.to_clickhouse_row()["total_bytes"] == 1234
+    assert "raw_event" not in record.to_clickhouse_row()
 
 
 def test_bad_features_json_falls_back_to_empty_object() -> None:
@@ -89,10 +90,40 @@ def test_loads_suricata_eve_json_field() -> None:
     assert record.protocol == 6
     assert record.total_bytes == 32878
     assert record.source_flow_id == "956456353660882"
-    assert record.raw_event == json.dumps(eve)
+    assert json.loads(record.features_json) == {}
 
 
-def test_loads_payload_sample_without_adding_it_to_raw_event_or_features() -> None:
+def test_can_store_cic_features_when_enabled() -> None:
+    loader = FlowLoader(session_id="s1", feature_profile="compact", store_cic_features=True)
+    message = RedisStreamMessage(
+        stream="suricata:cic_flow",
+        message_id="1779958685129-4",
+        fields={
+            "eve": json.dumps(
+                {
+                    "timestamp": "2026-05-12T09:50:35.026084+0000",
+                    "event_type": "cic_flow",
+                    "src_ip": "192.168.117.2",
+                    "dest_ip": "119.147.128.50",
+                    "proto": "TCP",
+                    "cic": {
+                        "totlen_fwd_pkts": 221,
+                        "totlen_bwd_pkts": 32657,
+                    },
+                }
+            )
+        },
+    )
+
+    record = loader.load(message)
+
+    assert json.loads(record.features_json) == {
+        "totlen_bwd_pkts": 32657,
+        "totlen_fwd_pkts": 221,
+    }
+
+
+def test_loads_payload_sample_without_adding_it_to_features() -> None:
     loader = FlowLoader(session_id="s1", feature_profile="compact")
     eve = {
         "timestamp": "2026-05-12T09:50:35.026084+0000",
@@ -120,7 +151,6 @@ def test_loads_payload_sample_without_adding_it_to_raw_event_or_features() -> No
     assert record.payload_original_bytes == 100
     assert record.payload_truncated is True
     assert record.payload_direction == "toserver"
-    assert "payload_sample_b64" not in json.loads(record.raw_event)
     assert json.loads(record.features_json) == {"bytes": 100}
     assert "payload_sample_b64" not in json.loads(record.features_json)
 
@@ -131,7 +161,7 @@ def test_total_bytes_falls_back_to_cic_lengths() -> None:
         stream="suricata:cic_flow",
         message_id="1710000000123-2",
         fields={
-            "raw_event_json": json.dumps(
+            "eve": json.dumps(
                 {
                     "cic": {
                         "totlen_fwd_pkts": 400,

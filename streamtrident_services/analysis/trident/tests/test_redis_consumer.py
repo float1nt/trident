@@ -50,7 +50,7 @@ def test_best_effort_read_uses_plain_xread() -> None:
     assert messages[0].fields == {"src_ip": "10.0.0.1"}
 
 
-def test_list_read_pops_from_right_and_wraps_raw_event() -> None:
+def test_list_read_pops_from_right_and_wraps_eve_payload() -> None:
     consumer = RedisListConsumer("redis://localhost:6379/0", key="suricata:cic_flow")
     fake = FakeListRedis()
     consumer.client = fake  # type: ignore[assignment]

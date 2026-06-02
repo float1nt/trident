@@ -197,7 +197,6 @@ export type FlowDetail = {
   is_unknown?: number;
   window_index?: number;
   source_flow_id?: string;
-  raw_event?: string;
   payload?: FlowPayloadSample;
 };
 
