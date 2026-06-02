@@ -157,6 +157,73 @@ def test_topology_graph_selects_top_victims_with_per_victim_edges() -> None:
     ]
 
 
+def test_topology_graph_can_skip_expensive_stats_query() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sql: list[str] = []
+
+        def execute(self, sql: str) -> str:
+            self.sql.append(sql)
+            return "\n".join(
+                [
+                    '{"row_type":"node","id":"10.0.0.1","source":"","target":"","value":3,"out_flow_count":3,"in_flow_count":0,"is_benign":0}',
+                    '{"row_type":"node","id":"10.0.0.2","source":"","target":"","value":3,"out_flow_count":0,"in_flow_count":3,"is_benign":0}',
+                    '{"row_type":"edge","id":"","source":"10.0.0.1","target":"10.0.0.2","value":3,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
+                    '{"row_type":"stat","id":"","source":"","target":"","value":9,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
+                ]
+            )
+
+    repo = ChFlowRepository.__new__(ChFlowRepository)
+    repo.client = FakeClient()
+
+    graph = repo.topology_graph(session_id="s1", node_mode="host", include_stats=False)
+
+    assert len(repo.client.sql) == 1
+    assert "node_protocol_rows AS" in repo.client.sql[0]
+    assert "FROM edge_rows" in repo.client.sql[0]
+    assert "SELECT src_ip AS node" not in repo.client.sql[0]
+    assert graph["flow_count"] == 9
+    assert graph["stats"]["total_flow_count"] == 9
+
+
+def test_dashboard_topology_graphs_batches_traffic_kinds_in_one_query() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sql: list[str] = []
+
+        def execute(self, sql: str) -> str:
+            self.sql.append(sql)
+            return "\n".join(
+                [
+                    '{"row_type":"node","topology_kind":"combined","id":"10.0.0.1","source":"","target":"","value":3,"out_flow_count":3,"in_flow_count":0,"is_benign":0}',
+                    '{"row_type":"node","topology_kind":"combined","id":"10.0.0.2","source":"","target":"","value":3,"out_flow_count":0,"in_flow_count":3,"is_benign":0}',
+                    '{"row_type":"edge","topology_kind":"combined","id":"","source":"10.0.0.1","target":"10.0.0.2","value":3,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
+                    '{"row_type":"stat","topology_kind":"combined","id":"","source":"","target":"","value":9,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
+                    '{"row_type":"stat","topology_kind":"attack","id":"","source":"","target":"","value":4,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
+                    '{"row_type":"stat","topology_kind":"benign","id":"","source":"","target":"","value":5,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
+                ]
+            )
+
+    repo = ChFlowRepository.__new__(ChFlowRepository)
+    repo.client = FakeClient()
+
+    graphs = repo.dashboard_topology_graphs(
+        session_id="s1",
+        node_mode="host",
+        risk_learners=["NEW_1"],
+    )
+
+    assert len(repo.client.sql) == 1
+    sql = repo.client.sql[0]
+    assert "ARRAY JOIN if(assigned_learner IN ('NEW_1'), ['combined', 'attack'], ['combined', 'benign']) AS topology_kind" in sql
+    assert "GROUP BY topology_kind, source, target" in sql
+    assert "PARTITION BY topology_kind" in sql
+    assert "SELECT src_ip AS node" not in sql
+    assert graphs["combined"]["flow_count"] == 9
+    assert graphs["attack"]["flow_count"] == 4
+    assert graphs["benign"]["flow_count"] == 5
+
+
 def test_learner_trigger_stats_batches_min_max_and_count() -> None:
     class FakeClient:
         def __init__(self) -> None:

@@ -341,7 +341,61 @@ class PageQueryService:
                 time_to=time_to,
                 top_n=top_victims_count if top_victims_count is not None else top_victims,
                 edges_per_victim=edges_per_victim,
+                include_stats=False,
             )
+
+        if hasattr(self.flows, "dashboard_topology_graphs"):
+            host_graphs = self.flows.dashboard_topology_graphs(
+                session_id=sid,
+                node_mode="host",
+                risk_learners=risk_names,
+                time_from=time_from,
+                time_to=time_to,
+                main_top_n=TOPOLOGY_TOP_VICTIMS_DASHBOARD_MAIN,
+                compact_top_n=top_victims,
+                main_edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_MAIN,
+                compact_edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_COMPACT,
+            )
+            endpoint_graphs = self.flows.dashboard_topology_graphs(
+                session_id=sid,
+                node_mode="endpoint",
+                risk_learners=risk_names,
+                time_from=time_from,
+                time_to=time_to,
+                main_top_n=TOPOLOGY_TOP_VICTIMS_DASHBOARD_MAIN,
+                compact_top_n=top_victims,
+                main_edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_MAIN,
+                compact_edges_per_victim=TOPOLOGY_EDGES_DASHBOARD_COMPACT,
+            )
+            views = {
+                "__combined__": _topology_view(
+                    label="总流量",
+                    host=host_graphs["combined"],
+                    endpoint=endpoint_graphs["combined"],
+                    is_benign=None,
+                ),
+                "__benign__": _topology_view(
+                    label="良性流量",
+                    host=host_graphs["benign"],
+                    endpoint=endpoint_graphs["benign"],
+                    is_benign=True,
+                ),
+                "__attack__": _topology_view(
+                    label="攻击流量",
+                    host=host_graphs["attack"],
+                    endpoint=endpoint_graphs["attack"],
+                    is_benign=False,
+                ),
+            }
+            return {
+                "version": 1,
+                "total_flows": int(views["__combined__"]["host"].get("flow_count") or 0),
+                "labels": ["__combined__", "__benign__", "__attack__"],
+                "default_label": "__combined__",
+                "default_node_mode": "host",
+                "aggregate_views": ["__combined__", "__benign__", "__attack__"],
+                "views": views,
+            }
 
         views = {
             "__combined__": _topology_view(

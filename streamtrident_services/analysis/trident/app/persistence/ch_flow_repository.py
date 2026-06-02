@@ -214,6 +214,7 @@ FORMAT JSONEachRow
         time_to: str | None = None,
         top_n: int = 8,
         edges_per_victim: int = 10,
+        include_stats: bool = True,
     ) -> dict[str, Any]:
         top_victims = max(1, min(int(top_n), 500))
         per_victim = max(1, min(int(edges_per_victim), 100))
@@ -275,16 +276,18 @@ edge_rows AS (
     FROM ranked_edges
     WHERE edge_rank <= {per_victim}
 ),
+graph_stats AS (
+    SELECT sum(value) AS total_flow_count
+    FROM edge_agg
+),
 node_protocol_rows AS (
-    SELECT node, topK(1)(main_protocol)[1] AS protocol
+    SELECT node, topK(1)(edge_protocol)[1] AS protocol
     FROM (
-        SELECT {source_expr} AS node, {main_protocol} AS main_protocol
-        FROM ch_flow
-        {where}
+        SELECT source AS node, protocol AS edge_protocol
+        FROM edge_rows
         UNION ALL
-        SELECT {target_expr} AS node, {main_protocol} AS main_protocol
-        FROM ch_flow
-        {where}
+        SELECT target AS node, protocol AS edge_protocol
+        FROM edge_rows
     )
     GROUP BY node
 ),
@@ -307,65 +310,192 @@ LEFT JOIN node_protocol_rows npr ON nr.id = npr.node
 UNION ALL
 SELECT 'edge' AS row_type, '' AS id, source, target, value, 0 AS out_flow_count, 0 AS in_flow_count, is_benign, ifNull(protocol, '') AS protocol
 FROM edge_rows
+UNION ALL
+SELECT 'stat' AS row_type, '' AS id, '' AS source, '' AS target, ifNull(total_flow_count, 0) AS value, 0 AS out_flow_count, 0 AS in_flow_count, 0 AS is_benign, '' AS protocol
+FROM graph_stats
 FORMAT JSONEachRow
 """
         text = self.client.execute(sql)
         rows = [_parse_json(line) for line in text.splitlines() if line.strip()]
-        nodes = []
-        links = []
-        victim_ids: set[str] = set()
-        for row in rows:
-            if row.get("row_type") == "edge":
-                victim_ids.add(str(row.get("target") or ""))
-        for row in rows:
-            if row.get("row_type") == "node":
-                node_id = str(row.get("id") or "")
-                flow_count = int(row.get("value") or 0)
-                out_flow_count = int(row.get("out_flow_count") or 0)
-                in_flow_count = int(row.get("in_flow_count") or 0)
-                nodes.append(
-                    _topology_node(
-                        node_id,
-                        flow_count,
-                        node_mode=node_mode,
-                        out_flow_count=out_flow_count,
-                        in_flow_count=in_flow_count,
-                        protocol=str(row.get("protocol") or "").strip() or None,
-                        role="victim" if node_id in victim_ids else "attacker",
-                    )
-                )
-            elif row.get("row_type") == "edge":
-                link = {
-                    "source": str(row.get("source") or ""),
-                    "target": str(row.get("target") or ""),
-                    "value": int(row.get("value") or 0),
-                    "is_benign": bool(int(row.get("is_benign") or 0)),
-                }
-                protocol = str(row.get("protocol") or "").strip()
-                if protocol:
-                    link["protocol"] = protocol
-                links.append(link)
-        stats = self.topology_stats(
-            session_id=session_id,
-            risk_learners=risk_names,
-            learner_name=learner_name,
-            subject_ip=subject_ip,
-            traffic_kind=traffic_kind,
-            time_from=time_from,
-            time_to=time_to,
+        graph = _build_topology_graph_from_rows(
+            rows,
+            node_mode=node_mode,
+            top_victims=top_victims,
+            edges_per_victim=per_victim,
         )
-        stats["displayed_victim_count"] = len(victim_ids)
-        stats["edges_per_victim"] = per_victim
-        stats["top_victims_limit"] = top_victims
-        total_flow_count = int(stats.get("total_flow_count") or 0)
-        displayed_flow_count = sum(link["value"] for link in links) or total_flow_count
+        if include_stats:
+            stats = self.topology_stats(
+                session_id=session_id,
+                risk_learners=risk_names,
+                learner_name=learner_name,
+                subject_ip=subject_ip,
+                traffic_kind=traffic_kind,
+                time_from=time_from,
+                time_to=time_to,
+            )
+            stats["displayed_victim_count"] = graph["stats"]["displayed_victim_count"]
+            stats["edges_per_victim"] = per_victim
+            stats["top_victims_limit"] = top_victims
+            graph["stats"] = stats
+            total_flow_count = int(stats.get("total_flow_count") or 0)
+            if total_flow_count:
+                graph["flow_count"] = total_flow_count
+                graph["total_flow_count"] = total_flow_count
+        return graph
+
+    def dashboard_topology_graphs(
+        self,
+        *,
+        session_id: str,
+        node_mode: str,
+        risk_learners: list[str] | None = None,
+        time_from: str | None = None,
+        time_to: str | None = None,
+        main_top_n: int = 50,
+        compact_top_n: int = 8,
+        main_edges_per_victim: int = 15,
+        compact_edges_per_victim: int = 13,
+    ) -> dict[str, dict[str, Any]]:
+        main_top_victims = max(1, min(int(main_top_n), 500))
+        compact_top_victims = max(1, min(int(compact_top_n), 500))
+        main_per_victim = max(1, min(int(main_edges_per_victim), 100))
+        compact_per_victim = max(1, min(int(compact_edges_per_victim), 100))
+        risk_names = risk_learners or []
+        abnormal = _abnormal_expr(risk_names)
+        where = _where(
+            [
+                f"session_id = {_quote(session_id)}",
+                _time_filter("event_time", time_from, time_to),
+            ]
+        )
+        if node_mode == "endpoint":
+            source_expr = "concat(src_ip, ':', toString(src_port))"
+            target_expr = "concat(dst_ip, ':', toString(dst_port))"
+        else:
+            source_expr = "src_ip"
+            target_expr = "dst_ip"
+        is_benign_expr = f"NOT ({abnormal})"
+        main_protocol = _main_protocol_sql()
+        sql = f"""
+WITH edge_agg AS (
+    SELECT
+        topology_kind,
+        {source_expr} AS source,
+        {target_expr} AS target,
+        count() AS value,
+        min({is_benign_expr}) AS is_benign,
+        topK(1)({main_protocol})[1] AS protocol
+    FROM ch_flow
+    ARRAY JOIN if({abnormal}, ['combined', 'attack'], ['combined', 'benign']) AS topology_kind
+    {where}
+    GROUP BY topology_kind, source, target
+),
+victim_counts AS (
+    SELECT
+        topology_kind,
+        target AS victim,
+        sum(value) AS victim_flow_count
+    FROM edge_agg
+    GROUP BY topology_kind, victim
+),
+victim_rows AS (
+    SELECT topology_kind, victim
+    FROM (
+        SELECT
+            topology_kind,
+            victim,
+            victim_flow_count,
+            row_number() OVER (PARTITION BY topology_kind ORDER BY victim_flow_count DESC, victim ASC) AS victim_rank
+        FROM victim_counts
+    )
+    WHERE victim_rank <= if(topology_kind = 'combined', {main_top_victims}, {compact_top_victims})
+),
+ranked_edges AS (
+    SELECT
+        e.topology_kind AS topology_kind,
+        e.source AS source,
+        e.target AS target,
+        e.value AS value,
+        e.is_benign AS is_benign,
+        e.protocol AS protocol,
+        row_number() OVER (PARTITION BY e.topology_kind, e.target ORDER BY e.value DESC, e.source ASC) AS edge_rank
+    FROM edge_agg AS e
+    INNER JOIN victim_rows AS v ON e.topology_kind = v.topology_kind AND e.target = v.victim
+),
+edge_rows AS (
+    SELECT topology_kind, source, target, value, is_benign, protocol
+    FROM ranked_edges
+    WHERE edge_rank <= if(topology_kind = 'combined', {main_per_victim}, {compact_per_victim})
+),
+graph_stats AS (
+    SELECT topology_kind, sum(value) AS total_flow_count
+    FROM edge_agg
+    GROUP BY topology_kind
+),
+node_protocol_rows AS (
+    SELECT topology_kind, node, topK(1)(edge_protocol)[1] AS protocol
+    FROM (
+        SELECT topology_kind, source AS node, protocol AS edge_protocol
+        FROM edge_rows
+        UNION ALL
+        SELECT topology_kind, target AS node, protocol AS edge_protocol
+        FROM edge_rows
+    )
+    GROUP BY topology_kind, node
+),
+node_rows AS (
+    SELECT
+        topology_kind,
+        node AS id,
+        sum(out_count) AS out_flow_count,
+        sum(in_count) AS in_flow_count,
+        sum(out_count) + sum(in_count) AS flow_count
+    FROM (
+        SELECT topology_kind, source AS node, value AS out_count, 0 AS in_count FROM edge_rows
+        UNION ALL
+        SELECT topology_kind, target AS node, 0 AS out_count, value AS in_count FROM edge_rows
+    )
+    GROUP BY topology_kind, node
+)
+SELECT 'node' AS row_type, nr.topology_kind AS topology_kind, nr.id, '' AS source, '' AS target, nr.flow_count AS value, nr.out_flow_count, nr.in_flow_count, 0 AS is_benign, ifNull(npr.protocol, '') AS protocol
+FROM node_rows nr
+LEFT JOIN node_protocol_rows npr ON nr.topology_kind = npr.topology_kind AND nr.id = npr.node
+UNION ALL
+SELECT 'edge' AS row_type, topology_kind, '' AS id, source, target, value, 0 AS out_flow_count, 0 AS in_flow_count, is_benign, ifNull(protocol, '') AS protocol
+FROM edge_rows
+UNION ALL
+SELECT 'stat' AS row_type, topology_kind, '' AS id, '' AS source, '' AS target, ifNull(total_flow_count, 0) AS value, 0 AS out_flow_count, 0 AS in_flow_count, 0 AS is_benign, '' AS protocol
+FROM graph_stats
+FORMAT JSONEachRow
+"""
+        text = self.client.execute(sql)
+        rows_by_kind: dict[str, list[dict[str, Any]]] = {"combined": [], "benign": [], "attack": []}
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            row = _parse_json(line)
+            kind = str(row.get("topology_kind") or "")
+            if kind in rows_by_kind:
+                rows_by_kind[kind].append(row)
         return {
-            "flow_count": total_flow_count or displayed_flow_count,
-            "total_flow_count": total_flow_count or displayed_flow_count,
-            "node_mode": node_mode,
-            "nodes": nodes,
-            "links": links,
-            "stats": stats,
+            "combined": _build_topology_graph_from_rows(
+                rows_by_kind["combined"],
+                node_mode=node_mode,
+                top_victims=main_top_victims,
+                edges_per_victim=main_per_victim,
+            ),
+            "benign": _build_topology_graph_from_rows(
+                rows_by_kind["benign"],
+                node_mode=node_mode,
+                top_victims=compact_top_victims,
+                edges_per_victim=compact_per_victim,
+            ),
+            "attack": _build_topology_graph_from_rows(
+                rows_by_kind["attack"],
+                node_mode=node_mode,
+                top_victims=compact_top_victims,
+                edges_per_victim=compact_per_victim,
+            ),
         }
 
     def topology_stats(
@@ -904,6 +1034,68 @@ def _abnormal_expr(risk_learners: list[str]) -> str:
 
 def _risk_learner_expr(risk_learners: list[str]) -> str:
     return _in_filter("assigned_learner", risk_learners) or "(0 = 1)"
+
+
+def _build_topology_graph_from_rows(
+    rows: list[dict[str, Any]],
+    *,
+    node_mode: str,
+    top_victims: int,
+    edges_per_victim: int,
+) -> dict[str, Any]:
+    nodes = []
+    links = []
+    victim_ids: set[str] = set()
+    total_flow_count = 0
+    for row in rows:
+        if row.get("row_type") == "edge":
+            victim_ids.add(str(row.get("target") or ""))
+    for row in rows:
+        if row.get("row_type") == "node":
+            node_id = str(row.get("id") or "")
+            flow_count = int(row.get("value") or 0)
+            out_flow_count = int(row.get("out_flow_count") or 0)
+            in_flow_count = int(row.get("in_flow_count") or 0)
+            nodes.append(
+                _topology_node(
+                    node_id,
+                    flow_count,
+                    node_mode=node_mode,
+                    out_flow_count=out_flow_count,
+                    in_flow_count=in_flow_count,
+                    protocol=str(row.get("protocol") or "").strip() or None,
+                    role="victim" if node_id in victim_ids else "attacker",
+                )
+            )
+        elif row.get("row_type") == "edge":
+            link = {
+                "source": str(row.get("source") or ""),
+                "target": str(row.get("target") or ""),
+                "value": int(row.get("value") or 0),
+                "is_benign": bool(int(row.get("is_benign") or 0)),
+            }
+            protocol = str(row.get("protocol") or "").strip()
+            if protocol:
+                link["protocol"] = protocol
+            links.append(link)
+        elif row.get("row_type") == "stat":
+            total_flow_count = int(row.get("value") or 0)
+    displayed_flow_count = sum(link["value"] for link in links)
+    flow_count = total_flow_count or displayed_flow_count
+    stats = {
+        "total_flow_count": flow_count,
+        "displayed_victim_count": len(victim_ids),
+        "edges_per_victim": edges_per_victim,
+        "top_victims_limit": top_victims,
+    }
+    return {
+        "flow_count": flow_count,
+        "total_flow_count": flow_count,
+        "node_mode": node_mode,
+        "nodes": nodes,
+        "links": links,
+        "stats": stats,
+    }
 
 
 def _topology_node(
