@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from ipaddress import ip_address
 from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Any
@@ -11,21 +12,26 @@ import numpy as np
 from ..flow_loader import FlowRecord
 
 RULE_SET_ID = "learner_attack_rules"
-RULE_SET_VERSION = "2026-05-28.v2"
+RULE_SET_VERSION = "2026-06-02.v3"
 BASELINE_LEARNER_NAME = "0000|UNLABELED"
 BASELINE_BENIGN_RULE_ID = "learner_baseline_benign_fixed"
 BASELINE_BENIGN_CONFIDENCE = 0.35
 ATTACK_EXPLAIN: dict[str, str] = {
-    "PORT_SCAN": "攻击源针对少量固定目标主机，批量试探大量不同端口，探测开放服务，为后续渗透做铺垫，整体端口分散、无固定访问服务。",
-    "HOST_SCAN": "攻击源依托固定常用服务端口，批量访问内网大量不同目标主机，探测存活资产，是典型的内网横向渗透前置行为。",
-    "DDOS_VICTIM": "海量分布式源IP集中冲击单一或少量目标主机的固定服务端口，通过流量洪泛消耗目标带宽与算力，可能造成服务瘫痪。",
-    "DOS_ATTACKER": "攻击源高频重复连接固定目标服务，依托高复用连接路径持续施压，耗尽目标资源实现单点打击。",
-    "DRDOS_REFLECTION_FAMILY": "攻击者伪造受害者地址利用第三方服务放大流量，具备端口极度分散、连接一次性、流量单向失衡的特征，对目标形成无差别洪泛冲击。",
-    "SLOW_DOS_SUSPECTED": "不依靠大流量洪泛，通过低速请求、长效弱连接持续占用目标Web及固定服务资源，缓慢耗尽服务端会话与算力导致服务失效。",
-    "WEB_DDOS_SUSPECTED": "海量访问源集中针对80、443等Web端口及业务接口发起复杂高频请求，依托多样业务访问路径施压，专门打击Web业务服务。",
-    "BRUTE_FORCE_SUSPECTED": "攻击源反复高频访问SSH、Web等固定登录端口，持续尝试账号密码组合，流量重复度高。",
+    "ENCRYPTED_INTERNAL_SCAN": "单台主机在短时间内向大量内部主机或端口发起高并发连接，形成明显扫描拓扑。",
+    "ENCRYPTED_PROTOCOL_BRUTE_FORCE": "攻击源持续密集访问固定加密服务端口，连接路径高度复用，符合加密协议暴力破解行为。",
+    "P2P_BOTNET_COMMUNICATION": "单台内部主机连接大量分散外部 IP，连接离散且边复用低，符合 P2P 僵尸网络组网通信行为。",
+    "ENCRYPTED_AUTOMATED_VULNERABILITY_SWEEP": "外部主机短时间访问大量内部 HTTPS 站点，目标端口集中，形成自动化漏洞刷网拓扑。",
+    "ENCRYPTED_MULTI_HOP_PROXY": "同一节点同时维持多条入向和出向加密链路，呈现中转代理拓扑。",
     "BENIGN_NORMAL": "未命中攻击规则，行为更接近正常业务流量。",
     "UNKNOWN_SUSPECTED": "存在异常迹象，但尚未匹配到已命名攻击类型。",
+}
+ATTACK_CATEGORY: dict[str, str] = {
+    "ENCRYPTED_INTERNAL_SCAN": "恶意攻击类",
+    "ENCRYPTED_PROTOCOL_BRUTE_FORCE": "恶意攻击类",
+    "P2P_BOTNET_COMMUNICATION": "恶意攻击类",
+    "ENCRYPTED_AUTOMATED_VULNERABILITY_SWEEP": "恶意攻击类",
+    "ENCRYPTED_MULTI_HOP_PROXY": "恶意攻击类",
+    "UNKNOWN_SUSPECTED": "恶意攻击类",
 }
 BASELINE_BENIGN_EXPLAIN = "冷启动结束后的 baseline 学习器，规则层固定标记为正常业务流量。"
 SESSION_BASELINE_PROFILE_KEY = "session_baseline_learner"
@@ -168,28 +174,14 @@ def apply_cold_start_benign_audit(
     metrics = _build_v4_metrics(records, flow_count=flow_count, unknown_buffer_size=unknown_buffer_size, threshold=threshold)
     topology_json = _build_topology_json(learner_name, records)
     host_evidence_json = _build_host_evidence_json(learner_name, records)
-    attack_types, rule_hits = _match_attack_rules(metrics, host_evidence_json)
-    dominant = attack_types[0] if attack_types else None
-    dominant_type = str((dominant or {}).get("attack_type") or "")
-    dominant_conf = float((dominant or {}).get("confidence") or 0.0)
-    contaminated = dominant_type == "DOS_ATTACKER" and dominant_conf >= 0.62
-    if contaminated:
-        risk_score = dominant_conf
-        risk_band = risk_band_for_score(risk_score)
-        risk_reason = (
-            f"cold_start_learner={learner_name},contaminated_attack={dominant_type},risk_score={risk_score:.3f},"
-            f"flow_count={int(metrics.get('flow_count') or flow_count)},"
-            f"unknown_buffer={unknown_buffer_size}"
-        )
-    else:
-        attack_types, rule_hits = _baseline_benign_rule(metrics)
-        risk_score = BASELINE_BENIGN_CONFIDENCE
-        risk_band = "low"
-        risk_reason = (
-            f"cold_start_learner={learner_name},fixed_benign=1,risk_score={risk_score:.3f},"
-            f"flow_count={int(metrics.get('flow_count') or flow_count)},"
-            f"unknown_buffer={unknown_buffer_size}"
-        )
+    attack_types, rule_hits = _baseline_benign_rule(metrics)
+    risk_score = BASELINE_BENIGN_CONFIDENCE
+    risk_band = "low"
+    risk_reason = (
+        f"cold_start_learner={learner_name},fixed_benign=1,risk_score={risk_score:.3f},"
+        f"flow_count={int(metrics.get('flow_count') or flow_count)},"
+        f"unknown_buffer={unknown_buffer_size}"
+    )
     rule_json = {
         "version": 1,
         "rule_set": {"id": RULE_SET_ID, "version": RULE_SET_VERSION},
@@ -242,6 +234,7 @@ def _build_v4_metrics(
 
     temporal = _temporal_scores(records)
     reciprocal_flow_count = _reciprocal_flow_count(endpoint_edges)
+    packet_low_reciprocity = _flow_packet_low_reciprocity(records)
     edge_per_node_raw = len(endpoint_edge_unique) / max(1, len(endpoint_nodes))
     edge_reuse_raw = n / max(1, len(endpoint_edge_unique))
 
@@ -269,7 +262,11 @@ def _build_v4_metrics(
         "dst_endpoint_concentration": _top1_share(dst_eps),
         "leaf_ratio": _leaf_ratio(endpoint_edge_unique, endpoint_nodes),
         "edge_per_node": _clamp100(_safe_log_ratio(edge_per_node_raw, base=11.0)),
-        "low_reciprocity": _clamp100((1.0 - reciprocal_flow_count / float(n)) * 100.0),
+        "low_reciprocity": (
+            packet_low_reciprocity
+            if packet_low_reciprocity is not None
+            else _clamp100((1.0 - reciprocal_flow_count / float(n)) * 100.0)
+        ),
         "temporal_burst": temporal["temporal_burst"],
         "temporal_global_spread": temporal["temporal_global_spread"],
         "temporal_intra_uniformity": temporal["temporal_intra_uniformity"],
@@ -282,6 +279,10 @@ def _build_v4_metrics(
         "top1_dst_ip_share": _top1_share(dst_ips) / 100.0,
         "protocol_tcp_share": round(protocol_tcp_share, 6),
         "protocol_udp_share": round(protocol_udp_share, 6),
+        "src_private_ip_share": _private_ip_share(src_ips),
+        "dst_private_ip_share": _private_ip_share(dst_ips),
+        "dst_public_ip_share": _clamp100(100.0 - _private_ip_share(dst_ips)),
+        "dst_443_share": _top_value_share(dst_ports, 443),
     }
     return metrics
 
@@ -341,12 +342,9 @@ def _build_host_evidence_json(learner_name: str, records: list[FlowRecord]) -> d
                 _max_metric(top_source_hosts, "temporal_burst"),
                 _max_metric(top_destination_hosts, "temporal_burst"),
             ),
-            "host_scan_evidence_count": sum(1 for item in top_source_hosts if "HOST_SCAN" in item["evidence_types"]),
-            "ddos_victim_evidence_count": sum(1 for item in top_destination_hosts if "DDOS_VICTIM" in item["evidence_types"]),
-            "dos_attacker_evidence_count": sum(1 for item in top_source_hosts if "DOS_ATTACKER" in item["evidence_types"]),
-            "port_scan_evidence_count": sum(1 for item in top_source_hosts if "PORT_SCAN" in item["evidence_types"]),
-            "drdos_evidence_count": sum(1 for item in top_destination_hosts if "DRDOS_REFLECTION_FAMILY" in item["evidence_types"])
-            + sum(1 for item in top_source_hosts if "DRDOS_REFLECTION_FAMILY" in item["evidence_types"]),
+            "internal_scan_evidence_count": sum(
+                1 for item in top_source_hosts if "ENCRYPTED_INTERNAL_SCAN" in item["evidence_types"]
+            ),
             "source_evidence_types": sorted(set(src_evs)),
             "destination_evidence_types": sorted(set(dst_evs)),
         },
@@ -410,7 +408,7 @@ def _host_evidence_types(metrics: dict[str, float], *, source_mode: bool) -> lis
             and metrics["dst_port_top1_concentration"] <= 25.0
             and metrics["endpoint_edge_entropy"] >= 85.0
         ):
-            out.append("PORT_SCAN")
+            out.append("ENCRYPTED_INTERNAL_SCAN")
         if (
             metrics["host_max_out_degree_ratio"] >= 65.0
             and (
@@ -418,414 +416,144 @@ def _host_evidence_types(metrics: dict[str, float], *, source_mode: bool) -> lis
                 or (metrics["max_out_degree_ratio"] >= 60.0 and metrics["dst_port_top1_concentration"] >= 50.0)
             )
         ):
-            out.append("HOST_SCAN")
-        if (
-            metrics["dst_host_concentration"] >= 65.0
-            and metrics["dst_endpoint_concentration"] >= 60.0
-            and metrics["edge_reuse_ratio"] >= 55.0
-        ):
-            out.append("DOS_ATTACKER")
-    if (
-        metrics["host_max_in_degree_ratio"] >= 65.0
-        and metrics["dst_host_concentration"] >= 65.0
-        and (metrics["max_in_degree_ratio"] >= 70.0 or metrics["endpoint_edge_entropy"] >= 75.0)
-    ):
-        out.append("DDOS_VICTIM")
-    if (
-        metrics["dst_port_entropy"] >= 80.0
-        and metrics["dst_port_richness"] >= 85.0
-        and metrics["endpoint_edge_entropy"] >= 85.0
-        and metrics["edge_reuse_ratio"] <= 30.0
-        and metrics["low_reciprocity"] >= 70.0
-    ):
-        out.append("DRDOS_REFLECTION_FAMILY")
+            out.append("ENCRYPTED_INTERNAL_SCAN")
     return sorted(set(out))
-
-
-def _arbitrate_attack_scores(
-    scores: dict[str, dict[str, float]],
-    metrics: dict[str, Any],
-    *,
-    tcp_share: float,
-    udp_share: float,
-    ps_strong: bool,
-    sd_strong: bool,
-) -> None:
-    """Down-rank incompatible families after individual rules fire."""
-    dst_ent = _m(metrics, "dst_port_entropy")
-    burst = _m(metrics, "temporal_burst")
-
-    def damp(attack_type: str, factor: float) -> None:
-        bucket = scores.get(attack_type)
-        if bucket is not None:
-            bucket["weighted"] *= factor
-
-    if udp_share >= 70.0 and dst_ent >= 70.0:
-        for attack_type in ("DDOS_VICTIM", "PORT_SCAN", "SLOW_DOS_SUSPECTED", "DOS_ATTACKER"):
-            damp(attack_type, 0.08)
-
-    if tcp_share >= 70.0 and dst_ent >= 70.0:
-        damp("DRDOS_REFLECTION_FAMILY", 0.08)
-
-    if dst_ent >= 70.0:
-        damp("DDOS_VICTIM", 0.2)
-
-    if dst_ent <= 30.0 and burst <= 45.0 and tcp_share >= 50.0:
-        intra = _m(metrics, "temporal_intra_uniformity")
-        in_deg = _m(metrics, "host_max_in_degree_ratio")
-        if intra >= 92.0 and in_deg >= 85.0:
-            damp("SLOW_DOS_SUSPECTED", 0.12)
-            if "DDOS_VICTIM" in scores:
-                scores["DDOS_VICTIM"]["weighted"] *= 1.35
-        elif intra <= 91.0:
-            damp("DDOS_VICTIM", 0.12)
-            damp("DRDOS_REFLECTION_FAMILY", 0.12)
-            if "SLOW_DOS_SUSPECTED" in scores:
-                scores["SLOW_DOS_SUSPECTED"]["weighted"] *= 1.35
-
-    if (
-        _m(metrics, "temporal_global_spread") >= 86.0
-        and _m(metrics, "dst_port_top1_concentration") >= 95.0
-        and "DDOS_VICTIM" in scores
-    ):
-        scores["DDOS_VICTIM"]["weighted"] *= 1.3
-        damp("SLOW_DOS_SUSPECTED", 0.2)
-
-    if ps_strong and "PORT_SCAN" in scores:
-        scores["PORT_SCAN"]["weighted"] *= 1.25
-        damp("DDOS_VICTIM", 0.1)
-        damp("DRDOS_REFLECTION_FAMILY", 0.1)
-
-    if sd_strong and "SLOW_DOS_SUSPECTED" in scores:
-        scores["SLOW_DOS_SUSPECTED"]["weighted"] *= 1.2
-        damp("DDOS_VICTIM", 0.15)
-
-    if udp_share >= 75.0 and "DRDOS_REFLECTION_FAMILY" in scores:
-        scores["DRDOS_REFLECTION_FAMILY"]["weighted"] *= 1.2
-        damp("PORT_SCAN", 0.1)
-
-    if _m(metrics, "dst_port_top1_concentration") >= 90.0:
-        damp("HOST_SCAN", 0.05)
 
 
 def _match_attack_rules(
     metrics: dict[str, Any],
     host_evidence_json: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    scores: dict[str, dict[str, float]] = defaultdict(lambda: {"weighted": 0.0, "total": 0.0})
+    scores: dict[str, float] = {}
     rule_hits: list[dict[str, Any]] = []
     rule_refs: dict[str, list[str]] = defaultdict(list)
 
-    def add_metric_rule(
+    def add_rule(
         *,
         rule_id: str,
         attack_type: str,
-        source: str,
-        match: str,
-        weight: float,
+        confidence: float,
         metric: str,
         value: float,
-        weak_threshold: float,
-        strong_threshold: float,
         explain: str,
     ) -> None:
-        strength = 1.0 if match == "strong" else 0.5
-        scores[attack_type]["weighted"] += weight * strength
-        scores[attack_type]["total"] += weight
+        scores[attack_type] = max(scores.get(attack_type, 0.0), confidence)
         rule_refs[attack_type].append(rule_id)
         rule_hits.append(
             {
                 "rule_id": rule_id,
                 "rule_version": "v1",
                 "target_attack_type": attack_type,
-                "match": match,
-                "source": source,
+                "attack_category": ATTACK_CATEGORY[attack_type],
+                "match": "strong",
+                "source": "learner_topology",
                 "metric": metric,
                 "value": round(float(value), 6),
-                "weak_threshold": weak_threshold,
-                "strong_threshold": strong_threshold,
-                "weight": weight,
                 "explain": explain,
             }
         )
 
     tcp_share = _m(metrics, "protocol_tcp_share")
-    udp_share = _m(metrics, "protocol_udp_share")
-
-    port_scan_hosts = int(host_evidence_json.get("summary", {}).get("port_scan_evidence_count") or 0)
-    ddos_victim_hosts = int(host_evidence_json.get("summary", {}).get("ddos_victim_evidence_count") or 0)
-    dos_attacker_hosts = int(host_evidence_json.get("summary", {}).get("dos_attacker_evidence_count") or 0)
-    drdos_hosts = int(host_evidence_json.get("summary", {}).get("drdos_evidence_count") or 0)
-
-    # PORT_SCAN — TCP-heavy, destination port space expands (single-host or multi-host scan).
-    ps_strong = (
-        tcp_share >= 70.0
-        and _m(metrics, "dst_port_entropy") >= 85
-        and _m(metrics, "dst_port_richness") >= 65
-        and _m(metrics, "endpoint_edge_entropy") >= 80
-        and _m(metrics, "low_reciprocity") <= 85
-        and (
-            _m(metrics, "dst_port_top1_concentration") <= 25
-            or _m(metrics, "dst_host_concentration") >= 70
-        )
-    )
-    ps_weak = (
-        tcp_share >= 55.0
-        and udp_share <= 35.0
-        and _m(metrics, "dst_port_entropy") >= 75
-        and _m(metrics, "dst_port_richness") >= 55
-    )
-    if ps_strong or ps_weak or (port_scan_hosts >= 1 and tcp_share >= 50.0 and _m(metrics, "dst_port_entropy") >= 65.0):
-        add_metric_rule(
-            rule_id="learner_port_scan_core",
-            attack_type="PORT_SCAN",
-            source="learner_metric_json",
-            match="strong" if ps_strong else "weak",
-            weight=0.92,
-            metric="dst_port_entropy",
-            value=_m(metrics, "dst_port_entropy"),
-            weak_threshold=80.0,
-            strong_threshold=90.0,
-            explain=ATTACK_EXPLAIN["PORT_SCAN"],
-        )
-
-    # HOST_SCAN
-    hs_strong = (
-        _m(metrics, "host_max_out_degree_ratio") >= 80
-        and _m(metrics, "dst_port_richness") <= 45
-        and _m(metrics, "host_edge_entropy") >= 70
-    )
-    hs_weak = _m(metrics, "host_max_out_degree_ratio") >= 65
-    if hs_strong or (hs_weak and _m(metrics, "dst_port_richness") <= 40.0):
-        add_metric_rule(
-            rule_id="learner_host_scan_core",
-            attack_type="HOST_SCAN",
-            source="host_evidence_json",
-            match="strong" if hs_strong else "weak",
-            weight=0.9,
-            metric="summary.max_host_out_degree_score",
-            value=float(host_evidence_json.get("summary", {}).get("max_host_out_degree_score") or _m(metrics, "host_max_out_degree_ratio")),
-            weak_threshold=65.0,
-            strong_threshold=80.0,
-            explain=ATTACK_EXPLAIN["HOST_SCAN"],
-        )
-
-    # DDOS_VICTIM — many sources converge on a fixed victim service (TCP volumetric DDoS).
-    fixed_core = (
-        tcp_share >= 55.0
-        and _m(metrics, "dst_port_entropy") <= 25
-        and _m(metrics, "dst_port_richness") <= 35
-        and _m(metrics, "dst_port_top1_concentration") >= 85
-        and _m(metrics, "endpoint_edge_entropy") >= 70
-        and _m(metrics, "src_port_entropy") >= 65
-    )
-    volumetric_flood = (
+    internal_scan = (
         tcp_share >= 50.0
-        and _m(metrics, "dst_port_entropy") <= 25
-        and _m(metrics, "dst_port_top1_concentration") >= 95
-        and _m(metrics, "host_max_in_degree_ratio") >= 90
-        and _m(metrics, "endpoint_edge_entropy") >= 95
-        and _m(metrics, "temporal_global_spread") >= 86
-        and _m(metrics, "temporal_intra_uniformity") >= 92
+        and (
+            (
+                _m(metrics, "dst_port_entropy") >= 75.0
+                and _m(metrics, "dst_port_richness") >= 55.0
+                and _m(metrics, "endpoint_edge_entropy") >= 75.0
+            )
+            or (
+                _m(metrics, "host_max_out_degree_ratio") >= 65.0
+                and _m(metrics, "src_private_ip_share") >= 70.0
+                and _m(metrics, "dst_private_ip_share") >= 70.0
+                and _m(metrics, "unique_dst_ip_count") >= 10.0
+            )
+        )
     )
-    fixed_support = (
-        _m(metrics, "dst_host_concentration") >= 60
-        or _m(metrics, "max_in_degree_ratio") >= 70
-        or _m(metrics, "host_max_in_degree_ratio") >= 70
-    )
-    dv_strong = (fixed_core and fixed_support and _m(metrics, "temporal_burst") >= 45) or volumetric_flood
-    dv_weak = (fixed_core and fixed_support) or (
-        tcp_share >= 45.0
-        and _m(metrics, "dst_port_top1_concentration") >= 90
-        and _m(metrics, "host_max_in_degree_ratio") >= 85
-        and _m(metrics, "temporal_global_spread") >= 88
-        and _m(metrics, "temporal_intra_uniformity") >= 92
-    )
-    if dv_strong or dv_weak or (
-        ddos_victim_hosts >= 1
-        and tcp_share >= 45.0
-        and _m(metrics, "dst_port_entropy") <= 45.0
+    if internal_scan:
+        add_rule(
+            rule_id="learner_encrypted_internal_scan",
+            attack_type="ENCRYPTED_INTERNAL_SCAN",
+            confidence=0.9,
+            metric="host_max_out_degree_ratio",
+            value=_m(metrics, "host_max_out_degree_ratio"),
+            explain=ATTACK_EXPLAIN["ENCRYPTED_INTERNAL_SCAN"],
+        )
+
+    brute_force = (
+        tcp_share >= 50.0
+        and _m(metrics, "dst_port_entropy") <= 25.0
         and _m(metrics, "dst_port_top1_concentration") >= 70.0
-    ):
-        add_metric_rule(
-            rule_id="learner_ddos_victim_core",
-            attack_type="DDOS_VICTIM",
-            source="learner_metric_json",
-            match="strong" if dv_strong else "weak",
-            weight=1.05,
-            metric="host_max_in_degree_ratio",
-            value=max(_m(metrics, "host_max_in_degree_ratio"), _m(metrics, "max_in_degree_ratio")),
-            weak_threshold=65.0,
-            strong_threshold=80.0,
-            explain=ATTACK_EXPLAIN["DDOS_VICTIM"],
-        )
-
-    # DOS_ATTACKER — single source hammering a fixed target (Hulk-style TCP DoS).
-    da_strong = (
-        tcp_share >= 55.0
-        and _m(metrics, "dst_host_concentration") >= 75
-        and _m(metrics, "dst_port_top1_concentration") >= 75
-        and _m(metrics, "edge_reuse_ratio") >= 60
-        and _m(metrics, "temporal_burst") >= 40
+        and _m(metrics, "edge_reuse_ratio") >= 50.0
     )
-    da_weak = (
-        tcp_share >= 45.0
-        and _m(metrics, "dst_host_concentration") >= 60
-        and _m(metrics, "dst_endpoint_concentration") >= 55
-        and _m(metrics, "edge_reuse_ratio") >= 48
-    )
-    if da_strong or da_weak or (
-        dos_attacker_hosts >= 1
-        and tcp_share >= 45.0
-        and _m(metrics, "edge_reuse_ratio") >= 45.0
-        and _m(metrics, "dst_port_entropy") <= 55.0
-    ):
-        add_metric_rule(
-            rule_id="learner_dos_attacker_core",
-            attack_type="DOS_ATTACKER",
-            source="host_evidence_json",
-            match="strong" if da_strong else "weak",
-            weight=1.0,
+    if brute_force:
+        add_rule(
+            rule_id="learner_encrypted_protocol_brute_force",
+            attack_type="ENCRYPTED_PROTOCOL_BRUTE_FORCE",
+            confidence=0.82,
             metric="edge_reuse_ratio",
             value=_m(metrics, "edge_reuse_ratio"),
-            weak_threshold=55.0,
-            strong_threshold=70.0,
-            explain=ATTACK_EXPLAIN["DOS_ATTACKER"],
+            explain=ATTACK_EXPLAIN["ENCRYPTED_PROTOCOL_BRUTE_FORCE"],
         )
 
-    # DRDOS_REFLECTION_FAMILY — UDP reflection/amplification with dispersed victims.
-    dr_strong = (
-        udp_share >= 75.0
-        and _m(metrics, "dst_port_entropy") >= 85
-        and _m(metrics, "dst_port_richness") >= 75
-        and _m(metrics, "dst_port_top1_concentration") <= 15
-        and _m(metrics, "endpoint_edge_entropy") >= 80
-        and _m(metrics, "edge_reuse_ratio") <= 35
-        and _m(metrics, "low_reciprocity") >= 75
+    p2p_botnet = (
+        _m(metrics, "host_max_out_degree_ratio") >= 65.0
+        and _m(metrics, "unique_dst_ip_count") >= 20.0
+        and _m(metrics, "dst_public_ip_share") >= 70.0
+        and _m(metrics, "dst_host_concentration") <= 15.0
+        and _m(metrics, "edge_reuse_ratio") <= 35.0
+        and _m(metrics, "dst_port_richness") <= 45.0
     )
-    dr_weak = (
-        udp_share >= 60.0
-        and tcp_share <= 35.0
-        and _m(metrics, "dst_port_entropy") >= 70
-        and _m(metrics, "endpoint_edge_entropy") >= 75
-        and _m(metrics, "low_reciprocity") >= 65
-        and _m(metrics, "dst_port_top1_concentration") <= 25
-    )
-    if dr_strong or dr_weak or (drdos_hosts >= 1 and udp_share >= 55.0 and _m(metrics, "dst_port_entropy") >= 70.0):
-        add_metric_rule(
-            rule_id="learner_drdos_reflection_core",
-            attack_type="DRDOS_REFLECTION_FAMILY",
-            source="learner_metric_json",
-            match="strong" if dr_strong else "weak",
-            weight=0.95,
-            metric="low_reciprocity",
-            value=_m(metrics, "low_reciprocity"),
-            weak_threshold=70.0,
-            strong_threshold=85.0,
-            explain=ATTACK_EXPLAIN["DRDOS_REFLECTION_FAMILY"],
+    if p2p_botnet:
+        add_rule(
+            rule_id="learner_p2p_botnet_communication",
+            attack_type="P2P_BOTNET_COMMUNICATION",
+            confidence=0.88,
+            metric="host_max_out_degree_ratio",
+            value=_m(metrics, "host_max_out_degree_ratio"),
+            explain=ATTACK_EXPLAIN["P2P_BOTNET_COMMUNICATION"],
         )
 
-    # SLOW_DOS_SUSPECTED — low burst, fixed service port, persistent one-way pressure.
-    sd_strong = (
-        tcp_share >= 55.0
-        and _m(metrics, "dst_port_entropy") <= 25
-        and _m(metrics, "dst_port_top1_concentration") >= 75
-        and (_m(metrics, "dst_host_concentration") >= 60 or _m(metrics, "host_max_in_degree_ratio") >= 60)
-        and _m(metrics, "low_reciprocity") >= 62
-        and _m(metrics, "temporal_burst") <= 40
-        and _m(metrics, "temporal_global_spread") <= 86
-        and _m(metrics, "temporal_intra_uniformity") <= 91
-        and _m(metrics, "edge_reuse_ratio") >= 40
+    automated_sweep = (
+        tcp_share >= 70.0
+        and _m(metrics, "src_private_ip_share") <= 30.0
+        and _m(metrics, "dst_private_ip_share") >= 70.0
+        and _m(metrics, "host_max_out_degree_ratio") >= 65.0
+        and _m(metrics, "unique_dst_ip_count") >= 10.0
+        and _m(metrics, "dst_443_share") >= 70.0
     )
-    sd_weak = (
-        tcp_share >= 45.0
-        and _m(metrics, "dst_port_top1_concentration") >= 65
-        and _m(metrics, "low_reciprocity") >= 55
-        and _m(metrics, "temporal_burst") <= 55
-    )
-    if sd_strong or sd_weak:
-        add_metric_rule(
-            rule_id="learner_slow_dos_suspected",
-            attack_type="SLOW_DOS_SUSPECTED",
-            source="learner_metric_json",
-            match="strong" if sd_strong else "weak",
-            weight=0.88,
-            metric="low_reciprocity",
-            value=_m(metrics, "low_reciprocity"),
-            weak_threshold=60.0,
-            strong_threshold=68.0,
-            explain=ATTACK_EXPLAIN["SLOW_DOS_SUSPECTED"],
+    if automated_sweep:
+        add_rule(
+            rule_id="learner_encrypted_automated_vulnerability_sweep",
+            attack_type="ENCRYPTED_AUTOMATED_VULNERABILITY_SWEEP",
+            confidence=0.86,
+            metric="dst_443_share",
+            value=_m(metrics, "dst_443_share"),
+            explain=ATTACK_EXPLAIN["ENCRYPTED_AUTOMATED_VULNERABILITY_SWEEP"],
         )
 
-    # WEB_DDOS_SUSPECTED
-    wd_strong = (
-        35 <= _m(metrics, "dst_port_entropy") <= 65
-        and 50 <= _m(metrics, "dst_port_top1_concentration") <= 85
-        and _m(metrics, "max_in_degree_ratio") >= 80
-        and _m(metrics, "max_out_degree_ratio") >= 80
-        and _m(metrics, "endpoint_edge_entropy") >= 85
+    multi_hop_proxy = (
+        _m(metrics, "host_max_in_degree_ratio") >= 40.0
+        and _m(metrics, "host_max_out_degree_ratio") >= 40.0
+        and _m(metrics, "unique_src_ip_count") >= 3.0
+        and _m(metrics, "unique_dst_ip_count") >= 3.0
     )
-    wd_weak = (
-        30 <= _m(metrics, "dst_port_entropy") <= 70
-        and _m(metrics, "max_in_degree_ratio") >= 65
-        and _m(metrics, "endpoint_edge_entropy") >= 75
-    )
-    if wd_strong or wd_weak:
-        add_metric_rule(
-            rule_id="learner_web_ddos_suspected",
-            attack_type="WEB_DDOS_SUSPECTED",
-            source="learner_metric_json",
-            match="strong" if wd_strong else "weak",
-            weight=0.55,
-            metric="endpoint_edge_entropy",
-            value=_m(metrics, "endpoint_edge_entropy"),
-            weak_threshold=75.0,
-            strong_threshold=85.0,
-            explain=ATTACK_EXPLAIN["WEB_DDOS_SUSPECTED"],
+    if multi_hop_proxy:
+        add_rule(
+            rule_id="learner_encrypted_multi_hop_proxy",
+            attack_type="ENCRYPTED_MULTI_HOP_PROXY",
+            confidence=0.78,
+            metric="host_max_out_degree_ratio",
+            value=_m(metrics, "host_max_out_degree_ratio"),
+            explain=ATTACK_EXPLAIN["ENCRYPTED_MULTI_HOP_PROXY"],
         )
-
-    # BRUTE_FORCE_SUSPECTED
-    bf_strong = (
-        _m(metrics, "dst_port_entropy") <= 25
-        and _m(metrics, "dst_port_top1_concentration") >= 80
-        and _m(metrics, "edge_reuse_ratio") >= 65
-        and _m(metrics, "temporal_burst") >= 50
-    )
-    bf_weak = _m(metrics, "dst_port_top1_concentration") >= 70 and _m(metrics, "edge_reuse_ratio") >= 50
-    if bf_strong or bf_weak:
-        add_metric_rule(
-            rule_id="learner_bruteforce_suspected",
-            attack_type="BRUTE_FORCE_SUSPECTED",
-            source="learner_metric_json",
-            match="strong" if bf_strong else "weak",
-            weight=0.55,
-            metric="edge_reuse_ratio",
-            value=_m(metrics, "edge_reuse_ratio"),
-            weak_threshold=50.0,
-            strong_threshold=65.0,
-            explain=ATTACK_EXPLAIN["BRUTE_FORCE_SUSPECTED"],
-        )
-
-    _arbitrate_attack_scores(
-        scores,
-        metrics,
-        tcp_share=tcp_share,
-        udp_share=udp_share,
-        ps_strong=ps_strong,
-        sd_strong=sd_strong,
-    )
 
     attack_types: list[dict[str, Any]] = []
-    for attack, agg in scores.items():
-        total = agg["total"]
-        if total <= 0:
-            continue
-        base = max(0.0, min(1.0, agg["weighted"] / total))
-        host_bonus = min(0.15, _host_bonus_count(host_evidence_json, attack) * 0.03)
-        confidence = min(1.0, base + host_bonus)
+    for attack, confidence in scores.items():
         attack_types.append(
             {
                 "attack_type": attack,
+                "attack_category": ATTACK_CATEGORY[attack],
                 "confidence": round(confidence, 6),
                 "evidence_rules": sorted(set(rule_refs.get(attack, []))),
                 "explain": ATTACK_EXPLAIN.get(attack, attack),
@@ -838,7 +566,6 @@ def _match_attack_rules(
         benign_like = (
             _m(metrics, "dst_port_top1_concentration") <= 65.0
             and _m(metrics, "low_reciprocity") <= 65.0
-            and _m(metrics, "temporal_burst") <= 60.0
             and _m(metrics, "edge_reuse_ratio") <= 60.0
             and _m(metrics, "host_max_in_degree_ratio") <= 70.0
             and _m(metrics, "host_max_out_degree_ratio") <= 70.0
@@ -875,6 +602,7 @@ def _match_attack_rules(
             attack_types = [
                 {
                     "attack_type": "UNKNOWN_SUSPECTED",
+                    "attack_category": ATTACK_CATEGORY["UNKNOWN_SUSPECTED"],
                     "confidence": 0.35,
                     "evidence_rules": ["learner_unknown_fallback"],
                     "explain": ATTACK_EXPLAIN["UNKNOWN_SUSPECTED"],
@@ -885,6 +613,7 @@ def _match_attack_rules(
                     "rule_id": "learner_unknown_fallback",
                     "rule_version": "v1",
                     "target_attack_type": "UNKNOWN_SUSPECTED",
+                    "attack_category": ATTACK_CATEGORY["UNKNOWN_SUSPECTED"],
                     "match": "weak",
                     "source": "learner_metric_json",
                     "metric": "dst_port_entropy",
@@ -896,19 +625,6 @@ def _match_attack_rules(
                 }
             )
     return attack_types, rule_hits
-
-
-def _host_bonus_count(host_evidence_json: dict[str, Any], attack_type: str) -> int:
-    summary = host_evidence_json.get("summary", {})
-    mapping = {
-        "HOST_SCAN": "host_scan_evidence_count",
-        "DDOS_VICTIM": "ddos_victim_evidence_count",
-        "DOS_ATTACKER": "dos_attacker_evidence_count",
-        "PORT_SCAN": "port_scan_evidence_count",
-        "DRDOS_REFLECTION_FAMILY": "drdos_evidence_count",
-    }
-    key = mapping.get(attack_type)
-    return int(summary.get(key) or 0) if key else 0
 
 
 def _temporal_scores(records: list[FlowRecord]) -> dict[str, float]:
@@ -1018,6 +734,56 @@ def _reciprocal_flow_count(endpoint_edges: list[tuple[Any, Any]]) -> int:
         rev = counter.get((dst, src), 0)
         reciprocal += min(count, rev)
     return reciprocal
+
+
+def _flow_packet_low_reciprocity(records: list[FlowRecord]) -> float | None:
+    balanced_packets = 0.0
+    total_packets = 0.0
+    for record in records:
+        try:
+            features = json.loads(record.features_json)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(features, dict):
+            continue
+        fwd = _first_non_negative_number(features, ("Total Fwd Packet", "Total Fwd Packets", "Fwd Packet"))
+        bwd = _first_non_negative_number(features, ("Total Bwd packets", "Total Bwd Packets", "Bwd Packet"))
+        if fwd is None or bwd is None or fwd + bwd <= 0:
+            continue
+        balanced_packets += min(fwd, bwd)
+        total_packets += fwd + bwd
+    if total_packets <= 0:
+        return None
+    return _clamp100((1.0 - balanced_packets / total_packets) * 100.0)
+
+
+def _first_non_negative_number(features: dict[str, Any], keys: tuple[str, ...]) -> float | None:
+    for key in keys:
+        try:
+            value = float(features[key])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if value >= 0.0 and value == value:
+            return value
+    return None
+
+
+def _private_ip_share(values: list[str]) -> float:
+    if not values:
+        return 0.0
+    private = 0
+    for value in values:
+        try:
+            private += int(ip_address(str(value)).is_private)
+        except ValueError:
+            continue
+    return _clamp100(private / len(values) * 100.0)
+
+
+def _top_value_share(values: list[Any], target: Any) -> float:
+    if not values:
+        return 0.0
+    return _clamp100(sum(1 for value in values if value == target) / len(values) * 100.0)
 
 
 def _safe_log_ratio(value: float, *, base: float) -> float:

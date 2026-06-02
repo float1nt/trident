@@ -92,7 +92,7 @@ class FakeLearners:
                 "flow_count": 20,
                 "rule_json": {
                     "attack_types": [
-                        {"attack_type": "DDOS_VICTIM", "confidence": 0.82},
+                        {"attack_type": "ENCRYPTED_PROTOCOL_BRUTE_FORCE", "confidence": 0.82},
                     ]
                 },
             },
@@ -230,7 +230,7 @@ def test_overview_metrics_reports_distinct_risk_type_count() -> None:
             other_type["learner_name"] = "NEW_3"
             other_type["rule_json"] = {
                 "attack_types": [
-                    {"attack_type": "PORT_SCAN", "confidence": 0.75},
+                    {"attack_type": "ENCRYPTED_INTERNAL_SCAN", "confidence": 0.75},
                 ]
             }
             baseline = FakeLearners().list_learners()[1]
@@ -276,8 +276,9 @@ def test_risk_events_default_to_attack_type_learners() -> None:
 
     assert data["total"] == 1
     assert data["items"][0]["learner_name"] == "NEW_1"
-    assert data["items"][0]["risk_name"] == "DDoS攻击"
-    assert data["items"][0]["risk_description"].startswith("海量分布式源IP")
+    assert data["items"][0]["risk_name"] == "加密协议暴力破解"
+    assert data["items"][0]["risk_category"] == "恶意攻击类"
+    assert data["items"][0]["risk_description"].startswith("攻击源持续密集访问")
     assert data["items"][0]["subject_ips"] == ["10.0.0.8"]
 
 
@@ -351,7 +352,7 @@ def test_risk_events_topology_distinguishes_risk_types_and_events() -> None:
             third["learner_name"] = "NEW_3"
             third["rule_json"] = {
                 "attack_types": [
-                    {"attack_type": "PORT_SCAN", "confidence": 0.75},
+                    {"attack_type": "ENCRYPTED_INTERNAL_SCAN", "confidence": 0.75},
                 ]
             }
             return [base, second, third]
@@ -378,8 +379,9 @@ def test_risk_attack_types_event_scope_excludes_benign() -> None:
 
     codes = {item["code"] for item in data["items"]}
     assert "BENIGN_NORMAL" not in codes
-    assert "DDOS_VICTIM" in codes
-    assert "PORT_SCAN" not in codes
+    assert "ENCRYPTED_PROTOCOL_BRUTE_FORCE" in codes
+    assert "ENCRYPTED_INTERNAL_SCAN" not in codes
+    assert data["items"][0]["category"] == "恶意攻击类"
     assert data["items"][0]["name"]
     assert data["items"][0]["desc"]
 
@@ -391,8 +393,8 @@ def test_risk_attack_types_all_scope_returns_dictionary() -> None:
 
     codes = {item["code"] for item in data["items"]}
     assert "BENIGN_NORMAL" in codes
-    assert "DDOS_VICTIM" in codes
-    assert "PORT_SCAN" in codes
+    assert "ENCRYPTED_PROTOCOL_BRUTE_FORCE" in codes
+    assert "ENCRYPTED_INTERNAL_SCAN" in codes
 
 
 def test_risk_attack_types_include_count() -> None:
@@ -411,7 +413,7 @@ def test_risk_attack_types_include_count() -> None:
             third["learner_name"] = "NEW_3"
             third["rule_json"] = {
                 "attack_types": [
-                    {"attack_type": "PORT_SCAN", "confidence": 0.75},
+                    {"attack_type": "ENCRYPTED_INTERNAL_SCAN", "confidence": 0.75},
                 ]
             }
             return [base, second, third]
@@ -420,8 +422,29 @@ def test_risk_attack_types_include_count() -> None:
     data = service.risk_attack_types(scope="event", include_count=True)
     by_code = {item["code"]: item.get("count", 0) for item in data["items"]}
 
-    assert by_code["DDOS_VICTIM"] == 2
-    assert by_code["PORT_SCAN"] == 1
+    assert by_code["ENCRYPTED_PROTOCOL_BRUTE_FORCE"] == 2
+    assert by_code["ENCRYPTED_INTERNAL_SCAN"] == 1
+
+
+def test_risk_attack_types_include_count_uses_only_primary_type_per_learner() -> None:
+    class MultiMatchLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            learner = copy.deepcopy(FakeLearners().list_learners()[0])
+            learner["rule_json"] = {
+                "attack_types": [
+                    {"attack_type": "ENCRYPTED_PROTOCOL_BRUTE_FORCE", "confidence": 0.82},
+                    {"attack_type": "ENCRYPTED_INTERNAL_SCAN", "confidence": 0.75},
+                ]
+            }
+            return [learner]
+
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=MultiMatchLearners())
+
+    data = service.risk_attack_types(scope="event", include_count=True)
+    by_code = {item["code"]: item for item in data["items"]}
+
+    assert by_code["ENCRYPTED_PROTOCOL_BRUTE_FORCE"]["count"] == 1
+    assert "ENCRYPTED_INTERNAL_SCAN" not in by_code
 
 
 def test_risk_attack_types_event_scope_includes_unnamed_learners() -> None:
@@ -466,7 +489,7 @@ def test_risk_events_topology_filters_by_attack_types() -> None:
             third["learner_name"] = "NEW_3"
             third["rule_json"] = {
                 "attack_types": [
-                    {"attack_type": "PORT_SCAN", "confidence": 0.75},
+                    {"attack_type": "ENCRYPTED_INTERNAL_SCAN", "confidence": 0.75},
                 ]
             }
             return [base, second, third]
@@ -480,14 +503,14 @@ def test_risk_events_topology_filters_by_attack_types() -> None:
 
     service = PageQueryService(session_id="s1", flows=TopologyFlows(), learners=MultiLearners())
 
-    single = service.risk_events_topology(attack_types=["PORT_SCAN"])
+    single = service.risk_events_topology(attack_types=["ENCRYPTED_INTERNAL_SCAN"])
     assert single["total"] == 1
     assert single["learners"] == ["NEW_3"]
 
-    multi = service.risk_events_topology(attack_types=["PORT_SCAN", "DDOS_VICTIM"])
+    multi = service.risk_events_topology(attack_types=["ENCRYPTED_INTERNAL_SCAN", "ENCRYPTED_PROTOCOL_BRUTE_FORCE"])
     assert multi["total"] == 3
 
-    comma = service.risk_events_topology(attack_types=["PORT_SCAN,DDOS_VICTIM"])
+    comma = service.risk_events_topology(attack_types=["ENCRYPTED_INTERNAL_SCAN,ENCRYPTED_PROTOCOL_BRUTE_FORCE"])
     assert comma["total"] == 3
 
 
@@ -520,14 +543,14 @@ def test_risk_events_topology_filters_by_display_name_not_learner_name() -> None
 
     service = PageQueryService(session_id="s1", flows=TopologyFlows(), learners=MultiLearners())
 
-    by_display = service.risk_events_topology(name="DDoS")
+    by_display = service.risk_events_topology(name="暴力破解")
     assert by_display["total"] == 2
     assert set(by_display["learners"]) == {"NEW_2", "NEW_3"}
 
     by_learner_name = service.risk_events_topology(name="NEW_2")
     assert by_learner_name["total"] == 0
 
-    by_numbered_display = service.risk_events_topology(name="DDoS攻击1")
+    by_numbered_display = service.risk_events_topology(name="加密协议暴力破解1")
     assert by_numbered_display["total"] == 1
     assert by_numbered_display["learners"] == ["NEW_2"]
 
@@ -580,7 +603,7 @@ def test_risk_ip_view_maps_aggregates_to_table_rows() -> None:
 
     assert data["total"] == 1
     assert data["items"][0]["subjectIp"] == "10.0.0.8"
-    assert data["items"][0]["name"] == "DDoS攻击"
+    assert data["items"][0]["name"] == "加密协议暴力破解"
     assert data["items"][0]["id"] == 11
     assert "top_protocol=TLS" in data["items"][0]["description"]
 

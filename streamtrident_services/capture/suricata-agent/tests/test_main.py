@@ -175,3 +175,46 @@ def test_status_keeps_reporting_when_docker_probe_fails(monkeypatch, tmp_path: P
     assert response.status_code == 200
     assert response.json()["suricata"]["running"] is False
     assert response.json()["suricata"]["error"] == "docker unavailable"
+
+
+def test_parse_http_response_decodes_chunked_docker_body() -> None:
+    payload = b'{"State":{"Running":true,"Status":"running"}}'
+    chunk_size = f"{len(payload):x}".encode("ascii")
+    response = (
+        b"HTTP/1.1 200 OK\r\n"
+        b"Transfer-Encoding: chunked\r\n"
+        b"\r\n"
+        + chunk_size
+        + b"\r\n"
+        + payload
+        + b"\r\n0\r\n\r\n"
+    )
+
+    status, body = __import__("app.main", fromlist=["_parse_http_response"])._parse_http_response(response)
+
+    assert status == 200
+    assert body == payload
+
+
+def test_container_state_parses_chunked_inspect_response(monkeypatch) -> None:
+    payload = b'{"State":{"Running":true,"Status":"running"}}'
+    chunk_size = f"{len(payload):x}".encode("ascii")
+    response = (
+        b"HTTP/1.1 200 OK\r\n"
+        b"Transfer-Encoding: chunked\r\n"
+        b"\r\n"
+        + chunk_size
+        + b"\r\n"
+        + payload
+        + b"\r\n0\r\n\r\n"
+    )
+
+    def fake_request(**_: object) -> tuple[int, bytes]:
+        return __import__("app.main", fromlist=["_parse_http_response"])._parse_http_response(response)
+
+    monkeypatch.setattr("app.main._docker_unix_request", fake_request)
+
+    assert __import__("app.main", fromlist=["_container_state"])._container_state("streamtrident-suricata-cic") == {
+        "running": True,
+        "status": "running",
+    }

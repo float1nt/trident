@@ -121,6 +121,7 @@ export type RiskListResponse = {
 export type AttackTypeOption = {
   code: string;
   name: string;
+  category: string;
   desc: string;
   count?: number;
 };
