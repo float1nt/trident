@@ -1,0 +1,108 @@
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TZ=Asia/Shanghai
+
+WORKDIR /app
+
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG APT_MIRROR=mirrors.aliyun.com
+ARG TORCH_VERSION=2.7.0+cpu
+ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
+
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    elif [ -f /etc/apt/sources.list ]; then \
+      sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list; \
+    fi; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential libgomp1 tzdata; \
+    ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime; \
+    echo Asia/Shanghai > /etc/timezone; \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+COPY wheelhouse/ /tmp/torch_wheels/
+
+RUN set -eux; \
+    python -m pip install --no-cache-dir --upgrade pip setuptools wheel Cython -i "${PIP_INDEX_URL}"; \
+    if ls /tmp/torch_wheels/torch-*cpu*.whl >/dev/null 2>&1; then \
+      pip install --no-cache-dir /tmp/torch_wheels/torch-*cpu*.whl; \
+    else \
+      pip install --no-cache-dir "torch==${TORCH_VERSION}" --index-url "${TORCH_INDEX_URL}" --extra-index-url "${PIP_INDEX_URL}"; \
+    fi; \
+    rm -rf /tmp/torch_wheels; \
+    grep -v '^torch' requirements.txt | grep -v '^#' | grep -v '^[[:space:]]*$' | \
+      xargs pip install --no-cache-dir -i "${PIP_INDEX_URL}"
+
+COPY app ./app
+COPY config ./config
+COPY migrations ./migrations
+COPY setup_protected.py .
+
+RUN set -eux; \
+    mv app/worker.py app/worker_impl.py; \
+    mv app/migrate.py app/migrate_impl.py; \
+    printf '%s\n' \
+      'from __future__ import annotations' \
+      'from .worker_impl import main' \
+      'if __name__ == "__main__":' \
+      '    raise SystemExit(main())' \
+      > app/worker.py; \
+    printf '%s\n' \
+      'from __future__ import annotations' \
+      'from .migrate_impl import main' \
+      'if __name__ == "__main__":' \
+      '    raise SystemExit(main())' \
+      > app/migrate.py; \
+    python setup_protected.py build_ext --inplace; \
+    find app -name '*.c' -delete; \
+    find app -type d -name '__pycache__' -prune -exec rm -rf {} +; \
+    find app -name '*.py' \
+      ! -name '__init__.py' \
+      ! -path 'app/api.py' \
+      ! -path 'app/api_routes/auth.py' \
+      ! -path 'app/worker.py' \
+      ! -path 'app/migrate.py' \
+      -delete; \
+    python -c "import app.api, app.worker, app.migrate; print('protected imports ok')"
+
+
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TZ=Asia/Shanghai
+
+WORKDIR /app
+
+ARG APT_MIRROR=mirrors.aliyun.com
+
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    elif [ -f /etc/apt/sources.list ]; then \
+      sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list; \
+    fi; \
+    apt-get update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libgomp1 tzdata; \
+    ln -snf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime; \
+    echo Asia/Shanghai > /etc/timezone; \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /app/app ./app
+COPY --from=builder /app/config ./config
+COPY --from=builder /app/migrations ./migrations
+
+RUN set -eux; \
+    mkdir -p /var/lib/trident/models; \
+    python -c "import app.api, app.worker, app.migrate; print('runtime imports ok')"; \
+    find /app/app -name '*.py' -print
+
+CMD ["python", "-m", "app.worker", "--config", "config/trident.yaml"]

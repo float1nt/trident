@@ -1,0 +1,41 @@
+# CPU-only production override that builds the Trident image without most
+# plaintext Python sources. Use together with compose.yaml.
+services:
+  trident-migrate:
+    build:
+      context: ./trident
+      dockerfile: Dockerfile.protected-cpu
+      target: runtime
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
+        TORCH_VERSION: ${TORCH_VERSION:-2.7.0+cpu}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    image: streamtrident/trident:cpu-protected
+
+  trident-worker:
+    build:
+      context: ./trident
+      dockerfile: Dockerfile.protected-cpu
+      target: runtime
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
+        TORCH_VERSION: ${TORCH_VERSION:-2.7.0+cpu}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    image: streamtrident/trident:cpu-protected
+    gpus: !reset []
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ""
+
+  trident-api:
+    build:
+      context: ./trident
+      dockerfile: Dockerfile.protected-cpu
+      target: runtime
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.aliyun.com}
+        TORCH_VERSION: ${TORCH_VERSION:-2.7.0+cpu}
+        TORCH_INDEX_URL: ${TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}
+    image: streamtrident/trident:cpu-protected
