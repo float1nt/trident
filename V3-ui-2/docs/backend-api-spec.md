@@ -344,7 +344,7 @@
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `scope` | string | 否 | 默认 `event`：排除 `BENIGN_NORMAL`；`all` 返回全部类型 |
-| `includeCount` | boolean | 否 | 为 `true` 时附带当前 session 各类型事件数 `count` |
+| `includeCount` | boolean | 否 | 为 `true` 时附带当前 session 各主攻击类型的学习器数量 `count`；每个攻击学习器只计入 `rule_json.attack_types[0]` 对应的类型 |
 
 **响应 `data`：**
 
@@ -352,8 +352,9 @@
 {
   "items": [
     {
-      "code": "DDOS_VICTIM",
-      "name": "DDoS攻击",
+      "code": "ENCRYPTED_INTERNAL_SCAN",
+      "name": "加密探测内网端口",
+      "category": "恶意攻击类",
       "desc": "...",
       "count": 2
     }

@@ -453,7 +453,10 @@ const RiskTaskList = () => {
                     value={eventSearchInputs.legacyAttackTypes}
                     options={legacyAttackTypeOptions.map((item) => ({
                       value: item.code,
-                      label: item.name,
+                      label:
+                        item.count == null
+                          ? item.name
+                          : `${item.name} (${item.count})`,
                     }))}
                     onChange={(value) =>
                       setEventSearchInputs((prev) => ({

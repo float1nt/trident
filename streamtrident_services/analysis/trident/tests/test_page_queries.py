@@ -368,6 +368,27 @@ def test_risk_attack_types_include_count() -> None:
     assert by_code["ENCRYPTED_INTERNAL_SCAN"] == 1
 
 
+def test_risk_attack_types_include_count_uses_only_primary_type_per_learner() -> None:
+    class MultiMatchLearners(FakeLearners):
+        def list_learners(self, **_: Any) -> list[dict[str, Any]]:
+            learner = copy.deepcopy(FakeLearners().list_learners()[0])
+            learner["rule_json"] = {
+                "attack_types": [
+                    {"attack_type": "ENCRYPTED_PROTOCOL_BRUTE_FORCE", "confidence": 0.82},
+                    {"attack_type": "ENCRYPTED_INTERNAL_SCAN", "confidence": 0.75},
+                ]
+            }
+            return [learner]
+
+    service = PageQueryService(session_id="s1", flows=FakeFlows(), learners=MultiMatchLearners())
+
+    data = service.risk_attack_types(scope="event", include_count=True)
+    by_code = {item["code"]: item for item in data["items"]}
+
+    assert by_code["ENCRYPTED_PROTOCOL_BRUTE_FORCE"]["count"] == 1
+    assert "ENCRYPTED_INTERNAL_SCAN" not in by_code
+
+
 def test_risk_attack_types_event_scope_includes_unnamed_learners() -> None:
     class UnknownLearners(FakeLearners):
         def list_learners(self, **_: Any) -> list[dict[str, Any]]:
