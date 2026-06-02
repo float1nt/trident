@@ -291,15 +291,20 @@ export default function RiskDetailPlaceholder() {
                       handleIpDetail,
                     )}
                     dataSource={riskIpList}
-                    pagination={createTablePagination({
-                      current: riskIpPage,
-                      pageSize: riskIpPageSize,
-                      total: riskIpList.length,
-                      onChange: (nextPage, nextPageSize) => {
-                        setRiskIpPage(nextPage);
-                        setRiskIpPageSize(nextPageSize);
-                      },
-                    })}
+                    pagination={{
+                      ...createTablePagination({
+                        current: riskIpPage,
+                        pageSize: riskIpPageSize,
+                        total: riskIpList.length,
+                        onChange: (nextPage, nextPageSize) => {
+                          setRiskIpPage(nextPage);
+                          setRiskIpPageSize(nextPageSize);
+                        },
+                      }),
+                      showQuickJumper: false,
+                      showLessItems: true,
+                      showSizeChanger: false,
+                    }}
                     scroll={{ y: LIST_MAX_HEIGHT }}
                   />
                 </div>
