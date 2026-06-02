@@ -213,8 +213,6 @@ FORMAT JSONEachRow
         time_to: str | None = None,
         top_n: int = 8,
         edges_per_victim: int = 10,
-        include_stats: bool = True,
-        approximate_stats: bool = True,
     ) -> dict[str, Any]:
         top_victims = max(1, min(int(top_n), 500))
         per_victim = max(1, min(int(edges_per_victim), 100))
@@ -230,8 +228,6 @@ FORMAT JSONEachRow
                 time_to=time_to,
                 top_victims=top_victims,
                 edges_per_victim=per_victim,
-                include_stats=include_stats,
-                approximate_stats=approximate_stats,
             )
             graph = self._topology_endpoint_graph_from_host_edges(
                 host_graph=host_graph,
@@ -245,19 +241,6 @@ FORMAT JSONEachRow
                 top_victims=top_victims,
                 edges_per_victim=per_victim,
             )
-            if include_stats:
-                endpoint_stats = dict(graph.get("stats") or {})
-                graph["stats"] = dict(host_graph.get("stats") or endpoint_stats)
-                graph["stats"]["displayed_victim_count"] = int(
-                    endpoint_stats.get("displayed_victim_count") or 0
-                )
-                graph["stats"]["edges_per_victim"] = per_victim
-                graph["stats"]["top_victims_limit"] = top_victims
-                total_flow_count = int(host_graph.get("flow_count") or 0)
-                if total_flow_count:
-                    graph["flow_count"] = total_flow_count
-                    graph["total_flow_count"] = total_flow_count
-                    graph["stats"]["total_flow_count"] = total_flow_count
             return graph
         return self._topology_host_graph(
             session_id=session_id,
@@ -269,8 +252,6 @@ FORMAT JSONEachRow
             time_to=time_to,
             top_victims=top_victims,
             edges_per_victim=per_victim,
-            include_stats=include_stats,
-            approximate_stats=approximate_stats,
         )
 
     def topology_graph_pair(
@@ -285,8 +266,6 @@ FORMAT JSONEachRow
         time_to: str | None = None,
         top_n: int = 8,
         edges_per_victim: int = 10,
-        include_stats: bool = True,
-        approximate_stats: bool = True,
     ) -> dict[str, dict[str, Any]]:
         top_victims = max(1, min(int(top_n), 500))
         per_victim = max(1, min(int(edges_per_victim), 100))
@@ -301,8 +280,6 @@ FORMAT JSONEachRow
             time_to=time_to,
             top_victims=top_victims,
             edges_per_victim=per_victim,
-            include_stats=include_stats,
-            approximate_stats=approximate_stats,
         )
         endpoint_graph = self._topology_endpoint_graph_from_host_edges(
             host_graph=host_graph,
@@ -316,19 +293,6 @@ FORMAT JSONEachRow
             top_victims=top_victims,
             edges_per_victim=per_victim,
         )
-        if include_stats:
-            endpoint_stats = dict(endpoint_graph.get("stats") or {})
-            endpoint_graph["stats"] = dict(host_graph.get("stats") or endpoint_stats)
-            endpoint_graph["stats"]["displayed_victim_count"] = int(
-                endpoint_stats.get("displayed_victim_count") or 0
-            )
-            endpoint_graph["stats"]["edges_per_victim"] = per_victim
-            endpoint_graph["stats"]["top_victims_limit"] = top_victims
-            total_flow_count = int(host_graph.get("flow_count") or 0)
-            if total_flow_count:
-                endpoint_graph["flow_count"] = total_flow_count
-                endpoint_graph["total_flow_count"] = total_flow_count
-                endpoint_graph["stats"]["total_flow_count"] = total_flow_count
         return {"host": host_graph, "endpoint": endpoint_graph}
 
     def _topology_host_graph(
@@ -343,8 +307,6 @@ FORMAT JSONEachRow
         time_to: str | None,
         top_victims: int,
         edges_per_victim: int,
-        include_stats: bool,
-        approximate_stats: bool,
     ) -> dict[str, Any]:
         abnormal = _abnormal_expr(risk_learners)
         filters = [
@@ -491,25 +453,6 @@ FORMAT JSONEachRow
             top_victims=top_victims,
             edges_per_victim=edges_per_victim,
         )
-        if include_stats:
-            stats = self.topology_stats(
-                session_id=session_id,
-                risk_learners=risk_learners,
-                learner_name=learner_name,
-                subject_ip=subject_ip,
-                traffic_kind=traffic_kind,
-                time_from=time_from,
-                time_to=time_to,
-                approximate=approximate_stats,
-            )
-            stats["displayed_victim_count"] = graph["stats"]["displayed_victim_count"]
-            stats["edges_per_victim"] = edges_per_victim
-            stats["top_victims_limit"] = top_victims
-            graph["stats"] = stats
-            total_flow_count = int(stats.get("total_flow_count") or 0)
-            if total_flow_count:
-                graph["flow_count"] = total_flow_count
-                graph["total_flow_count"] = total_flow_count
         return graph
 
     def _topology_endpoint_graph_from_host_edges(
@@ -1078,82 +1021,6 @@ FORMAT JSONEachRow
             ),
         }
 
-    def topology_stats(
-        self,
-        *,
-        session_id: str,
-        risk_learners: list[str] | None = None,
-        learner_name: str | None = None,
-        subject_ip: str | None = None,
-        traffic_kind: str = "combined",
-        time_from: str | None = None,
-        time_to: str | None = None,
-        approximate: bool = True,
-    ) -> dict[str, Any]:
-        risk_names = risk_learners or []
-        abnormal = _abnormal_expr(risk_names)
-        uniq_fn = "uniqCombined" if approximate else "uniqExact"
-        filters = [
-            f"session_id = {_quote(session_id)}",
-            _time_filter("event_time", time_from, time_to),
-            f"assigned_learner = {_quote(learner_name)}" if learner_name else None,
-            f"src_ip = {_quote(subject_ip)}" if subject_ip else None,
-        ]
-        if traffic_kind == "benign":
-            filters.append(f"NOT ({abnormal})")
-        elif traffic_kind == "attack":
-            filters.append(abnormal)
-        where = _where(filters)
-        sql = f"""
-WITH total AS (SELECT count() AS total_count FROM ch_flow {where}),
-ports AS (
-    SELECT dst_port, count() AS port_count
-    FROM ch_flow
-    {where}
-    GROUP BY dst_port
-    ORDER BY port_count DESC, dst_port ASC
-    LIMIT 1
-),
-ips AS (
-    SELECT {uniq_fn}(ip) AS unique_ip_count
-    FROM (
-        SELECT src_ip AS ip FROM ch_flow {where}
-        UNION ALL
-        SELECT dst_ip AS ip FROM ch_flow {where}
-    )
-),
-endpoints AS (
-    SELECT {uniq_fn}(endpoint) AS unique_endpoint_count
-    FROM (
-        SELECT concat(src_ip, ':', toString(src_port)) AS endpoint FROM ch_flow {where}
-        UNION ALL
-        SELECT concat(dst_ip, ':', toString(dst_port)) AS endpoint FROM ch_flow {where}
-    )
-),
-dst_ports AS (
-    SELECT {uniq_fn}(dst_port) AS unique_dst_port_count
-    FROM ch_flow
-    {where}
-)
-SELECT
-    total.total_count AS total_flow_count,
-    ifNull(any(ports.dst_port), 0) AS top_dst_port,
-    if(total.total_count = 0, 0, ifNull(any(ports.port_count), 0) / total.total_count) AS top_dst_port_ratio,
-    any(ips.unique_ip_count) AS unique_ip_count,
-    any(endpoints.unique_endpoint_count) AS unique_endpoint_count,
-    any(dst_ports.unique_dst_port_count) AS unique_dst_port_count
-FROM total
-LEFT JOIN ports ON 1 = 1
-LEFT JOIN ips ON 1 = 1
-LEFT JOIN endpoints ON 1 = 1
-LEFT JOIN dst_ports ON 1 = 1
-GROUP BY total.total_count
-FORMAT JSONEachRow
-"""
-        text = self.client.execute(sql)
-        rows = [_parse_json(line) for line in text.splitlines() if line.strip()]
-        return rows[0] if rows else {"top_dst_port": 0, "top_dst_port_ratio": 0}
-
     def dashboard_topology_stats(
         self,
         *,
@@ -1266,6 +1133,114 @@ FORMAT JSONEachRow
                 "unique_dst_port_count": int(row.get("unique_dst_port_count") or 0),
             }
         return stats
+
+    def learner_topology_stats(
+        self,
+        *,
+        session_id: str,
+        learner_names: list[str],
+        approximate: bool = True,
+    ) -> dict[str, dict[str, Any]]:
+        clean_names = list(dict.fromkeys(name for name in learner_names if name))
+        learner_filter = _in_filter("assigned_learner", clean_names)
+        if not learner_filter:
+            return {}
+        uniq_fn = "uniqCombined" if approximate else "uniqExact"
+        where = _where(
+            [
+                f"session_id = {_quote(session_id)}",
+                learner_filter,
+            ]
+        )
+        sql = f"""
+WITH flow_rows AS (
+    SELECT
+        assigned_learner,
+        src_ip,
+        dst_ip,
+        src_port,
+        dst_port
+    FROM ch_flow
+    {where}
+),
+total_rows AS (
+    SELECT assigned_learner, count() AS total_flow_count
+    FROM flow_rows
+    GROUP BY assigned_learner
+),
+port_counts AS (
+    SELECT assigned_learner, dst_port, count() AS port_count
+    FROM flow_rows
+    GROUP BY assigned_learner, dst_port
+),
+top_ports AS (
+    SELECT assigned_learner, dst_port, port_count
+    FROM (
+        SELECT
+            assigned_learner,
+            dst_port,
+            port_count,
+            row_number() OVER (PARTITION BY assigned_learner ORDER BY port_count DESC, dst_port ASC) AS port_rank
+        FROM port_counts
+    )
+    WHERE port_rank = 1
+),
+ips AS (
+    SELECT assigned_learner, {uniq_fn}(ip) AS unique_ip_count
+    FROM (
+        SELECT assigned_learner, src_ip AS ip FROM flow_rows
+        UNION ALL
+        SELECT assigned_learner, dst_ip AS ip FROM flow_rows
+    )
+    GROUP BY assigned_learner
+),
+endpoints AS (
+    SELECT assigned_learner, {uniq_fn}(endpoint) AS unique_endpoint_count
+    FROM (
+        SELECT assigned_learner, concat(src_ip, ':', toString(src_port)) AS endpoint FROM flow_rows
+        UNION ALL
+        SELECT assigned_learner, concat(dst_ip, ':', toString(dst_port)) AS endpoint FROM flow_rows
+    )
+    GROUP BY assigned_learner
+),
+dst_ports AS (
+    SELECT assigned_learner, {uniq_fn}(dst_port) AS unique_dst_port_count
+    FROM flow_rows
+    GROUP BY assigned_learner
+)
+SELECT
+    total_rows.assigned_learner AS assigned_learner,
+    total_rows.total_flow_count AS total_flow_count,
+    ifNull(top_ports.dst_port, 0) AS top_dst_port,
+    if(total_rows.total_flow_count = 0, 0, ifNull(top_ports.port_count, 0) / total_rows.total_flow_count) AS top_dst_port_ratio,
+    ifNull(ips.unique_ip_count, 0) AS unique_ip_count,
+    ifNull(endpoints.unique_endpoint_count, 0) AS unique_endpoint_count,
+    ifNull(dst_ports.unique_dst_port_count, 0) AS unique_dst_port_count
+FROM total_rows
+LEFT JOIN top_ports ON total_rows.assigned_learner = top_ports.assigned_learner
+LEFT JOIN ips ON total_rows.assigned_learner = ips.assigned_learner
+LEFT JOIN endpoints ON total_rows.assigned_learner = endpoints.assigned_learner
+LEFT JOIN dst_ports ON total_rows.assigned_learner = dst_ports.assigned_learner
+FORMAT JSONEachRow
+"""
+        text = self.client.execute(sql)
+        result: dict[str, dict[str, Any]] = {}
+        for line in text.splitlines():
+            if not line.strip():
+                continue
+            row = _parse_json(line)
+            learner_name = str(row.get("assigned_learner") or "")
+            if not learner_name:
+                continue
+            result[learner_name] = {
+                "total_flow_count": int(row.get("total_flow_count") or 0),
+                "top_dst_port": int(row.get("top_dst_port") or 0),
+                "top_dst_port_ratio": float(row.get("top_dst_port_ratio") or 0),
+                "unique_ip_count": int(row.get("unique_ip_count") or 0),
+                "unique_endpoint_count": int(row.get("unique_endpoint_count") or 0),
+                "unique_dst_port_count": int(row.get("unique_dst_port_count") or 0),
+            }
+        return result
 
     def dashboard_summary(
         self,

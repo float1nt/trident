@@ -343,7 +343,6 @@ class PageQueryService:
                 time_to=time_to,
                 top_n=top_victims_count if top_victims_count is not None else top_victims,
                 edges_per_victim=edges_per_victim,
-                include_stats=False,
             )
 
         if hasattr(self.flows, "dashboard_topology_graphs"):
@@ -494,7 +493,6 @@ class PageQueryService:
         top_n: int = TOPOLOGY_TOP_VICTIMS_DEFAULT,
         edges_per_victim: int = TOPOLOGY_EDGES_LEARNER_DETAIL,
         trigger_stats: dict[str, Any] | None = None,
-        include_stats: bool = True,
     ) -> dict[str, Any]:
         sid = session_id or self.session_id
         learner = self.learners.get_learner(session_id=sid, learner_name=learner_name) or {}
@@ -527,7 +525,6 @@ class PageQueryService:
                 traffic_kind=traffic_kind,
                 top_n=top_n,
                 edges_per_victim=edges_per_victim,
-                include_stats=include_stats,
             )
         else:
             graphs = {
@@ -540,7 +537,6 @@ class PageQueryService:
                     traffic_kind=traffic_kind,
                     top_n=top_n,
                     edges_per_victim=edges_per_victim,
-                    include_stats=include_stats,
                 ),
                 "endpoint": self.flows.topology_graph(
                     session_id=sid,
@@ -551,7 +547,6 @@ class PageQueryService:
                     traffic_kind=traffic_kind,
                     top_n=top_n,
                     edges_per_victim=edges_per_victim,
-                    include_stats=include_stats,
                 ),
             }
         view = {
@@ -748,11 +743,17 @@ class PageQueryService:
                 top_n=top_n,
                 edges_per_victim=TOPOLOGY_EDGES_GRID,
                 trigger_stats=trigger_stats_by_learner.get(learner_name),
-                include_stats=False,
             )
             view = topology["views"][learner_name]
             learners.append(learner_name)
             views[learner_name] = view
+        if page_learner_names and hasattr(self.flows, "learner_topology_stats"):
+            stats_by_learner = self.flows.learner_topology_stats(
+                session_id=sid,
+                learner_names=page_learner_names,
+                approximate=True,
+            )
+            _merge_learner_topology_stats(views, stats_by_learner)
         return {
             "version": 1,
             "total": event_total,
@@ -824,6 +825,13 @@ class PageQueryService:
             return _empty_dataset_topology()
         topology = self.learner_topology(learner_name=learner_name, top_n=top_n)
         view = topology["views"][learner_name]
+        if hasattr(self.flows, "learner_topology_stats"):
+            stats_by_learner = self.flows.learner_topology_stats(
+                session_id=self.session_id,
+                learner_names=[learner_name],
+                approximate=True,
+            )
+            _merge_learner_topology_stats({learner_name: view}, stats_by_learner)
         return {
             "version": 1,
             "total_flows": int(view["host"].get("flow_count") or 0),
@@ -922,7 +930,6 @@ class PageQueryService:
                 learner_name=learner_name,
                 subject_ip=ip,
                 top_n=top_n,
-                include_stats=False,
             )
             view = topology["views"][learner_name]
             view["learner"] = key
@@ -1247,6 +1254,27 @@ def _merge_dashboard_topology_stats(
         total_flow_count = int(stats.get("total_flow_count") or 0)
         graph["flow_count"] = total_flow_count
         graph["total_flow_count"] = total_flow_count
+
+
+def _merge_learner_topology_stats(
+    views: dict[str, dict[str, Any]],
+    stats_by_learner: dict[str, dict[str, Any]],
+) -> None:
+    for learner_name, view in views.items():
+        stats = stats_by_learner.get(learner_name)
+        if not stats:
+            continue
+        total_flow_count = int(stats.get("total_flow_count") or 0)
+        for graph_key in ("host", "endpoint"):
+            graph = view.get(graph_key)
+            if not isinstance(graph, dict):
+                continue
+            graph_stats = dict(graph.get("stats") or {})
+            graph_stats.update(stats)
+            graph["stats"] = graph_stats
+            if total_flow_count:
+                graph["flow_count"] = total_flow_count
+                graph["total_flow_count"] = total_flow_count
 
 
 def _risk_ip_item(
