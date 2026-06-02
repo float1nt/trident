@@ -628,16 +628,20 @@ FORMAT JSONEachRow
         main_edges_per_victim: int,
         compact_edges_per_victim: int,
     ) -> dict[str, dict[str, Any]]:
+        endpoint_main_top_n = min(main_top_n, 10)
+        endpoint_compact_top_n = min(compact_top_n, 5)
+        endpoint_main_host_edges = min(main_edges_per_victim, 3)
+        endpoint_compact_host_edges = min(compact_edges_per_victim, 2)
         host_graphs = self.dashboard_topology_graphs(
             session_id=session_id,
             node_mode="host",
             risk_learners=risk_learners,
             time_from=time_from,
             time_to=time_to,
-            main_top_n=main_top_n,
-            compact_top_n=compact_top_n,
-            main_edges_per_victim=main_edges_per_victim,
-            compact_edges_per_victim=compact_edges_per_victim,
+            main_top_n=endpoint_main_top_n,
+            compact_top_n=endpoint_compact_top_n,
+            main_edges_per_victim=endpoint_main_host_edges,
+            compact_edges_per_victim=endpoint_compact_host_edges,
         )
         pairs_by_kind: dict[str, list[tuple[str, str]]] = {
             "combined": _host_pairs_from_graph(host_graphs["combined"]),
@@ -669,8 +673,8 @@ FORMAT JSONEachRow
         # Endpoint topology is a drill-down of the displayed host edges. Keep only
         # the strongest port combinations per host edge so high-cardinality
         # client ports cannot explode the overview graph.
-        main_per_host_edge = max(1, min(int(main_edges_per_victim), 5))
-        compact_per_host_edge = max(1, min(int(compact_edges_per_victim), 3))
+        main_per_host_edge = 2
+        compact_per_host_edge = 1
         sql = f"""
 WITH edge_source AS (
     SELECT
