@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useApi } from "@/hooks/useApi";
 import { useEventTopologyPagination } from "@/hooks/useEventTopologyPagination";
 import { useNavigate } from "react-router-dom";
@@ -13,8 +13,9 @@ import {
   Spin,
   Typography,
   Pagination,
-  Select,
+  TreeSelect,
 } from "antd";
+import type { TreeSelectProps } from "antd";
 import PageTabs from "@/components/PageTabs";
 import type { Dayjs } from "dayjs";
 import type { ColumnsType } from "antd/es/table";
@@ -23,10 +24,11 @@ import AppTooltip from "@/components/AppTooltip";
 import OverflowTooltip from "@/components/OverflowTooltip";
 import { TextWithTooltip } from "@/components/TextWithTooltip";
 import { LearnerInternalTopologyPanel } from "@/components/LearnerInternalTopologyPanel";
+import { RiskService } from "@/api/services/RiskService";
 import {
-  RiskService,
-  type AttackTypeOption,
-} from "@/api/services/RiskService";
+  MOCK_ATTACK_TYPE_TREE,
+  type MockAttackTypeTreeNode,
+} from "@/mocks/attackTypeTreeOptions";
 import {
   createPaginationProps,
   createTablePagination,
@@ -92,6 +94,35 @@ function renderRiskTypeMaxTagPlaceholder(
   );
 }
 
+type AttackTypeTreeDataNode = NonNullable<TreeSelectProps["treeData"]>[number] & {
+  searchLabel: string;
+};
+
+function renderRiskTypeTreeNodeTitle(label: string) {
+  return (
+    <OverflowTooltip title={label} getPopupContainer={() => document.body}>
+      <span className="risk-filter-tree-node-title">{label}</span>
+    </OverflowTooltip>
+  );
+}
+
+function buildAttackTypeTreeData(
+  nodes: MockAttackTypeTreeNode[],
+): AttackTypeTreeDataNode[] {
+  return nodes.map((node) => ({
+    ...node,
+    title: renderRiskTypeTreeNodeTitle(node.searchLabel),
+    children: node.children ? buildAttackTypeTreeData(node.children) : undefined,
+  }));
+}
+
+const ATTACK_TYPE_CATEGORY_PREFIX = "category_";
+
+/** 勾选父节点时 TreeSelect 会带上分类 value，筛掉后仅保留叶子风险编码 */
+function normalizeAttackTypeValues(values: string[]): string[] {
+  return values.filter((value) => !value.startsWith(ATTACK_TYPE_CATEGORY_PREFIX));
+}
+
 function formatTriggerRange(period: [Dayjs, Dayjs] | null) {
   if (!period?.[0] || !period[1]) {
     return { triggerStart: undefined, triggerEnd: undefined };
@@ -121,24 +152,10 @@ const RiskTaskList = () => {
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
   const [eventLoadError, setEventLoadError] = useState<string | null>(null);
   const [eventPage, setEventPage] = useState(1);
-  const [attackTypeOptions, setAttackTypeOptions] = useState<AttackTypeOption[]>(
+  const attackTypeTreeData = useMemo(
+    () => buildAttackTypeTreeData(MOCK_ATTACK_TYPE_TREE),
     [],
   );
-
-  useEffect(() => {
-    if (activeView !== "event") return;
-    let cancelled = false;
-    void RiskService.getAttackTypes({ scope: "event", includeCount: true })
-      .then((items) => {
-        if (!cancelled) setAttackTypeOptions(items);
-      })
-      .catch(() => {
-        if (!cancelled) setAttackTypeOptions([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeView]);
 
   const fetchEventTopologyPage = useCallback(
     async (offset: number, limit: number) => {
@@ -354,13 +371,15 @@ const RiskTaskList = () => {
               <div className="risk-filter-row">
               <div className="risk-filter-select risk-filter-field">
                   <span className="risk-filter-select__prefix">风险类型</span>
-                  <Select
-                    mode="multiple"
+                  <TreeSelect
+                    treeData={attackTypeTreeData}
+                    treeCheckable
+                    showCheckedStrategy={TreeSelect.SHOW_CHILD}
                     allowClear
                     showSearch
                     virtual={false}
                     listHeight={200}
-                    optionFilterProp="label"
+                    treeNodeFilterProp="searchLabel"
                     className="risk-filter-select__control"
                     classNames={{
                       popup: {
@@ -371,18 +390,10 @@ const RiskTaskList = () => {
                     maxTagCount="responsive"
                     maxTagPlaceholder={renderRiskTypeMaxTagPlaceholder}
                     value={eventSearchInputs.attackTypes}
-                    options={attackTypeOptions.map((item) => ({
-                      value: item.code,
-                      label: item.name,
-                      // item.count
-                      //   ? `${item.name}（${item.count}）`
-                      //   : item.name,
-                      // title: item.desc,
-                    }))}
                     onChange={(value) =>
                       setEventSearchInputs((prev) => ({
                         ...prev,
-                        attackTypes: value,
+                        attackTypes: normalizeAttackTypeValues(value as string[]),
                       }))
                     }
                   />
