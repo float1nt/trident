@@ -47,6 +47,25 @@ def test_online_engine_assigns_and_updates_seed_learner() -> None:
     assert result.metrics["accepted_count"] == 2
 
 
+def test_online_engine_passes_plain_dict_to_incremental_update() -> None:
+    class StrictDictOnlineEngine(OnlineEngine):
+        def _incremental_update(self, accepted_by_learner: dict, *, window_index: int) -> list[str]:
+            assert type(accepted_by_learner) is dict
+            return super()._incremental_update(accepted_by_learner, window_index=window_index)
+
+    cfg = replace(
+        TridentConfig(),
+        runtime_mode="cold_start",
+        algorithm_backend="iforest",
+        min_class_samples=1,
+        increment_min_samples=1,
+        max_train_per_class=100,
+    )
+    engine = StrictDictOnlineEngine(session_id="s1", cfg=cfg)
+
+    engine.process_window(FlowWindow(window_index=1, items=[_flow("1-0")]))
+
+
 def test_online_engine_promotes_unknown_cluster_to_new_learner() -> None:
     cfg = replace(
         TridentConfig(),

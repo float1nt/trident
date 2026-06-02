@@ -156,8 +156,8 @@ class OnlineEngine:
                 }
                 for _ in records
             ]
-        accepted_by_learner: dict[str, list[np.ndarray]] = defaultdict(list)
-        accepted_records_by_learner: dict[str, list[FlowRecord]] = defaultdict(list)
+        accepted_by_learner: dict[str, list[np.ndarray]] = {}
+        accepted_records_by_learner: dict[str, list[FlowRecord]] = {}
         unknown_count = 0
         assignments: list[FlowAssignment] = []
 
@@ -193,8 +193,8 @@ class OnlineEngine:
                 continue
 
             learner_name = str(pred)
-            accepted_by_learner[learner_name].append(x[i])
-            accepted_records_by_learner[learner_name].append(record)
+            accepted_by_learner.setdefault(learner_name, []).append(x[i])
+            accepted_records_by_learner.setdefault(learner_name, []).append(record)
             snapshot_id, snapshot_version = self.learner_snapshot_refs.get(learner_name, ("", 0))
             assignments.append(
                 FlowAssignment(
