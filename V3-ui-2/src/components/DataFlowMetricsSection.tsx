@@ -1,5 +1,5 @@
 import { ReloadOutlined } from "@ant-design/icons";
-import { Select, Button } from "antd";
+import { Select, Button, Spin } from "antd";
 import OverflowTooltip from "@/components/OverflowTooltip";
 import metricsSectionBg from "@/assets/编组 58@2x.png";
 import titleIcon from "@/assets/路径.png";
@@ -44,6 +44,7 @@ function DataFlowTitleIcon() {
 type Props = {
   timeRange: TimeRange;
   metrics: OverviewMetrics;
+  loading?: boolean;
   onTimeRangeChange: (value: TimeRange) => void;
   onRefresh: () => void;
 };
@@ -71,6 +72,7 @@ function renderMetricValue(key: keyof OverviewMetrics, raw: number) {
 export default function DataFlowMetricsSection({
   timeRange,
   metrics,
+  loading = false,
   onTimeRangeChange,
   onRefresh,
 }: Props) {
@@ -85,24 +87,26 @@ export default function DataFlowMetricsSection({
       </div>
 
       <div className="data-flow-metrics__content-row">
-        <div className="data-flow-metrics__cards">
-          {METRIC_DEFS.map((item) => (
-            <div key={item.label} className="data-flow-metrics__card">
-              <div className="data-flow-metrics__card-main">
-                <OverflowTooltip title={item.label}>
-                  <span className="data-flow-metrics__card-label">{item.label}</span>
-                </OverflowTooltip>
-                {renderMetricValue(item.key, metrics[item.key])}
+        <Spin spinning={loading} className="data-flow-metrics__cards-spin">
+          <div className="data-flow-metrics__cards">
+            {METRIC_DEFS.map((item) => (
+              <div key={item.label} className="data-flow-metrics__card">
+                <div className="data-flow-metrics__card-main">
+                  <OverflowTooltip title={item.label}>
+                    <span className="data-flow-metrics__card-label">{item.label}</span>
+                  </OverflowTooltip>
+                  {renderMetricValue(item.key, metrics[item.key])}
+                </div>
+                <img
+                  src={item.icon}
+                  alt=""
+                  className="data-flow-metrics__card-icon"
+                  aria-hidden
+                />
               </div>
-              <img
-                src={item.icon}
-                alt=""
-                className="data-flow-metrics__card-icon"
-                aria-hidden
-              />
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </Spin>
 
         <div className="data-flow-metrics__filters">
           <Select
