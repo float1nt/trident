@@ -13,7 +13,6 @@ import {
   Spin,
   Typography,
   Pagination,
-  Select,
   TreeSelect,
 } from "antd";
 import type { TreeSelectProps } from "antd";
@@ -30,9 +29,9 @@ import {
   type AttackTypeOption,
 } from "@/api/services/RiskService";
 import {
-  MOCK_ATTACK_TYPE_TREE,
-  type MockAttackTypeTreeNode,
-} from "@/mocks/attackTypeTreeOptions";
+  ATTACK_TYPE_CATALOG,
+  type AttackTypeCatalogNode,
+} from "@/config/attackTypeCatalog";
 import {
   createPaginationProps,
   createTablePagination,
@@ -55,26 +54,15 @@ const EMPTY_SEARCH: RiskSearchForm = {
 
 type EventSearchForm = {
   name: string;
-  /** 树状风险类型（mock） */
   attackTypes: string[];
-  /** 旧版扁平风险类型（接口 /risk/attack-types） */
-  legacyAttackTypes: string[];
   triggerPeriod: [Dayjs, Dayjs] | null;
 };
 
 const EMPTY_EVENT_SEARCH: EventSearchForm = {
   name: "",
   attackTypes: [],
-  legacyAttackTypes: [],
   triggerPeriod: null,
 };
-
-function mergeEventAttackTypes(
-  treeTypes: string[],
-  legacyTypes: string[],
-): string[] {
-  return [...new Set([...treeTypes, ...legacyTypes])];
-}
 
 type RiskViewTab = "event" | "ip";
 
@@ -122,13 +110,23 @@ function renderRiskTypeTreeNodeTitle(label: string) {
 }
 
 function buildAttackTypeTreeData(
-  nodes: MockAttackTypeTreeNode[],
+  nodes: AttackTypeCatalogNode[],
+  availableByCode: ReadonlyMap<string, boolean>,
 ): AttackTypeTreeDataNode[] {
-  return nodes.map((node) => ({
-    ...node,
-    title: renderRiskTypeTreeNodeTitle(node.searchLabel),
-    children: node.children ? buildAttackTypeTreeData(node.children) : undefined,
-  }));
+  return nodes.map((node) => {
+    const children = node.children
+      ? buildAttackTypeTreeData(node.children, availableByCode)
+      : undefined;
+    const available = children
+      ? children.some((child) => !child.disabled)
+      : availableByCode.get(node.value) === true;
+    return {
+      ...node,
+      disabled: !available,
+      title: renderRiskTypeTreeNodeTitle(node.searchLabel),
+      children,
+    };
+  });
 }
 
 const ATTACK_TYPE_CATEGORY_PREFIX = "category_";
@@ -167,12 +165,22 @@ const RiskTaskList = () => {
   const [listdata, setListdata] = useState<IpRiskListItem[]>([]);
   const [eventLoadError, setEventLoadError] = useState<string | null>(null);
   const [eventPage, setEventPage] = useState(1);
-  const [legacyAttackTypeOptions, setLegacyAttackTypeOptions] = useState<
+  const [attackTypeOptions, setAttackTypeOptions] = useState<
     AttackTypeOption[]
   >([]);
+  const attackTypeAvailability = useMemo(
+    () =>
+      new Map(
+        attackTypeOptions.map((item) => [
+          item.code,
+          Number(item.count ?? 0) > 0,
+        ]),
+      ),
+    [attackTypeOptions],
+  );
   const attackTypeTreeData = useMemo(
-    () => buildAttackTypeTreeData(MOCK_ATTACK_TYPE_TREE),
-    [],
+    () => buildAttackTypeTreeData(ATTACK_TYPE_CATALOG, attackTypeAvailability),
+    [attackTypeAvailability],
   );
 
   useEffect(() => {
@@ -180,10 +188,10 @@ const RiskTaskList = () => {
     let cancelled = false;
     void RiskService.getAttackTypes({ scope: "event", includeCount: true })
       .then((items) => {
-        if (!cancelled) setLegacyAttackTypeOptions(items);
+        if (!cancelled) setAttackTypeOptions(items);
       })
       .catch(() => {
-        if (!cancelled) setLegacyAttackTypeOptions([]);
+        if (!cancelled) setAttackTypeOptions([]);
       });
     return () => {
       cancelled = true;
@@ -193,13 +201,12 @@ const RiskTaskList = () => {
   const fetchEventTopologyPage = useCallback(
     async (offset: number, limit: number) => {
       const range = formatTriggerRange(eventFilters.triggerPeriod);
-      const attackTypes = mergeEventAttackTypes(
-        eventFilters.attackTypes,
-        eventFilters.legacyAttackTypes,
-      );
       return RiskService.getEventTopology({
         name: eventFilters.name || undefined,
-        attackTypes: attackTypes.length > 0 ? attackTypes : undefined,
+        attackTypes:
+          eventFilters.attackTypes.length > 0
+            ? eventFilters.attackTypes
+            : undefined,
         ...range,
         limit,
         offset,
@@ -428,40 +435,6 @@ const RiskTaskList = () => {
                       setEventSearchInputs((prev) => ({
                         ...prev,
                         attackTypes: normalizeAttackTypeValues(value as string[]),
-                      }))
-                    }
-                  />
-                </div>
-                <div className="risk-filter-select risk-filter-field">
-                  <span className="risk-filter-select__prefix">旧版风险类型</span>
-                  <Select
-                    mode="multiple"
-                    allowClear
-                    showSearch
-                    virtual={false}
-                    listHeight={200}
-                    optionFilterProp="label"
-                    className="risk-filter-select__control"
-                    classNames={{
-                      popup: {
-                        root: "app-scrollbar risk-filter-select-dropdown",
-                      },
-                    }}
-                    placeholder="请选择"
-                    maxTagCount="responsive"
-                    maxTagPlaceholder={renderRiskTypeMaxTagPlaceholder}
-                    value={eventSearchInputs.legacyAttackTypes}
-                    options={legacyAttackTypeOptions.map((item) => ({
-                      value: item.code,
-                      label:
-                        item.count == null
-                          ? item.name
-                          : `${item.name} (${item.count})`,
-                    }))}
-                    onChange={(value) =>
-                      setEventSearchInputs((prev) => ({
-                        ...prev,
-                        legacyAttackTypes: value,
                       }))
                     }
                   />
