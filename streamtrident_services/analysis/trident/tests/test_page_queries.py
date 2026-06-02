@@ -338,6 +338,64 @@ def test_risk_by_id_includes_trigger_stats() -> None:
     assert data["riskPortCount"] == 5
 
 
+def test_risk_network_topology_uses_independent_stats_query() -> None:
+    class DetailFlows(FakeFlows):
+        def __init__(self) -> None:
+            self.graph_calls: list[dict[str, Any]] = []
+            self.stats_calls: list[dict[str, Any]] = []
+
+        def topology_graph(self, **kwargs: Any) -> dict[str, Any]:
+            self.graph_calls.append(kwargs)
+            return {
+                "flow_count": 1,
+                "total_flow_count": 1,
+                "node_mode": kwargs["node_mode"],
+                "nodes": [],
+                "links": [],
+                "stats": {"displayed_victim_count": 1},
+            }
+
+        def learner_topology_stats(self, **kwargs: Any) -> dict[str, dict[str, Any]]:
+            self.stats_calls.append(kwargs)
+            return {
+                "NEW_1": {
+                    "total_flow_count": 21,
+                    "unique_ip_count": 4,
+                    "unique_endpoint_count": 8,
+                    "unique_dst_port_count": 2,
+                    "top_dst_port": 443,
+                    "top_dst_port_ratio": 0.75,
+                }
+            }
+
+    class DetailLearners(FakeLearners):
+        def get_learner_by_id(self, **_: Any) -> dict[str, Any]:
+            return FakeLearners().list_learners()[0]
+
+        def get_learner(self, **_: Any) -> dict[str, Any]:
+            return FakeLearners().list_learners()[0]
+
+    flows = DetailFlows()
+    service = PageQueryService(session_id="s1", flows=flows, learners=DetailLearners())
+
+    data = service.risk_network_topology(risk_id=11)
+
+    assert len(flows.graph_calls) == 2
+    assert all("include_stats" not in call for call in flows.graph_calls)
+    assert len(flows.stats_calls) == 1
+    assert flows.stats_calls[0]["learner_names"] == ["NEW_1"]
+    assert data["total_flows"] == 21
+    stats = data["views"]["__combined__"]["host"]["stats"]
+    assert stats["total_flow_count"] == 21
+    assert stats["unique_ip_count"] == 4
+    assert stats["unique_endpoint_count"] == 8
+    assert stats["unique_dst_port_count"] == 2
+    assert stats["top_dst_port"] == 443
+    assert stats["top_dst_port_ratio"] == 0.75
+    assert stats["displayed_victim_count"] == 1
+    assert data["views"]["__combined__"]["endpoint"]["stats"]["unique_ip_count"] == 4
+
+
 def test_risk_events_topology_includes_attack_type_learners_only() -> None:
     class TopologyFlows(FakeFlows):
         def topology_graph(self, **_: Any) -> dict[str, Any]:
@@ -365,6 +423,61 @@ def test_risk_events_topology_includes_attack_type_learners_only() -> None:
     assert page["risk_type_total"] == 1
     assert len(page["learners"]) == 1
     assert page["learners"][0] == "NEW_1"
+
+
+def test_risk_events_topology_merges_independent_stats_without_heavy_graph_stats() -> None:
+    class TopologyFlows(FakeFlows):
+        def __init__(self) -> None:
+            self.graph_calls: list[dict[str, Any]] = []
+            self.stats_calls: list[dict[str, Any]] = []
+
+        def topology_graph(self, **kwargs: Any) -> dict[str, Any]:
+            self.graph_calls.append(kwargs)
+            return {
+                "flow_count": 1,
+                "total_flow_count": 1,
+                "node_mode": kwargs["node_mode"],
+                "nodes": [],
+                "links": [],
+                "stats": {"displayed_victim_count": 1},
+            }
+
+        def learner_topology_stats(self, **kwargs: Any) -> dict[str, dict[str, Any]]:
+            self.stats_calls.append(kwargs)
+            return {
+                "NEW_1": {
+                    "total_flow_count": 21,
+                    "unique_ip_count": 4,
+                    "unique_endpoint_count": 8,
+                    "unique_dst_port_count": 2,
+                    "top_dst_port": 443,
+                    "top_dst_port_ratio": 0.75,
+                }
+            }
+
+    class TopologyLearners(FakeLearners):
+        def get_learner(self, **_: Any) -> dict[str, Any]:
+            return FakeLearners().list_learners()[0]
+
+    flows = TopologyFlows()
+    service = PageQueryService(session_id="s1", flows=flows, learners=TopologyLearners())
+
+    data = service.risk_events_topology()
+
+    assert len(flows.graph_calls) == 2
+    assert all("include_stats" not in call for call in flows.graph_calls)
+    assert len(flows.stats_calls) == 1
+    assert flows.stats_calls[0]["learner_names"] == ["NEW_1"]
+    stats = data["views"]["NEW_1"]["host"]["stats"]
+    assert stats["total_flow_count"] == 21
+    assert stats["unique_ip_count"] == 4
+    assert stats["unique_endpoint_count"] == 8
+    assert stats["unique_dst_port_count"] == 2
+    assert stats["top_dst_port"] == 443
+    assert stats["top_dst_port_ratio"] == 0.75
+    assert stats["displayed_victim_count"] == 1
+    assert data["views"]["NEW_1"]["host"]["flow_count"] == 21
+    assert data["views"]["NEW_1"]["endpoint"]["stats"]["unique_ip_count"] == 4
 
 
 def test_risk_events_topology_distinguishes_risk_types_and_events() -> None:
