@@ -66,6 +66,34 @@
   padding-left: 0 !important;
 }
 
+.risk-filter-select-dropdown .ant-select-tree-treenode {
+  align-items: center;
+  width: 100%;
+}
+
+.risk-filter-select-dropdown .ant-select-tree-node-content-wrapper {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.risk-filter-select-dropdown .ant-select-tree-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.risk-filter-tree-node-title {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .risk-filter-range {
   display: flex;
   align-items: center;
