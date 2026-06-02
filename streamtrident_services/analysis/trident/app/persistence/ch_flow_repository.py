@@ -448,18 +448,11 @@ FORMAT JSONEachRow
                         "protocol": "",
                     }
                 )
-        victim_filters: list[str] = []
         combined_targets = victims_by_kind["combined"]
         benign_targets = victims_by_kind["benign"]
         attack_targets = victims_by_kind["attack"]
-        if combined_targets:
-            victim_filters.append(_in_filter(target_expr, combined_targets) or "")
-        if benign_targets:
-            victim_filters.append(f"({_in_filter(target_expr, benign_targets)} AND NOT ({abnormal}))")
-        if attack_targets:
-            victim_filters.append(f"({_in_filter(target_expr, attack_targets)} AND {abnormal})")
-        victim_filter = " OR ".join(f"({item})" for item in victim_filters if item)
-        if not victim_filter:
+        all_targets = sorted({*combined_targets, *benign_targets, *attack_targets})
+        if not all_targets:
             return {
                 "combined": _build_topology_graph_from_rows(
                     [row for row in stat_rows if row.get("topology_kind") == "combined"],
@@ -480,83 +473,54 @@ FORMAT JSONEachRow
                     edges_per_victim=compact_per_victim,
                 ),
             }
-        edge_branches: list[str] = []
-        if combined_targets:
-            branch_where = _where(
-                [
-                    f"session_id = {_quote(session_id)}",
-                    _time_filter("event_time", time_from, time_to),
-                    _in_filter(target_expr, combined_targets),
-                ]
-            )
-            edge_branches.append(
-                f"""
-        SELECT
-            'combined' AS topology_kind,
-            {source_expr} AS source,
-            {target_expr} AS target,
-            {is_benign_expr} AS is_benign,
-            {main_protocol} AS main_protocol
-        FROM ch_flow
-        {branch_where}
-"""
-            )
-        if benign_targets:
-            branch_where = _where(
-                [
-                    f"session_id = {_quote(session_id)}",
-                    _time_filter("event_time", time_from, time_to),
-                    _in_filter(target_expr, benign_targets),
-                    f"NOT ({abnormal})",
-                ]
-            )
-            edge_branches.append(
-                f"""
-        SELECT
-            'benign' AS topology_kind,
-            {source_expr} AS source,
-            {target_expr} AS target,
-            1 AS is_benign,
-            {main_protocol} AS main_protocol
-        FROM ch_flow
-        {branch_where}
-"""
-            )
-        if attack_targets:
-            branch_where = _where(
-                [
-                    f"session_id = {_quote(session_id)}",
-                    _time_filter("event_time", time_from, time_to),
-                    _in_filter(target_expr, attack_targets),
-                    abnormal,
-                ]
-            )
-            edge_branches.append(
-                f"""
-        SELECT
-            'attack' AS topology_kind,
-            {source_expr} AS source,
-            {target_expr} AS target,
-            0 AS is_benign,
-            {main_protocol} AS main_protocol
-        FROM ch_flow
-        {branch_where}
-"""
-            )
-        edge_source_sql = "\n        UNION ALL\n".join(edge_branches)
+        combined_filter = _in_filter("target", combined_targets) or "0"
+        benign_filter = _in_filter("target", benign_targets) or "0"
+        attack_filter = _in_filter("target", attack_targets) or "0"
+        edge_where = _where(
+            [
+                f"session_id = {_quote(session_id)}",
+                _time_filter("event_time", time_from, time_to),
+                _in_filter(target_expr, all_targets),
+            ]
+        )
         sql = f"""
-WITH edge_agg AS (
+WITH edge_source AS (
     SELECT
-        topology_kind,
+        {source_expr} AS source,
+        {target_expr} AS target,
+        {abnormal} AS is_attack,
+        {main_protocol} AS main_protocol
+    FROM ch_flow
+    {edge_where}
+),
+edge_agg AS (
+    SELECT
         source,
         target,
-        count() AS value,
-        min(is_benign) AS is_benign,
-        topK(1)(main_protocol)[1] AS protocol
-    FROM (
-{edge_source_sql}
-    )
-    GROUP BY topology_kind, source, target
+        countIf({combined_filter}) AS combined_value,
+        countIf({benign_filter} AND NOT is_attack) AS benign_value,
+        countIf({attack_filter} AND is_attack) AS attack_value,
+        topKIf(1)(main_protocol, {combined_filter})[1] AS combined_protocol,
+        topKIf(1)(main_protocol, {benign_filter} AND NOT is_attack)[1] AS benign_protocol,
+        topKIf(1)(main_protocol, {attack_filter} AND is_attack)[1] AS attack_protocol
+    FROM edge_source
+    GROUP BY source, target
+),
+expanded_edges AS (
+    SELECT
+        tupleElement(kind_row, 1) AS topology_kind,
+        source,
+        target,
+        tupleElement(kind_row, 2) AS value,
+        tupleElement(kind_row, 3) AS is_benign,
+        tupleElement(kind_row, 4) AS protocol
+    FROM edge_agg
+    ARRAY JOIN [
+        ('combined', combined_value, 0, combined_protocol),
+        ('benign', benign_value, 1, benign_protocol),
+        ('attack', attack_value, 0, attack_protocol)
+    ] AS kind_row
+    WHERE value > 0
 ),
 ranked_edges AS (
     SELECT
@@ -567,7 +531,7 @@ ranked_edges AS (
         is_benign,
         protocol,
         row_number() OVER (PARTITION BY topology_kind, target ORDER BY value DESC, source ASC) AS edge_rank
-    FROM edge_agg
+    FROM expanded_edges
 ),
 edge_rows AS (
     SELECT topology_kind, source, target, value, is_benign, protocol

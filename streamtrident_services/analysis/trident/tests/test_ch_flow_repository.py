@@ -229,15 +229,16 @@ def test_dashboard_topology_graphs_uses_top_victim_list_for_edge_query() -> None
     edge_sql = repo.client.sql[1]
     assert "victim_counts AS" in victim_sql
     assert "row_number() OVER (PARTITION BY topology_kind ORDER BY victim_flow_count DESC, victim ASC)" in victim_sql
-    assert "WITH edge_agg AS" in edge_sql
+    assert "WITH edge_source AS" in edge_sql
+    assert "edge_agg AS" in edge_sql
     assert "INNER JOIN victim_rows" not in edge_sql
-    assert "dst_ip IN ('10.0.0.2')" in edge_sql
-    assert "dst_ip IN ('10.0.0.3')" in edge_sql
-    assert "ARRAY JOIN" not in edge_sql
-    assert "'combined' AS topology_kind" in edge_sql
-    assert "'attack' AS topology_kind" in edge_sql
-    assert "'benign' AS topology_kind" in edge_sql
-    assert "UNION ALL" in edge_sql
+    assert "dst_ip IN ('10.0.0.2', '10.0.0.3')" in edge_sql
+    assert edge_sql.count("FROM ch_flow") == 1
+    assert "countIf(target IN ('10.0.0.2')) AS combined_value" in edge_sql
+    assert "countIf(target IN ('10.0.0.3') AND NOT is_attack) AS benign_value" in edge_sql
+    assert "countIf(target IN ('10.0.0.2') AND is_attack) AS attack_value" in edge_sql
+    assert "topKIf(1)(main_protocol" in edge_sql
+    assert "ARRAY JOIN [" in edge_sql
     assert "PARTITION BY topology_kind" in edge_sql
     assert "SELECT src_ip AS node" not in edge_sql
     assert graphs["combined"]["flow_count"] == 9
