@@ -76,6 +76,8 @@ export default function RiskDetailPlaceholder() {
   const [networkTopology, setNetworkTopology] =
     useState<DatasetNetworkTopologyJson | null>(null);
   const [riskIpList, setRiskIpList] = useState<RiskIpListItem[]>([]);
+  const [topologyLoading, setTopologyLoading] = useState(false);
+  const [riskIpLoading, setRiskIpLoading] = useState(false);
   const [riskIpPage, setRiskIpPage] = useState(1);
   const [riskIpPageSize, setRiskIpPageSize] = useState(DEFAULT_TABLE_PAGE_SIZE);
   const [trafficLogPage, setTrafficLogPage] = useState(1);
@@ -107,6 +109,8 @@ export default function RiskDetailPlaceholder() {
       setRisk(null);
       setNetworkTopology(null);
       setRiskIpList([]);
+      setTopologyLoading(false);
+      setRiskIpLoading(false);
       setLoadState("done");
       return;
     }
@@ -116,6 +120,8 @@ export default function RiskDetailPlaceholder() {
     setRisk(null);
     setNetworkTopology(null);
     setRiskIpList([]);
+    setTopologyLoading(false);
+    setRiskIpLoading(false);
 
     const load = async () => {
       const detail = await run(async () => RiskService.getRiskById(numericId));
@@ -130,20 +136,28 @@ export default function RiskDetailPlaceholder() {
       setRisk(detail);
       setLoadState("done");
 
-      void Promise.allSettled([
-        RiskService.getRiskNetworkTopology(numericId),
-        RiskService.getRiskIps(numericId),
-      ]).then((results) => {
-        if (requestSeq !== requestSeqRef.current) return;
+      setTopologyLoading(true);
+      setRiskIpLoading(true);
 
-        const [topologyResult, ipsResult] = results;
-        if (topologyResult.status === "fulfilled") {
-          setNetworkTopology(topologyResult.value);
-        }
-        if (ipsResult.status === "fulfilled") {
-          setRiskIpList(normalizeApiList<RiskIpListItem>(ipsResult.value));
-        }
-      });
+      void RiskService.getRiskNetworkTopology(numericId)
+        .then((topology) => {
+          if (requestSeq !== requestSeqRef.current) return;
+          setNetworkTopology(topology);
+        })
+        .finally(() => {
+          if (requestSeq !== requestSeqRef.current) return;
+          setTopologyLoading(false);
+        });
+
+      void RiskService.getRiskIps(numericId)
+        .then((ips) => {
+          if (requestSeq !== requestSeqRef.current) return;
+          setRiskIpList(normalizeApiList<RiskIpListItem>(ips));
+        })
+        .finally(() => {
+          if (requestSeq !== requestSeqRef.current) return;
+          setRiskIpLoading(false);
+        });
     };
 
     void load();
@@ -260,19 +274,23 @@ export default function RiskDetailPlaceholder() {
             <div className="flex flex-col gap-[12px]">
               <div className="flex min-w-0 gap-[12px]">
                 <div className="min-w-0 flex-[2] rounded-[8px] border border-[#e8eaed] bg-[#fff] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-                  {topologyView ? (
-                    <TopologyChartPane
-                      title="流量拓扑图"
-                      hostGraph={topologyView.host}
-                      endpointGraph={topologyView.endpoint}
-                      viewIsBenign={topologyView.is_benign}
-                      repulsion={TOPOLOGY_REPULSION}
-                      minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
-                      chartHeight={CHART_HEIGHT}
-                    />
-                  ) : (
-                    <p className="text-sm text-[#8c8c8c]">暂无拓扑数据</p>
-                  )}
+                  <Spin spinning={topologyLoading}>
+                    <div style={{ minHeight: CHART_HEIGHT }}>
+                      {topologyView ? (
+                        <TopologyChartPane
+                          title="流量拓扑图"
+                          hostGraph={topologyView.host}
+                          endpointGraph={topologyView.endpoint}
+                          viewIsBenign={topologyView.is_benign}
+                          repulsion={TOPOLOGY_REPULSION}
+                          minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
+                          chartHeight={CHART_HEIGHT}
+                        />
+                      ) : !topologyLoading ? (
+                        <p className="text-sm text-[#8c8c8c]">暂无拓扑数据</p>
+                      ) : null}
+                    </div>
+                  </Spin>
                 </div>
 
                 <div className="flex min-w-0 flex-[1] flex-col rounded-[8px] border border-[#e8eaed] bg-[#fff] px-[16px] pt-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
@@ -285,6 +303,7 @@ export default function RiskDetailPlaceholder() {
                     rowKey="ip"
                     size="middle"
                     bordered
+                    loading={riskIpLoading}
                     columns={buildRiskIpColumns(
                       riskIpPage,
                       riskIpPageSize,
