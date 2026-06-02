@@ -165,6 +165,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
     def overview_network_topology(
         timeRange: str = "24h",
         top_n: int = Query(8, ge=1, le=500),
+        nodeMode: str = Query("host", pattern="^(host|endpoint|both)$"),
     ) -> dict[str, Any]:
         from .page_queries import _time_range_bounds
         from .timezone_utils import resolve_display_timezone
@@ -177,6 +178,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
             top_n=top_n,
             time_from=bounds["time_from"],
             time_to=bounds["time_to"],
+            node_mode=nodeMode,
         )
         return _ok(DashboardTopologyData.model_validate(data).model_dump())
 

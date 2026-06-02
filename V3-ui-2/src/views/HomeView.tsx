@@ -17,7 +17,10 @@ import {
   type DistributionItem,
 } from "@/utils/chartDistribution";
 import { buildTrafficTrendBarOption } from "@/utils/chartTrafficTrend";
-import type { DatasetNetworkTopologyJson } from "@/components/NetworkTopologyPanel";
+import type {
+  DatasetNetworkTopologyJson,
+  TopologyGraphMode,
+} from "@/components/NetworkTopologyPanel";
 
 const CHART_HEIGHT = 280;
 const TOPOLOGY_CHART_HEIGHT = 320;
@@ -46,15 +49,16 @@ export default function HomeView() {
     useState<ProtocolDistributionMode>("network");
   const [networkTopology, setNetworkTopology] =
     useState<DatasetNetworkTopologyJson | null>(null);
+  const [topologyMode, setTopologyMode] = useState<TopologyGraphMode>("host");
   const [trafficTrend, setTrafficTrend] = useState<TrafficTrendPoint[]>([]);
   const { loading, run } = useApi();
 
-  const loadOverview = useCallback(async () => {
+  const loadOverview = useCallback(async (mode: TopologyGraphMode = topologyMode) => {
     await run(async () => {
       const [metricsData, distributions, topology, trend] = await Promise.all([
         OverviewService.getMetrics(timeRange),
         OverviewService.getDistributions(timeRange),
-        OverviewService.getNetworkTopology(timeRange),
+        OverviewService.getNetworkTopology(timeRange, mode),
         OverviewService.getTrafficTrend(timeRange),
       ]);
       setMetrics(metricsData);
@@ -64,11 +68,24 @@ export default function HomeView() {
       setNetworkTopology(topology);
       setTrafficTrend(trend);
     });
-  }, [timeRange, run]);
+  }, [timeRange, topologyMode, run]);
+
+  const handleTopologyModeChange = useCallback(
+    (mode: TopologyGraphMode) => {
+      if (mode !== topologyMode) {
+        setTopologyMode(mode);
+        void run(async () => {
+          const topology = await OverviewService.getNetworkTopology(timeRange, mode);
+          setNetworkTopology(topology);
+        });
+      }
+    },
+    [run, timeRange, topologyMode],
+  );
 
   useEffect(() => {
-    void loadOverview();
-  }, [loadOverview]);
+    void loadOverview(topologyMode);
+  }, [timeRange]);
 
   const trafficChartOption = useMemo(
     () => buildTrafficDistributionRingOption(trafficDist),
@@ -103,7 +120,7 @@ export default function HomeView() {
           timeRange={timeRange}
           metrics={metrics}
           onTimeRangeChange={setTimeRange}
-          onRefresh={() => void loadOverview()}
+          onRefresh={() => void loadOverview(topologyMode)}
         />
         <div className="relative z-10 -mt-[36px] w-full rounded-[16px] bg-[#f6faff] p-[12px]">
           <div className="flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
@@ -188,6 +205,8 @@ export default function HomeView() {
                 minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
                 chartHeight={TOPOLOGY_CHART_HEIGHT}
                 fillContainer
+                activeGraphMode={topologyMode}
+                onGraphModeChange={handleTopologyModeChange}
               />
             </div>
 
@@ -202,6 +221,8 @@ export default function HomeView() {
                 chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
                 compact
                 fillContainer
+                activeGraphMode={topologyMode}
+                onGraphModeChange={handleTopologyModeChange}
               />
             </div>
 
@@ -216,6 +237,8 @@ export default function HomeView() {
                 chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
                 compact
                 fillContainer
+                activeGraphMode={topologyMode}
+                onGraphModeChange={handleTopologyModeChange}
               />
             </div>
           </div>
