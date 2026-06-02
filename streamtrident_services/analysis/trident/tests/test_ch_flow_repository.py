@@ -189,21 +189,29 @@ def test_topology_graph_can_skip_expensive_stats_query() -> None:
     assert graph["stats"]["total_flow_count"] == 9
 
 
-def test_dashboard_topology_graphs_batches_traffic_kinds_in_one_query() -> None:
+def test_dashboard_topology_graphs_uses_top_victim_list_for_edge_query() -> None:
     class FakeClient:
         def __init__(self) -> None:
             self.sql: list[str] = []
 
         def execute(self, sql: str) -> str:
             self.sql.append(sql)
+            if "victim_counts AS" in sql:
+                return "\n".join(
+                    [
+                        '{"row_type":"victim","topology_kind":"combined","victim":"10.0.0.2","victim_flow_count":9}',
+                        '{"row_type":"victim","topology_kind":"attack","victim":"10.0.0.2","victim_flow_count":4}',
+                        '{"row_type":"victim","topology_kind":"benign","victim":"10.0.0.3","victim_flow_count":5}',
+                        '{"row_type":"stat","topology_kind":"combined","victim":"","victim_flow_count":9}',
+                        '{"row_type":"stat","topology_kind":"attack","victim":"","victim_flow_count":4}',
+                        '{"row_type":"stat","topology_kind":"benign","victim":"","victim_flow_count":5}',
+                    ]
+                )
             return "\n".join(
                 [
                     '{"row_type":"node","topology_kind":"combined","id":"10.0.0.1","source":"","target":"","value":3,"out_flow_count":3,"in_flow_count":0,"is_benign":0}',
                     '{"row_type":"node","topology_kind":"combined","id":"10.0.0.2","source":"","target":"","value":3,"out_flow_count":0,"in_flow_count":3,"is_benign":0}',
                     '{"row_type":"edge","topology_kind":"combined","id":"","source":"10.0.0.1","target":"10.0.0.2","value":3,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
-                    '{"row_type":"stat","topology_kind":"combined","id":"","source":"","target":"","value":9,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
-                    '{"row_type":"stat","topology_kind":"attack","id":"","source":"","target":"","value":4,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
-                    '{"row_type":"stat","topology_kind":"benign","id":"","source":"","target":"","value":5,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
                 ]
             )
 
@@ -216,18 +224,57 @@ def test_dashboard_topology_graphs_batches_traffic_kinds_in_one_query() -> None:
         risk_learners=["NEW_1"],
     )
 
-    assert len(repo.client.sql) == 1
-    sql = repo.client.sql[0]
-    assert "ARRAY JOIN if(assigned_learner IN ('NEW_1'), ['combined', 'attack'], ['combined', 'benign']) AS topology_kind" in sql
-    assert "victim_counts AS" in sql
-    assert sql.index("victim_rows AS") < sql.index("edge_agg AS")
-    assert "INNER JOIN victim_rows AS v ON f.topology_kind = v.topology_kind AND f.target = v.victim" in sql
-    assert "GROUP BY f.topology_kind, f.source, f.target" in sql
-    assert "PARTITION BY topology_kind" in sql
-    assert "SELECT src_ip AS node" not in sql
+    assert len(repo.client.sql) == 2
+    victim_sql = repo.client.sql[0]
+    edge_sql = repo.client.sql[1]
+    assert "victim_counts AS" in victim_sql
+    assert "row_number() OVER (PARTITION BY topology_kind ORDER BY victim_flow_count DESC, victim ASC)" in victim_sql
+    assert "WITH edge_agg AS" in edge_sql
+    assert "INNER JOIN victim_rows" not in edge_sql
+    assert "dst_ip IN ('10.0.0.2')" in edge_sql
+    assert "dst_ip IN ('10.0.0.3')" in edge_sql
+    assert "ARRAY JOIN" not in edge_sql
+    assert "'combined' AS topology_kind" in edge_sql
+    assert "'attack' AS topology_kind" in edge_sql
+    assert "'benign' AS topology_kind" in edge_sql
+    assert "UNION ALL" in edge_sql
+    assert "PARTITION BY topology_kind" in edge_sql
+    assert "SELECT src_ip AS node" not in edge_sql
     assert graphs["combined"]["flow_count"] == 9
     assert graphs["attack"]["flow_count"] == 4
     assert graphs["benign"]["flow_count"] == 5
+
+
+def test_dashboard_topology_graphs_applies_time_bounds_to_both_queries() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sql: list[str] = []
+
+        def execute(self, sql: str) -> str:
+            self.sql.append(sql)
+            if "victim_counts AS" in sql:
+                return "\n".join(
+                    [
+                        '{"row_type":"victim","topology_kind":"combined","victim":"10.0.0.2","victim_flow_count":9}',
+                        '{"row_type":"stat","topology_kind":"combined","victim":"","victim_flow_count":9}',
+                    ]
+                )
+            return ""
+
+    repo = ChFlowRepository.__new__(ChFlowRepository)
+    repo.client = FakeClient()
+
+    repo.dashboard_topology_graphs(
+        session_id="s1",
+        node_mode="host",
+        time_from="2026-06-02T00:00:00Z",
+        time_to="2026-06-02T01:00:00Z",
+    )
+
+    assert len(repo.client.sql) == 2
+    for sql in repo.client.sql:
+        assert "event_time >= parseDateTime64BestEffort('2026-06-02T00:00:00Z', 3)" in sql
+        assert "event_time <= parseDateTime64BestEffort('2026-06-02T01:00:00Z', 3)" in sql
 
 
 def test_learner_trigger_stats_batches_min_max_and_count() -> None:

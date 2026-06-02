@@ -389,28 +389,19 @@ FORMAT JSONEachRow
             target_expr = "dst_ip"
         is_benign_expr = f"NOT ({abnormal})"
         main_protocol = _main_protocol_sql()
-        sql = f"""
-WITH flow_rows AS (
+        victim_sql = f"""
+WITH victim_counts AS (
     SELECT
         topology_kind,
-        {source_expr} AS source,
-        {target_expr} AS target,
-        {is_benign_expr} AS is_benign,
-        {main_protocol} AS main_protocol
+        {target_expr} AS victim,
+        count() AS victim_flow_count
     FROM ch_flow
     ARRAY JOIN if({abnormal}, ['combined', 'attack'], ['combined', 'benign']) AS topology_kind
     {where}
-),
-victim_counts AS (
-    SELECT
-        topology_kind,
-        target AS victim,
-        count() AS victim_flow_count
-    FROM flow_rows
     GROUP BY topology_kind, victim
 ),
 victim_rows AS (
-    SELECT topology_kind, victim
+    SELECT topology_kind, victim, victim_flow_count
     FROM (
         SELECT
             topology_kind,
@@ -420,40 +411,169 @@ victim_rows AS (
         FROM victim_counts
     )
     WHERE victim_rank <= if(topology_kind = 'combined', {main_top_victims}, {compact_top_victims})
-),
-edge_agg AS (
+)
+SELECT 'victim' AS row_type, topology_kind, victim, victim_flow_count
+FROM victim_rows
+UNION ALL
+SELECT 'stat' AS row_type, topology_kind, '' AS victim, sum(victim_flow_count) AS victim_flow_count
+FROM victim_counts
+GROUP BY topology_kind
+FORMAT JSONEachRow
+"""
+        victim_text = self.client.execute(victim_sql)
+        victims_by_kind: dict[str, list[str]] = {"combined": [], "benign": [], "attack": []}
+        stat_rows: list[dict[str, Any]] = []
+        for line in victim_text.splitlines():
+            if not line.strip():
+                continue
+            row = _parse_json(line)
+            kind = str(row.get("topology_kind") or "")
+            if kind not in victims_by_kind:
+                continue
+            if row.get("row_type") == "victim":
+                victim = str(row.get("victim") or "")
+                if victim:
+                    victims_by_kind[kind].append(victim)
+            elif row.get("row_type") == "stat":
+                stat_rows.append(
+                    {
+                        "row_type": "stat",
+                        "topology_kind": kind,
+                        "id": "",
+                        "source": "",
+                        "target": "",
+                        "value": int(row.get("victim_flow_count") or 0),
+                        "out_flow_count": 0,
+                        "in_flow_count": 0,
+                        "is_benign": 0,
+                        "protocol": "",
+                    }
+                )
+        victim_filters: list[str] = []
+        combined_targets = victims_by_kind["combined"]
+        benign_targets = victims_by_kind["benign"]
+        attack_targets = victims_by_kind["attack"]
+        if combined_targets:
+            victim_filters.append(_in_filter(target_expr, combined_targets) or "")
+        if benign_targets:
+            victim_filters.append(f"({_in_filter(target_expr, benign_targets)} AND NOT ({abnormal}))")
+        if attack_targets:
+            victim_filters.append(f"({_in_filter(target_expr, attack_targets)} AND {abnormal})")
+        victim_filter = " OR ".join(f"({item})" for item in victim_filters if item)
+        if not victim_filter:
+            return {
+                "combined": _build_topology_graph_from_rows(
+                    [row for row in stat_rows if row.get("topology_kind") == "combined"],
+                    node_mode=node_mode,
+                    top_victims=main_top_victims,
+                    edges_per_victim=main_per_victim,
+                ),
+                "benign": _build_topology_graph_from_rows(
+                    [row for row in stat_rows if row.get("topology_kind") == "benign"],
+                    node_mode=node_mode,
+                    top_victims=compact_top_victims,
+                    edges_per_victim=compact_per_victim,
+                ),
+                "attack": _build_topology_graph_from_rows(
+                    [row for row in stat_rows if row.get("topology_kind") == "attack"],
+                    node_mode=node_mode,
+                    top_victims=compact_top_victims,
+                    edges_per_victim=compact_per_victim,
+                ),
+            }
+        edge_branches: list[str] = []
+        if combined_targets:
+            branch_where = _where(
+                [
+                    f"session_id = {_quote(session_id)}",
+                    _time_filter("event_time", time_from, time_to),
+                    _in_filter(target_expr, combined_targets),
+                ]
+            )
+            edge_branches.append(
+                f"""
+        SELECT
+            'combined' AS topology_kind,
+            {source_expr} AS source,
+            {target_expr} AS target,
+            {is_benign_expr} AS is_benign,
+            {main_protocol} AS main_protocol
+        FROM ch_flow
+        {branch_where}
+"""
+            )
+        if benign_targets:
+            branch_where = _where(
+                [
+                    f"session_id = {_quote(session_id)}",
+                    _time_filter("event_time", time_from, time_to),
+                    _in_filter(target_expr, benign_targets),
+                    f"NOT ({abnormal})",
+                ]
+            )
+            edge_branches.append(
+                f"""
+        SELECT
+            'benign' AS topology_kind,
+            {source_expr} AS source,
+            {target_expr} AS target,
+            1 AS is_benign,
+            {main_protocol} AS main_protocol
+        FROM ch_flow
+        {branch_where}
+"""
+            )
+        if attack_targets:
+            branch_where = _where(
+                [
+                    f"session_id = {_quote(session_id)}",
+                    _time_filter("event_time", time_from, time_to),
+                    _in_filter(target_expr, attack_targets),
+                    abnormal,
+                ]
+            )
+            edge_branches.append(
+                f"""
+        SELECT
+            'attack' AS topology_kind,
+            {source_expr} AS source,
+            {target_expr} AS target,
+            0 AS is_benign,
+            {main_protocol} AS main_protocol
+        FROM ch_flow
+        {branch_where}
+"""
+            )
+        edge_source_sql = "\n        UNION ALL\n".join(edge_branches)
+        sql = f"""
+WITH edge_agg AS (
     SELECT
-        f.topology_kind AS topology_kind,
-        f.source AS source,
-        f.target AS target,
+        topology_kind,
+        source,
+        target,
         count() AS value,
-        min(f.is_benign) AS is_benign,
-        topK(1)(f.main_protocol)[1] AS protocol
-    FROM flow_rows AS f
-    INNER JOIN victim_rows AS v ON f.topology_kind = v.topology_kind AND f.target = v.victim
-    GROUP BY f.topology_kind, f.source, f.target
+        min(is_benign) AS is_benign,
+        topK(1)(main_protocol)[1] AS protocol
+    FROM (
+{edge_source_sql}
+    )
+    GROUP BY topology_kind, source, target
 ),
 ranked_edges AS (
     SELECT
-        e.topology_kind AS topology_kind,
-        e.source AS source,
-        e.target AS target,
-        e.value AS value,
-        e.is_benign AS is_benign,
-        e.protocol AS protocol,
-        row_number() OVER (PARTITION BY e.topology_kind, e.target ORDER BY e.value DESC, e.source ASC) AS edge_rank
-    FROM edge_agg AS e
-    INNER JOIN victim_rows AS v ON e.topology_kind = v.topology_kind AND e.target = v.victim
+        topology_kind,
+        source,
+        target,
+        value,
+        is_benign,
+        protocol,
+        row_number() OVER (PARTITION BY topology_kind, target ORDER BY value DESC, source ASC) AS edge_rank
+    FROM edge_agg
 ),
 edge_rows AS (
     SELECT topology_kind, source, target, value, is_benign, protocol
     FROM ranked_edges
     WHERE edge_rank <= if(topology_kind = 'combined', {main_per_victim}, {compact_per_victim})
-),
-graph_stats AS (
-    SELECT topology_kind, sum(victim_flow_count) AS total_flow_count
-    FROM victim_counts
-    GROUP BY topology_kind
 ),
 node_protocol_rows AS (
     SELECT topology_kind, node, topK(1)(edge_protocol)[1] AS protocol
@@ -486,13 +606,14 @@ LEFT JOIN node_protocol_rows npr ON nr.topology_kind = npr.topology_kind AND nr.
 UNION ALL
 SELECT 'edge' AS row_type, topology_kind, '' AS id, source, target, value, 0 AS out_flow_count, 0 AS in_flow_count, is_benign, ifNull(protocol, '') AS protocol
 FROM edge_rows
-UNION ALL
-SELECT 'stat' AS row_type, topology_kind, '' AS id, '' AS source, '' AS target, ifNull(total_flow_count, 0) AS value, 0 AS out_flow_count, 0 AS in_flow_count, 0 AS is_benign, '' AS protocol
-FROM graph_stats
 FORMAT JSONEachRow
 """
         text = self.client.execute(sql)
         rows_by_kind: dict[str, list[dict[str, Any]]] = {"combined": [], "benign": [], "attack": []}
+        for row in stat_rows:
+            kind = str(row.get("topology_kind") or "")
+            if kind in rows_by_kind:
+                rows_by_kind[kind].append(row)
         for line in text.splitlines():
             if not line.strip():
                 continue
