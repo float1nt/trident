@@ -86,7 +86,13 @@ services:
       SURICATA_FILTER_CONFIG_PATH: /etc/suricata-cic/filter.json
       SURICATA_CONTAINER: streamtrident-suricata-cic
       SURICATA_RESTART_TIMEOUT: "10"
+      SURICATA_START_TIMEOUT: "${SURICATA_START_TIMEOUT:-15}"
+      SURICATA_AGENT_MAX_BODY_BYTES: "${SURICATA_AGENT_MAX_BODY_BYTES:-262144}"
       SURICATA_AGENT_TOKEN: "${TRIDENT_SURICATA_AGENT_TOKEN:-}"
+      SURICATA_IFACE: "${SURICATA_IFACE:-eth0}"
+      SURICATA_REDIS_HOST: redis
+      SURICATA_REDIS_PORT: "6379"
+      SURICATA_REDIS_KEY: "${SURICATA_REDIS_STREAM:-suricata:cic_flow}"
       DOCKER_SOCKET: /var/run/docker.sock
     volumes:
       - ./suricata/config:/etc/suricata-cic
