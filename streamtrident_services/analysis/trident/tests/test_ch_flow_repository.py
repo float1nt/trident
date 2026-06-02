@@ -122,8 +122,6 @@ def test_topology_graph_selects_top_victims_with_per_victim_edges() -> None:
                         '{"row_type":"stat","victim":"","victim_flow_count":9}',
                     ]
                 )
-            if "top_dst_port_ratio" in sql:
-                return '{"total_flow_count":9,"top_dst_port":443,"top_dst_port_ratio":1,"unique_ip_count":2,"unique_endpoint_count":4,"unique_dst_port_count":1}\n'
             return "\n".join(
                 [
                     '{"row_type":"node","id":"10.0.0.1","source":"","target":"","value":3,"out_flow_count":3,"in_flow_count":0,"is_benign":0}',
@@ -156,8 +154,7 @@ def test_topology_graph_selects_top_victims_with_per_victim_edges() -> None:
     assert "node_protocol_rows AS" in edge_sql
     assert "SELECT source AS node, value AS out_count, 0 AS in_count FROM edge_rows" in edge_sql
     assert "SELECT target AS node, 0 AS out_count, value AS in_count FROM edge_rows" in edge_sql
-    stats_sql = repo.client.sql[2]
-    assert "unique_ip_count" in stats_sql
+    assert len(repo.client.sql) == 2
     assert graph["flow_count"] == 9
     assert graph["stats"]["displayed_victim_count"] == 1
     assert graph["stats"]["edges_per_victim"] == 10
@@ -168,7 +165,7 @@ def test_topology_graph_selects_top_victims_with_per_victim_edges() -> None:
     ]
 
 
-def test_topology_graph_can_skip_expensive_stats_query() -> None:
+def test_topology_graph_does_not_run_stats_query() -> None:
     class FakeClient:
         def __init__(self) -> None:
             self.sql: list[str] = []
@@ -194,7 +191,7 @@ def test_topology_graph_can_skip_expensive_stats_query() -> None:
     repo = ChFlowRepository.__new__(ChFlowRepository)
     repo.client = FakeClient()
 
-    graph = repo.topology_graph(session_id="s1", node_mode="host", include_stats=False)
+    graph = repo.topology_graph(session_id="s1", node_mode="host")
 
     assert len(repo.client.sql) == 2
     assert "victim_counts AS" in repo.client.sql[0]
@@ -233,7 +230,6 @@ def test_topology_graph_endpoint_drills_from_host_edges_without_source_port() ->
         learner_name="NEW_1",
         top_n=8,
         edges_per_victim=10,
-        include_stats=False,
     )
 
     assert len(repo.client.sql) == 3
@@ -390,6 +386,79 @@ def test_dashboard_topology_graphs_applies_time_bounds_to_both_queries() -> None
     for sql in repo.client.sql:
         assert "event_time >= parseDateTime64BestEffort('2026-06-02T00:00:00Z', 3)" in sql
         assert "event_time <= parseDateTime64BestEffort('2026-06-02T01:00:00Z', 3)" in sql
+
+
+def test_dashboard_topology_stats_batches_all_kinds_with_approximate_distincts() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sql: list[str] = []
+
+        def execute(self, sql: str) -> str:
+            self.sql.append(sql)
+            return "\n".join(
+                [
+                    '{"topology_kind":"combined","total_flow_count":10,"top_dst_port":443,"top_dst_port_ratio":0.6,"unique_ip_count":4,"unique_endpoint_count":8,"unique_dst_port_count":2}',
+                    '{"topology_kind":"attack","total_flow_count":4,"top_dst_port":443,"top_dst_port_ratio":1,"unique_ip_count":2,"unique_endpoint_count":4,"unique_dst_port_count":1}',
+                    '{"topology_kind":"benign","total_flow_count":6,"top_dst_port":80,"top_dst_port_ratio":1,"unique_ip_count":3,"unique_endpoint_count":6,"unique_dst_port_count":1}',
+                ]
+            )
+
+    repo = ChFlowRepository.__new__(ChFlowRepository)
+    repo.client = FakeClient()
+
+    stats = repo.dashboard_topology_stats(
+        session_id="s1",
+        risk_learners=["NEW_1"],
+        time_from="2026-06-02T00:00:00Z",
+        time_to="2026-06-02T01:00:00Z",
+    )
+
+    assert len(repo.client.sql) == 1
+    sql = repo.client.sql[0]
+    assert "ARRAY JOIN if(assigned_learner IN ('NEW_1'), ['combined', 'attack'], ['combined', 'benign'])" in sql
+    assert "uniqCombined(ip) AS unique_ip_count" in sql
+    assert "uniqCombined(endpoint) AS unique_endpoint_count" in sql
+    assert "uniqCombined(dst_port) AS unique_dst_port_count" in sql
+    assert "row_number() OVER (PARTITION BY topology_kind ORDER BY port_count DESC, dst_port ASC)" in sql
+    assert "event_time >= parseDateTime64BestEffort('2026-06-02T00:00:00Z', 3)" in sql
+    assert "event_time <= parseDateTime64BestEffort('2026-06-02T01:00:00Z', 3)" in sql
+    assert stats["combined"]["top_dst_port"] == 443
+    assert stats["combined"]["top_dst_port_ratio"] == 0.6
+    assert stats["attack"]["total_flow_count"] == 4
+
+
+def test_learner_topology_stats_batches_page_learners_with_approximate_distincts() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sql: list[str] = []
+
+        def execute(self, sql: str) -> str:
+            self.sql.append(sql)
+            return "\n".join(
+                [
+                    '{"assigned_learner":"NEW_1","total_flow_count":10,"top_dst_port":443,"top_dst_port_ratio":0.6,"unique_ip_count":4,"unique_endpoint_count":8,"unique_dst_port_count":2}',
+                    '{"assigned_learner":"NEW_2","total_flow_count":5,"top_dst_port":80,"top_dst_port_ratio":1,"unique_ip_count":3,"unique_endpoint_count":6,"unique_dst_port_count":1}',
+                ]
+            )
+
+    repo = ChFlowRepository.__new__(ChFlowRepository)
+    repo.client = FakeClient()
+
+    stats = repo.learner_topology_stats(
+        session_id="s1",
+        learner_names=["NEW_1", "NEW_2"],
+    )
+
+    assert len(repo.client.sql) == 1
+    sql = repo.client.sql[0]
+    assert "assigned_learner IN ('NEW_1', 'NEW_2')" in sql
+    assert "uniqCombined(ip) AS unique_ip_count" in sql
+    assert "uniqCombined(endpoint) AS unique_endpoint_count" in sql
+    assert "uniqCombined(dst_port) AS unique_dst_port_count" in sql
+    assert "row_number() OVER (PARTITION BY assigned_learner ORDER BY port_count DESC, dst_port ASC)" in sql
+    assert stats["NEW_1"]["top_dst_port"] == 443
+    assert stats["NEW_1"]["top_dst_port_ratio"] == 0.6
+    assert stats["NEW_2"]["total_flow_count"] == 5
 
 
 def test_learner_trigger_stats_batches_min_max_and_count() -> None:

@@ -53,7 +53,8 @@ def apply_clickhouse(path: Path, dsn: str) -> list[str]:
     client = ClickHouseHTTPClient(dsn)
     applied: list[str] = []
     for file in _sql_files(path):
-        client.execute(file.read_text(encoding="utf-8"))
+        for statement in _split_sql_statements(file.read_text(encoding="utf-8")):
+            client.execute(statement)
         applied.append(str(file))
     return applied
 
@@ -74,6 +75,15 @@ def _sql_files(path: Path) -> list[Path]:
     if not path.exists():
         return []
     return sorted(file for file in path.iterdir() if file.suffix == ".sql")
+
+
+def _split_sql_statements(sql: str) -> list[str]:
+    statements: list[str] = []
+    for chunk in sql.split(";"):
+        statement = chunk.strip()
+        if statement:
+            statements.append(f"{statement};")
+    return statements
 
 
 if __name__ == "__main__":
