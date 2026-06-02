@@ -152,12 +152,13 @@ export default function SettingView() {
   return (
     <div className="setting-page bg-[#f6faff] p-[12px] h-[calc(100vh-86px)] overflow-y-auto w-full rounded-[8px]">
       <div className="setting-card bg-white rounded-[8px] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
-        <div className="mb-6 flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
-          <span
-            className="h-[16px] w-[3px] shrink-0 rounded-[2px] bg-[#4368f0]"
-            aria-hidden
-          />
-          采集配置
+        <div className="mb-6 flex items-center justify-between">
+          <SectionTitle>采集配置</SectionTitle>
+          {applyResult && !applyResult.applied && (
+            <Button size="small" onClick={handleRetryApply} loading={submitting}>
+              重新下发
+            </Button>
+          )}
         </div>
 
         {applyResult && (
@@ -176,13 +177,6 @@ export default function SettingView() {
                   </div>
                 ))}
               </div>
-            }
-            action={
-              !applyResult.applied ? (
-                <Button size="small" onClick={handleRetryApply} loading={submitting}>
-                  重新下发
-                </Button>
-              ) : undefined
             }
           />
         )}
