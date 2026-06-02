@@ -183,7 +183,6 @@ SELECT
     mq_topic,
     mq_message_id,
     source_flow_id,
-    raw_event,
     payload_sample_b64,
     payload_sample_bytes,
     payload_original_bytes,

@@ -39,7 +39,6 @@ def _flow_record_from_row(row: dict[str, Any]) -> FlowRecord:
         mq_topic=str(row.get("mq_topic") or ""),
         mq_message_id=str(row.get("mq_message_id") or ""),
         source_flow_id=str(row.get("source_flow_id") or ""),
-        raw_event=str(row.get("raw_event") or ""),
         payload_sample_b64=str(row.get("payload_sample_b64") or ""),
         payload_sample_bytes=int(row.get("payload_sample_bytes") or 0),
         payload_original_bytes=int(row.get("payload_original_bytes") or 0),
@@ -77,7 +76,6 @@ SELECT
     mq_topic,
     mq_message_id,
     source_flow_id,
-    raw_event,
     record_version,
     record_stage,
     window_index

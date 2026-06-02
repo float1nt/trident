@@ -12,6 +12,7 @@ list_maxlen: 100000
 session_id: trident-session-dev
 window_size: 10000
 feature_profile: compact_stats_no_env
+store_cic_features: false
 
 # API query windows and display labels; storage remains UTC.
 # Falls back to TRIDENT_DISPLAY_TIMEZONE, then TZ, then UTC when empty.
