@@ -13,6 +13,7 @@ EXCLUDED = {
     APP_ROOT / "__init__.py",
     APP_ROOT / "api.py",
     APP_ROOT / "api_routes" / "auth.py",
+    APP_ROOT / "coldstart_artifact.py",
     APP_ROOT / "worker.py",
     APP_ROOT / "migrate.py",
 }

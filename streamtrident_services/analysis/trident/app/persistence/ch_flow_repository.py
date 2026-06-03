@@ -59,9 +59,10 @@ class ChFlowRepository:
     def __init__(self, dsn: str, *, display_timezone: str | None = None) -> None:
         from ..timezone_utils import display_timezone_name
 
+        self.display_timezone = display_timezone_name(display_timezone)
         self.client = ClickHouseHTTPClient(
             dsn,
-            session_timezone=display_timezone_name(display_timezone),
+            session_timezone=self.display_timezone,
         )
 
     def insert_assignments(self, updates: list[AssignmentUpdate]) -> int:
@@ -98,9 +99,9 @@ class ChFlowRepository:
         if is_unknown is not None:
             filters.append(f"is_unknown = {1 if is_unknown else 0}")
         if time_from:
-            filters.append(f"event_time >= parseDateTime64BestEffort({_quote(time_from)}, 3)")
+            filters.append(f"event_time >= parseDateTime64BestEffort({_quote(time_from)}, 3, 'UTC')")
         if time_to:
-            filters.append(f"event_time <= parseDateTime64BestEffort({_quote(time_to)}, 3)")
+            filters.append(f"event_time <= parseDateTime64BestEffort({_quote(time_to)}, 3, 'UTC')")
         if cursor:
             filters.append(f"flow_uid > {_quote(cursor)}")
         where = f"WHERE {' AND '.join(filters)}" if filters else ""
@@ -745,9 +746,9 @@ expanded_edges AS (
         tupleElement(kind_row, 4) AS protocol
     FROM edge_agg
     ARRAY JOIN [
-        ('combined', combined_value, 0, combined_protocol),
-        ('benign', benign_value, 1, benign_protocol),
-        ('attack', attack_value, 0, attack_protocol)
+        ('combined', combined_value, multiIf(attack_value = 0, toNullable(1), benign_value = 0, toNullable(0), CAST(NULL, 'Nullable(UInt8)')), combined_protocol),
+        ('benign', benign_value, toNullable(1), benign_protocol),
+        ('attack', attack_value, toNullable(0), attack_protocol)
     ] AS kind_row
     WHERE value > 0
 ),
@@ -928,9 +929,9 @@ expanded_edges AS (
         tupleElement(kind_row, 4) AS protocol
     FROM edge_agg
     ARRAY JOIN [
-        ('combined', combined_value, 0, combined_protocol),
-        ('benign', benign_value, 1, benign_protocol),
-        ('attack', attack_value, 0, attack_protocol)
+        ('combined', combined_value, multiIf(attack_value = 0, toNullable(1), benign_value = 0, toNullable(0), CAST(NULL, 'Nullable(UInt8)')), combined_protocol),
+        ('benign', benign_value, toNullable(1), benign_protocol),
+        ('attack', attack_value, toNullable(0), attack_protocol)
     ] AS kind_row
     WHERE value > 0
 ),
@@ -1296,10 +1297,12 @@ FORMAT JSONEachRow
         time_from: str | None = None,
         time_to: str | None = None,
     ) -> list[dict[str, Any]]:
+        display_timezone = getattr(self, "display_timezone", "UTC")
+        tz = _quote(display_timezone)
         bucket_expr = {
-            "hour": "toStartOfHour(event_time)",
-            "day": "toStartOfDay(event_time)",
-            "week": "toStartOfWeek(event_time, 1)",
+            "hour": f"toStartOfHour(toTimeZone(event_time, {tz}))",
+            "day": f"toStartOfDay(toTimeZone(event_time, {tz}))",
+            "week": f"toStartOfWeek(toTimeZone(event_time, {tz}), 1)",
         }.get(bucket)
         if bucket_expr is None:
             raise ValueError(f"unsupported traffic trend bucket: {bucket}")
@@ -1312,7 +1315,7 @@ FORMAT JSONEachRow
         abnormal = _abnormal_expr(risk_learners)
         sql = f"""
 SELECT
-    formatDateTime(bucket_start, '%Y-%m-%d %H:%i:%S') AS bucket_start,
+    formatDateTime(bucket_start, '%Y-%m-%d %H:%i:%S', {tz}) AS bucket_start,
     sumIf(total_bytes, NOT ({abnormal})) AS normal,
     sumIf(total_bytes, {abnormal}) AS abnormal
 FROM (
@@ -1671,9 +1674,9 @@ def _where(filters: list[str | None]) -> str:
 def _time_filter(column: str, time_from: str | None, time_to: str | None) -> str | None:
     parts: list[str] = []
     if time_from:
-        parts.append(f"{column} >= parseDateTime64BestEffort({_quote(time_from)}, 3)")
+        parts.append(f"{column} >= parseDateTime64BestEffort({_quote(time_from)}, 3, 'UTC')")
     if time_to:
-        parts.append(f"{column} <= parseDateTime64BestEffort({_quote(time_to)}, 3)")
+        parts.append(f"{column} <= parseDateTime64BestEffort({_quote(time_to)}, 3, 'UTC')")
     return " AND ".join(parts) if parts else None
 
 
@@ -1860,11 +1863,13 @@ def _build_topology_graph_from_rows(
                 )
             )
         elif row.get("row_type") == "edge":
+            raw_is_benign = row.get("is_benign")
+            is_benign = None if raw_is_benign is None else bool(int(raw_is_benign))
             link = {
                 "source": str(row.get("source") or ""),
                 "target": str(row.get("target") or ""),
                 "value": int(row.get("value") or 0),
-                "is_benign": bool(int(row.get("is_benign") or 0)),
+                "is_benign": is_benign,
             }
             protocol = str(row.get("protocol") or "").strip()
             if protocol:

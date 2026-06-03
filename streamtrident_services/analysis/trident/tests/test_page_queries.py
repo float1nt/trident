@@ -385,6 +385,7 @@ def test_risk_network_topology_uses_independent_stats_query() -> None:
     assert len(flows.stats_calls) == 1
     assert flows.stats_calls[0]["learner_names"] == ["NEW_1"]
     assert data["total_flows"] == 21
+    assert data["views"]["__combined__"]["is_benign"] is False
     stats = data["views"]["__combined__"]["host"]["stats"]
     assert stats["total_flow_count"] == 21
     assert stats["unique_ip_count"] == 4
