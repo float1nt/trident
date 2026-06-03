@@ -8,10 +8,18 @@ DEPLOY_ENV="${DEPLOY_ENV:-${BUNDLE_DIR}/deploy.env}"
 
 load_deploy_env() {
   if [ -f "${DEPLOY_ENV}" ]; then
+    local trident_worker_mode_set=0
+    local trident_worker_mode_value="${TRIDENT_WORKER_MODE-}"
+    if [ "${TRIDENT_WORKER_MODE+x}" = "x" ]; then
+      trident_worker_mode_set=1
+    fi
     set -a
     # shellcheck disable=SC1090
     . "${DEPLOY_ENV}"
     set +a
+    if [ "${trident_worker_mode_set}" -eq 1 ]; then
+      export TRIDENT_WORKER_MODE="${trident_worker_mode_value}"
+    fi
   fi
 }
 

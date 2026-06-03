@@ -843,7 +843,7 @@ class PageQueryService:
                 "__combined__": {
                     "label": "__combined__",
                     "view_kind": "aggregate",
-                    "is_benign": None,
+                    "is_benign": view.get("is_benign"),
                     "host": view["host"],
                     "endpoint": view["endpoint"],
                 }

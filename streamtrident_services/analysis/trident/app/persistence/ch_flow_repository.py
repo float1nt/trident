@@ -745,9 +745,9 @@ expanded_edges AS (
         tupleElement(kind_row, 4) AS protocol
     FROM edge_agg
     ARRAY JOIN [
-        ('combined', combined_value, 0, combined_protocol),
-        ('benign', benign_value, 1, benign_protocol),
-        ('attack', attack_value, 0, attack_protocol)
+        ('combined', combined_value, multiIf(attack_value = 0, toNullable(1), benign_value = 0, toNullable(0), CAST(NULL, 'Nullable(UInt8)')), combined_protocol),
+        ('benign', benign_value, toNullable(1), benign_protocol),
+        ('attack', attack_value, toNullable(0), attack_protocol)
     ] AS kind_row
     WHERE value > 0
 ),
@@ -928,9 +928,9 @@ expanded_edges AS (
         tupleElement(kind_row, 4) AS protocol
     FROM edge_agg
     ARRAY JOIN [
-        ('combined', combined_value, 0, combined_protocol),
-        ('benign', benign_value, 1, benign_protocol),
-        ('attack', attack_value, 0, attack_protocol)
+        ('combined', combined_value, multiIf(attack_value = 0, toNullable(1), benign_value = 0, toNullable(0), CAST(NULL, 'Nullable(UInt8)')), combined_protocol),
+        ('benign', benign_value, toNullable(1), benign_protocol),
+        ('attack', attack_value, toNullable(0), attack_protocol)
     ] AS kind_row
     WHERE value > 0
 ),
@@ -1860,11 +1860,13 @@ def _build_topology_graph_from_rows(
                 )
             )
         elif row.get("row_type") == "edge":
+            raw_is_benign = row.get("is_benign")
+            is_benign = None if raw_is_benign is None else bool(int(raw_is_benign))
             link = {
                 "source": str(row.get("source") or ""),
                 "target": str(row.get("target") or ""),
                 "value": int(row.get("value") or 0),
-                "is_benign": bool(int(row.get("is_benign") or 0)),
+                "is_benign": is_benign,
             }
             protocol = str(row.get("protocol") or "").strip()
             if protocol:

@@ -267,7 +267,7 @@ def test_dashboard_topology_graphs_uses_top_victim_list_for_edge_query() -> None
                 [
                     '{"row_type":"node","topology_kind":"combined","id":"10.0.0.1","source":"","target":"","value":3,"out_flow_count":3,"in_flow_count":0,"is_benign":0}',
                     '{"row_type":"node","topology_kind":"combined","id":"10.0.0.2","source":"","target":"","value":3,"out_flow_count":0,"in_flow_count":3,"is_benign":0}',
-                    '{"row_type":"edge","topology_kind":"combined","id":"","source":"10.0.0.1","target":"10.0.0.2","value":3,"out_flow_count":0,"in_flow_count":0,"is_benign":0}',
+                    '{"row_type":"edge","topology_kind":"combined","id":"","source":"10.0.0.1","target":"10.0.0.2","value":3,"out_flow_count":0,"in_flow_count":0,"is_benign":null}',
                 ]
             )
 
@@ -293,11 +293,13 @@ def test_dashboard_topology_graphs_uses_top_victim_list_for_edge_query() -> None
     assert "countIf(target IN ('10.0.0.2')) AS combined_value" in edge_sql
     assert "countIf(target IN ('10.0.0.3') AND NOT is_attack) AS benign_value" in edge_sql
     assert "countIf(target IN ('10.0.0.2') AND is_attack) AS attack_value" in edge_sql
+    assert "multiIf(attack_value = 0, toNullable(1), benign_value = 0, toNullable(0), CAST(NULL, 'Nullable(UInt8)'))" in edge_sql
     assert "topKIf(1)(main_protocol" in edge_sql
     assert "ARRAY JOIN [" in edge_sql
     assert "PARTITION BY topology_kind" in edge_sql
     assert "SELECT src_ip AS node" not in edge_sql
     assert graphs["combined"]["flow_count"] == 9
+    assert graphs["combined"]["links"][0]["is_benign"] is None
     assert graphs["attack"]["flow_count"] == 4
     assert graphs["benign"]["flow_count"] == 5
 
@@ -354,6 +356,7 @@ def test_dashboard_topology_graphs_drills_endpoint_edges_from_host_edges() -> No
     assert "AND concat(dst_ip, ':', toString(dst_port)) IN" not in edge_sql
     assert "(dst_ip, dst_port) IN" not in edge_sql
     assert edge_sql.count("FROM ch_flow") == 1
+    assert "multiIf(attack_value = 0, toNullable(1), benign_value = 0, toNullable(0), CAST(NULL, 'Nullable(UInt8)'))" in edge_sql
 
 
 def test_dashboard_topology_graphs_applies_time_bounds_to_both_queries() -> None:
