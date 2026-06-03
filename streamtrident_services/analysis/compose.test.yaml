@@ -10,15 +10,18 @@ services:
     container_name: streamtrident-migrate-test
     volumes:
       - ./trident/logs-test:/var/log/trident
+      - ./trident/artifacts-test:/var/lib/trident/artifacts
 
   trident-worker:
     container_name: streamtrident-worker-test
     volumes:
       - trident-models:/var/lib/trident/models
       - ./trident/logs-test:/var/log/trident
+      - ./trident/artifacts-test:/var/lib/trident/artifacts
 
   trident-api:
     container_name: streamtrident-api-test
     volumes:
       - trident-models:/var/lib/trident/models
       - ./trident/logs-test:/var/log/trident
+      - ./trident/artifacts-test:/var/lib/trident/artifacts

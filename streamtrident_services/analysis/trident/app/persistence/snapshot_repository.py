@@ -52,3 +52,26 @@ ON CONFLICT (snapshot_id) DO NOTHING
                 cur.execute("SELECT * FROM pg_learner_snapshot WHERE snapshot_id = %s LIMIT 1", (snapshot_id,))
                 row = cur.fetchone()
                 return dict(row) if row else None
+
+    def list_snapshots(self, *, session_id: str, learner_names: list[str] | None = None) -> list[dict[str, Any]]:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        learner_names = [str(name) for name in (learner_names or []) if str(name)]
+        params: list[Any] = [session_id]
+        where = "session_id = %s"
+        if learner_names:
+            where += " AND learner_name = ANY(%s)"
+            params.append(learner_names)
+        with psycopg.connect(self.dsn, row_factory=dict_row) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+SELECT *
+FROM pg_learner_snapshot
+WHERE {where}
+ORDER BY learner_name, snapshot_version
+""",
+                    tuple(params),
+                )
+                return [dict(row) for row in cur.fetchall()]

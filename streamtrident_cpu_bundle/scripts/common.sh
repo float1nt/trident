@@ -20,6 +20,7 @@ ensure_dirs() {
     "${RUNTIME_DIR}/capture/suricata/config" \
     "${RUNTIME_DIR}/capture/suricata/logs" \
     "${RUNTIME_DIR}/analysis/trident/logs" \
+    "${RUNTIME_DIR}/analysis/trident/artifacts" \
     "${RUNTIME_DIR}/analysis/docker" \
     "${RUNTIME_DIR}/ui"
 }
@@ -355,6 +356,28 @@ services:
     ports:
       - "${TRIDENT_API_HOST_PORT:-8090}:8090"
     restart: unless-stopped
+
+  trident-tools:
+    image: streamtrident/trident:cpu-protected
+    container_name: streamtrident-tools
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      trident-migrate:
+        condition: service_completed_successfully
+    environment:
+      TZ: Asia/Shanghai
+      TRIDENT_LOG_DIR: /var/log/trident
+      TRIDENT_LOG_FILE: coldstart-artifact.log
+    volumes:
+      - trident-models:/var/lib/trident/models
+      - ./docker/trident.remote-redis.yaml:/app/config/trident.yaml:ro
+      - ./trident/logs:/var/log/trident
+      - ./trident/artifacts:/var/lib/trident/artifacts
+    command: ["python", "-m", "app.coldstart_artifact", "--help"]
+    restart: "no"
 
 volumes:
   clickhouse-data:
