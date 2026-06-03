@@ -36,10 +36,10 @@
 }
 
 .data-flow-metrics__title-text {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 26px;
+  margin: 0; 
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
   color: #1f2a44;
   letter-spacing: 0.2px;
 }
@@ -173,7 +173,7 @@
   border-radius: 50%;
   border: 1px solid #d8e3f5;
   background: rgba(255, 255, 255, 0.92);
-  color: #5a6b8f;
+  color: #4368f0;
   display: inline-flex;
   align-items: center;
   justify-content: center;

@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
-import { Alert, Button, Checkbox, Descriptions, Form, InputNumber, Spin, Tag } from "antd";
+import { useEffect, useState, type ReactNode } from "react";
+import { ReloadOutlined } from "@ant-design/icons";
+import { Alert, Button, Checkbox, Form, InputNumber, Spin } from "antd";
 import { useApi } from "@/hooks/useApi";
+import AppTooltip from "@/components/AppTooltip";
 import IpRangeFormList, { EMPTY_IP_RANGE } from "@/components/IpRangeFormList";
 import { SectionTitle } from "@/components/SectionTitle";
 import {
@@ -15,9 +17,110 @@ import {
   type CollectionSettings,
   type ProtocolOption,
 } from "@/api/services/SettingService";
+import type { CollectionAgentStatusItem } from "@/types/collectionSettings";
 import "./SettingView.css";
 
 type SettingFormValues = CollectionSettings;
+
+function AgentInfoField({
+  label,
+  children,
+  valueClassName,
+  colSpan,
+}: {
+  label: string;
+  children: ReactNode;
+  valueClassName?: string;
+  colSpan?: 2 | 3;
+}) {
+  return (
+    <div
+      className={[
+        "setting-agent-info-field",
+        colSpan === 2 ? "setting-agent-info-field--span-2" : "",
+        colSpan === 3 ? "setting-agent-info-field--full" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <span className="setting-agent-info-field__label">{label}：</span>
+      <span
+        className={["setting-agent-info-field__value", valueClassName]
+          .filter(Boolean)
+          .join(" ")}
+      >
+        {children}
+      </span>
+    </div>
+  );
+}
+
+function CollectionAgentInfoCard({ agent }: { agent: CollectionAgentStatusItem }) {
+  const suricataRunning = agent.status?.suricata?.running === true;
+  const suricataText = suricataRunning
+    ? "运行中"
+    : agent.status?.suricata?.status ?? "-";
+  const redisText = agent.status?.redis
+    ? `${agent.status.redis.type ?? "-"} / ${agent.status.redis.length ?? "-"}`
+    : "-";
+  const sampledAt = agent.sampledAt ?? agent.status?.sampledAt ?? "-";
+
+  return (
+    <section className="setting-agent-info-card">
+      <div className="setting-agent-info-grid">
+        <AgentInfoField
+          label="Agent 名称"
+          valueClassName="setting-agent-info-field__value--strong"
+        >
+          {agent.name}
+        </AgentInfoField>
+        <AgentInfoField label="地址">{agent.url}</AgentInfoField>
+        <AgentInfoField label="网卡">{agent.status?.iface ?? "-"}</AgentInfoField>
+        <AgentInfoField
+          label="在线状态"
+          valueClassName={
+            agent.reachable
+              ? "setting-agent-info-field__value--success"
+              : "setting-agent-info-field__value--danger"
+          }
+        >
+          {agent.reachable ? "在线" : "离线"}
+        </AgentInfoField>
+        <AgentInfoField
+          label="Suricata"
+          valueClassName={
+            suricataRunning ? "setting-agent-info-field__value--success" : undefined
+          }
+        >
+          {suricataText}
+        </AgentInfoField>
+        <AgentInfoField
+          label="生效状态"
+          valueClassName={
+            agent.effective
+              ? "setting-agent-info-field__value--success"
+              : "setting-agent-info-field__value--warning"
+          }
+        >
+          {agent.effective ? "已生效" : "未生效"}
+        </AgentInfoField>
+        <AgentInfoField label="期望版本">{agent.desiredRevision ?? "-"}</AgentInfoField>
+        <AgentInfoField label="生效版本">{agent.effectiveRevision ?? "-"}</AgentInfoField>
+        <AgentInfoField label="Redis 队列">{redisText}</AgentInfoField>
+        <AgentInfoField label="采样时间">{sampledAt}</AgentInfoField>
+        {agent.error ? (
+          <AgentInfoField
+            label="错误"
+            valueClassName="setting-agent-info-field__value--danger"
+            colSpan={2}
+          >
+            {agent.error}
+          </AgentInfoField>
+        ) : null}
+      </div>
+    </section>
+  );
+}
 
 export default function SettingView() {
   const [form] = Form.useForm<SettingFormValues>();
@@ -150,8 +253,67 @@ export default function SettingView() {
   };
 
   return (
-    <div className="setting-page bg-[#f6faff] p-[12px] h-[calc(100vh-86px)] overflow-y-auto w-full rounded-[8px]">
+    <div className="setting-page p-[12px] h-[calc(100vh-86px)] overflow-y-auto w-full  bg-[#f6faff] rounded-[8px]">
       <div className="setting-card bg-white rounded-[8px] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
+        <div className="mb-3 flex items-center justify-between">
+          <SectionTitle>采集机状态</SectionTitle>
+          <AppTooltip title="刷新状态">
+            <Button
+              type="text"
+              className="setting-status-refresh"
+              icon={<ReloadOutlined />}
+              loading={refreshingAgentStatus}
+              onClick={() => void handleRefreshAgentStatus()}
+              aria-label="刷新状态"
+            />
+          </AppTooltip>
+        </div>
+        <Spin spinning={refreshingAgentStatus}>
+          {!agentStatusAvailable && (
+            <Alert
+              type="warning"
+              showIcon
+              message="暂时无法读取采集机状态"
+              description="配置编辑与下发仍可继续。完成分析侧阶段二部署后，可点击右上角刷新按钮重试。"
+            />
+          )}
+
+          {agentStatusAvailable && agentStatus && (
+            <div className="mb-4">
+              {applyResult && (
+                <Alert
+                  className="mb-4"
+                  type={applyResult.applied ? "success" : "warning"}
+                  showIcon
+                  message={applyResult.applied ? "配置已保存并下发" : "配置已保存，但部分采集机未生效"}
+                  description={
+                    <div>
+                      <div>当前配置版本：{revision ?? "-"}</div>
+                      {applyResult.message && <div>{applyResult.message}</div>}
+                      {applyResult.agents.map((agent) => (
+                        <div key={`${agent.name}-${agent.url}`}>
+                          {agent.name} ({agent.url})：{agent.ok ? "成功" : agent.error || "失败"}
+                        </div>
+                      ))}
+                    </div>
+                  }
+                />
+              )}
+              {agentStatus.agents.length === 0 ? (
+                <Alert type="info" showIcon message="尚未配置采集机 agent" />
+              ) : (
+                agentStatus.agents.map((agent) => (
+                  <CollectionAgentInfoCard
+                    key={`${agent.name}-${agent.url}`}
+                    agent={agent}
+                  />
+                ))
+              )}
+            </div>
+          )}
+        </Spin>
+        </div>
+        <div className="mt-[16px] setting-card bg-white rounded-[8px] p-[16px] shadow-[0_2px_6px_0_rgba(28,41,90,0.04)]">
         <div className="mb-6 flex items-center justify-between">
           <SectionTitle>采集配置</SectionTitle>
           {applyResult && !applyResult.applied && (
@@ -161,106 +323,6 @@ export default function SettingView() {
           )}
         </div>
 
-        {applyResult && (
-          <Alert
-            className="mb-4"
-            type={applyResult.applied ? "success" : "warning"}
-            showIcon
-            message={applyResult.applied ? "配置已保存并下发" : "配置已保存，但部分采集机未生效"}
-            description={
-              <div>
-                <div>当前配置版本：{revision ?? "-"}</div>
-                {applyResult.message && <div>{applyResult.message}</div>}
-                {applyResult.agents.map((agent) => (
-                  <div key={`${agent.name}-${agent.url}`}>
-                    {agent.name} ({agent.url})：{agent.ok ? "成功" : agent.error || "失败"}
-                  </div>
-                ))}
-              </div>
-            }
-          />
-        )}
-
-        <Spin spinning={refreshingAgentStatus}>
-          {!agentStatusAvailable && (
-            <Alert
-              className="mb-4"
-              type="warning"
-              showIcon
-              message="暂时无法读取采集机状态"
-              description="配置编辑与下发仍可继续。完成分析侧阶段二部署后，可手动重试状态刷新。"
-              action={
-                <Button
-                  size="small"
-                  loading={refreshingAgentStatus}
-                  onClick={() => void handleRefreshAgentStatus()}
-                >
-                  重试状态刷新
-                </Button>
-              }
-            />
-          )}
-
-          {agentStatusAvailable && agentStatus && (
-            <div className="mb-4 rounded-[6px] border border-[#e5eaf3] ">
-              <div className="mb-3 flex items-center justify-between">
-                <SectionTitle>采集机状态</SectionTitle>
-                <Button
-                  size="small"
-                  loading={refreshingAgentStatus}
-                  onClick={() => void handleRefreshAgentStatus()}
-                >
-                  刷新状态
-                </Button>
-              </div>
-              {agentStatus.agents.length === 0 ? (
-                <Alert type="info" showIcon message="尚未配置采集机 agent" />
-              ) : (
-                agentStatus.agents.map((agent) => (
-                  <Descriptions
-                    key={`${agent.name}-${agent.url}`}
-                    className="mb-3"
-                    bordered
-                    size="small"
-                    column={3}
-                    title={
-                      <span className="inline-flex items-center gap-2">
-                        {agent.name}
-                        <Tag color={agent.reachable ? "green" : "red"}>
-                          {agent.reachable ? "在线" : "离线"}
-                        </Tag>
-                        <Tag color={agent.effective ? "green" : "orange"}>
-                          {agent.effective ? "已生效" : "未生效"}
-                        </Tag>
-                      </span>
-                    }
-                  >
-                    <Descriptions.Item label="地址">{agent.url}</Descriptions.Item>
-                    <Descriptions.Item label="网卡">{agent.status?.iface ?? "-"}</Descriptions.Item>
-                    <Descriptions.Item label="Suricata">
-                      {agent.status?.suricata?.running ? "运行中" : agent.status?.suricata?.status ?? "-"}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="期望版本">{agent.desiredRevision ?? "-"}</Descriptions.Item>
-                    <Descriptions.Item label="生效版本">{agent.effectiveRevision ?? "-"}</Descriptions.Item>
-                    <Descriptions.Item label="Redis 队列">
-                      {agent.status?.redis
-                        ? `${agent.status.redis.type ?? "-"} / ${agent.status.redis.length ?? "-"}`
-                        : "-"}
-                    </Descriptions.Item>
-                    <Descriptions.Item label="采样时间" span={agent.error ? 1 : 3}>
-                      {agent.sampledAt ?? agent.status?.sampledAt ?? "-"}
-                    </Descriptions.Item>
-                    {agent.error && (
-                      <Descriptions.Item label="错误" span={2}>
-                        {agent.error}
-                      </Descriptions.Item>
-                    )}
-                  </Descriptions>
-                ))
-              )}
-            </div>
-          )}
-        </Spin>
 
         <Spin spinning={loading}>
           <Form<SettingFormValues>
@@ -276,6 +338,7 @@ export default function SettingView() {
             <Form.Item
               label="最大流量限制"
               name="maxTrafficLimitGbps"
+              className="setting-traffic-limit-item"
               rules={[
                 { required: true, message: "请输入最大流量限制" },
                 {
@@ -290,7 +353,6 @@ export default function SettingView() {
                 step={0.1}
                 precision={2}
                 placeholder="请输入数字"
-                className="w-[200px]"
                 addonAfter="Gbps"
               />
             </Form.Item>
@@ -329,8 +391,8 @@ export default function SettingView() {
               </Button>
             </Form.Item> */}
             <Button className="mb-[20px]" type="primary" htmlType="submit" loading={submitting}>
-                确认
-              </Button>
+              确认
+            </Button>
           </Form>
         </Spin>
       </div>

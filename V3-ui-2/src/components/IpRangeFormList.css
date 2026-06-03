@@ -1,6 +1,6 @@
 .ip-range-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
   width: 100%;
   margin-bottom: 8px;
@@ -12,28 +12,8 @@
   margin-bottom: 0 !important;
 }
 
-/* 嵌套在横向 Form 内时，起始/结束 IP 仍保持标签在上、输入框在下 */
-.ip-range-row__field .ant-form-item-row {
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.ip-range-row__field .ant-form-item-label {
-  flex: none !important;
-  width: auto !important;
-  max-width: 100%;
-  padding: 0 0 4px !important;
-  text-align: left;
-}
-
-.ip-range-row__field .ant-form-item-label > label {
-  height: auto;
-}
-
-.ip-range-row__field .ant-form-item-control {
-  flex: 1;
-  width: 100%;
-  max-width: 100%;
+.ip-range-row__field .ant-input-prefix {
+  color: #8c8c8c;
 }
 
 .ip-range-row__sep {
