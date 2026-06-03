@@ -198,6 +198,10 @@
   overflow-y: auto;
 }
 
+.risk-event-scroll .topology-panel-placeholder {
+  min-height: 100%;
+}
+
 .risk-event-pagination {
   display: flex;
   flex-shrink: 0;

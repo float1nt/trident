@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Spin } from "antd";
 import { API_SUCCESS_MESSAGE } from "@/hooks/useApi";
 import DataFlowMetricsSection from "@/components/DataFlowMetricsSection";
@@ -53,6 +53,24 @@ const INITIAL_LOADING: Record<OverviewLoadingKey, boolean> = {
   topology: false,
 };
 
+/** 将 endpoint 请求结果合并进已有拓扑，保留 host 数据 */
+function mergeEndpointTopology(
+  current: DatasetNetworkTopologyJson | null,
+  endpointData: DatasetNetworkTopologyJson,
+): DatasetNetworkTopologyJson {
+  if (!current) return endpointData;
+
+  const mergedViews = { ...current.views };
+  for (const [key, endpointView] of Object.entries(endpointData.views)) {
+    const existing = mergedViews[key];
+    mergedViews[key] = existing
+      ? { ...existing, endpoint: endpointView.endpoint }
+      : endpointView;
+  }
+
+  return { ...current, views: mergedViews };
+}
+
 /** 总览：数据流动看板 */
 export default function HomeView() {
   const [timeRange, setTimeRange] = useState<TimeRange>("24h");
@@ -66,10 +84,13 @@ export default function HomeView() {
     useState<ProtocolDistributionMode>("network");
   const [networkTopology, setNetworkTopology] =
     useState<DatasetNetworkTopologyJson | null>(null);
-  const [topologyMode, setTopologyMode] = useState<TopologyGraphMode>("host");
   const [trafficTrend, setTrafficTrend] = useState<TrafficTrendPoint[]>([]);
   const [loadingState, setLoadingState] =
     useState<Record<OverviewLoadingKey, boolean>>(INITIAL_LOADING);
+  const [topologyResetKey, setTopologyResetKey] = useState(0);
+  const endpointTopologyLoadedRef = useRef(false);
+  const endpointTopologyLoadingRef = useRef(false);
+  const topologyPaneKey = `${timeRange}-${topologyResetKey}`;
 
   const runSection = useCallback(
     async <T,>(
@@ -101,10 +122,13 @@ export default function HomeView() {
   );
 
   const loadOverview = useCallback(
-    async (
-      mode: TopologyGraphMode = topologyMode,
-      options?: { showSuccess?: boolean },
-    ) => {
+    async (options?: { showSuccess?: boolean }) => {
+      endpointTopologyLoadedRef.current = false;
+      endpointTopologyLoadingRef.current = false;
+      if (options?.showSuccess) {
+        setTopologyResetKey((key) => key + 1);
+      }
+
       await Promise.all([
         runSection(
           "metrics",
@@ -127,7 +151,7 @@ export default function HomeView() {
         ),
         runSection(
           "topology",
-          () => OverviewService.getNetworkTopology(timeRange, mode),
+          () => OverviewService.getNetworkTopology(timeRange, "host"),
           setNetworkTopology,
         ),
       ]);
@@ -135,25 +159,40 @@ export default function HomeView() {
         message.success(API_SUCCESS_MESSAGE);
       }
     },
-    [runSection, timeRange, topologyMode],
+    [runSection, timeRange],
   );
 
-  const handleTopologyModeChange = useCallback(
+  const handleTopologyGraphModeChange = useCallback(
     (mode: TopologyGraphMode) => {
-      if (mode !== topologyMode) {
-        setTopologyMode(mode);
-        void runSection(
-          "topology",
-          () => OverviewService.getNetworkTopology(timeRange, mode),
-          setNetworkTopology,
-        );
+      if (
+        mode !== "endpoint" ||
+        endpointTopologyLoadedRef.current ||
+        endpointTopologyLoadingRef.current
+      ) {
+        return;
       }
+
+      endpointTopologyLoadingRef.current = true;
+      void runSection(
+        "topology",
+        () => OverviewService.getNetworkTopology(timeRange, "endpoint"),
+        (endpointData) => {
+          endpointTopologyLoadedRef.current = true;
+          setNetworkTopology((current) =>
+            mergeEndpointTopology(current, endpointData),
+          );
+        },
+      ).finally(() => {
+        endpointTopologyLoadingRef.current = false;
+      });
     },
-    [runSection, timeRange, topologyMode],
+    [runSection, timeRange],
   );
 
   useEffect(() => {
-    void loadOverview(topologyMode);
+    endpointTopologyLoadedRef.current = false;
+    endpointTopologyLoadingRef.current = false;
+    void loadOverview();
   }, [timeRange]);
 
   const trafficChartOption = useMemo(
@@ -190,7 +229,7 @@ export default function HomeView() {
           metrics={metrics}
           loading={loadingState.metrics}
           onTimeRangeChange={setTimeRange}
-          onRefresh={() => void loadOverview(topologyMode, { showSuccess: true })}
+          onRefresh={() => void loadOverview({ showSuccess: true })}
         />
         <div className="relative z-10 -mt-[36px] w-full rounded-[16px] bg-[#f6faff] p-[12px]">
           <div className="flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
@@ -273,6 +312,7 @@ export default function HomeView() {
           <div className="relative mt-4 grid grid-cols-1 gap-[12px] lg:min-h-[520px] lg:grid-cols-[3fr_2fr] lg:grid-rows-[1fr_1fr] lg:items-stretch">
             <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px] lg:row-span-2">
               <TopologyChartPane
+                key={`combined-${topologyPaneKey}`}
                 title="总拓扑"
                 hostGraph={combinedView?.host}
                 endpointGraph={combinedView?.endpoint}
@@ -281,13 +321,13 @@ export default function HomeView() {
                 minEdgeFlows={TOPOLOGY_MIN_EDGE_FLOWS}
                 chartHeight={TOPOLOGY_CHART_HEIGHT}
                 fillContainer
-                activeGraphMode={topologyMode}
-                onGraphModeChange={handleTopologyModeChange}
+                onGraphModeChange={handleTopologyGraphModeChange}
               />
             </div>
 
             <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
               <TopologyChartPane
+                key={`attack-${topologyPaneKey}`}
                 title="异常流量总拓扑"
                 hostGraph={attackView?.host}
                 endpointGraph={attackView?.endpoint}
@@ -297,13 +337,13 @@ export default function HomeView() {
                 chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
                 compact
                 fillContainer
-                activeGraphMode={topologyMode}
-                onGraphModeChange={handleTopologyModeChange}
+                onGraphModeChange={handleTopologyGraphModeChange}
               />
             </div>
 
             <div className="flex min-h-0 min-w-0 flex-col rounded-[8px] border border-[#e8eaed] bg-white p-[8px]">
               <TopologyChartPane
+                key={`benign-${topologyPaneKey}`}
                 title="正常流量总拓扑"
                 hostGraph={benignView?.host}
                 endpointGraph={benignView?.endpoint}
@@ -313,8 +353,7 @@ export default function HomeView() {
                 chartHeight={TOPOLOGY_SPLIT_CHART_HEIGHT}
                 compact
                 fillContainer
-                activeGraphMode={topologyMode}
-                onGraphModeChange={handleTopologyModeChange}
+                onGraphModeChange={handleTopologyGraphModeChange}
               />
             </div>
             {loadingState.topology ? (

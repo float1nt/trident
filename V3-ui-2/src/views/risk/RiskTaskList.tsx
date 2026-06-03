@@ -253,20 +253,30 @@ const RiskTaskList = () => {
 
   useEffect(() => {
     if (activeView !== "event" || eventTopologyLoading) return;
-    if (eventTopologyRiskEventTotal === 0 && eventFilters.triggerPeriod) {
+    if (eventTopologyRiskEventTotal > 0) {
+      setEventLoadError(null);
+      return;
+    }
+    if (eventFilters.triggerPeriod) {
       setEventLoadError(
         "当前触发时段内没有学习器，请点「重置」清空时段或扩大时间范围。",
       );
       return;
     }
-    if (eventTopologyRiskEventTotal > 0) {
-      setEventLoadError(null);
+    const hasFilters =
+      Boolean(eventFilters.name) || eventFilters.attackTypes.length > 0;
+    if (hasFilters) {
+      setEventLoadError("当前筛选条件下暂无数据，请调整筛选条件或点「重置」。");
+      return;
     }
+    setEventLoadError(null);
   }, [
     activeView,
     eventTopologyLoading,
     eventTopologyRiskEventTotal,
     eventFilters.triggerPeriod,
+    eventFilters.name,
+    eventFilters.attackTypes,
   ]);
 
   const handleDetailList = (id: number) => {
@@ -502,7 +512,7 @@ const RiskTaskList = () => {
                 </Paragraph> */}
               </div>
               {eventLoadError ? (
-                <Paragraph type="danger" className="!mb-3 text-xs">
+                <Paragraph type="secondary" className="!mb-3 text-xs">
                   {eventLoadError}
                 </Paragraph>
               ) : null}
@@ -510,7 +520,6 @@ const RiskTaskList = () => {
                 <LearnerInternalTopologyPanel
                   data={eventTopology}
                   onRiskClick={handleEventRiskClick}
-                  emptyHint={eventLoadError ?? undefined}
                   loading={eventTopologyLoading && Boolean(eventTopology)}
                 />
               </div>

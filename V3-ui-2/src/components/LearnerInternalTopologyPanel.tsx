@@ -14,13 +14,33 @@ const { Text } = Typography;
 
 const TOPOLOGY_REPULSION = 70;
 const TOPOLOGY_MIN_EDGE_FLOWS = 1;
+const TOPOLOGY_EMPTY_DESCRIPTION = "暂无数据";
+
+/** 与 IP 视角 Table 空状态一致的居中占位（默认图标，无自定义边框/背景） */
+function TopologyPanelPlaceholder({ children }: { children: ReactNode }) {
+  return (
+    <div className="topology-panel-placeholder flex h-full min-h-[280px] items-center justify-center">
+      {children}
+    </div>
+  );
+}
+
+function TopologyEmpty() {
+  return (
+    <TopologyPanelPlaceholder>
+      <Empty
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        description={TOPOLOGY_EMPTY_DESCRIPTION}
+      />
+    </TopologyPanelPlaceholder>
+  );
+}
 
 export type { LearnerNetworkTopologyJson, LearnerTopologyOption };
 
 type Props = {
   data: LearnerNetworkTopologyJson | null;
   onRiskClick?: (riskId: number) => void;
-  emptyHint?: string;
   loading?: boolean;
 };
 
@@ -85,7 +105,6 @@ function buildSortedLearnerOptions(
 export function LearnerInternalTopologyPanel({
   data,
   onRiskClick,
-  emptyHint,
   loading = false,
 }: Props) {
   const sortedOptions = useMemo(() => {
@@ -95,44 +114,29 @@ export function LearnerInternalTopologyPanel({
 
   if (loading) {
     return (
-      <div className="flex min-h-[200px] items-center justify-center rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10">
+      <TopologyPanelPlaceholder>
         <Spin />
-      </div>
+      </TopologyPanelPlaceholder>
     );
   }
 
-  if (!data) {
-    return (
-      <Empty
-        description={
-          emptyHint ?? "暂无学习器拓扑数据，请点「重置」刷新数据。"
-        }
-        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10"
-      />
-    );
-  }
-
-  const learnerNames = data.learners ?? [];
-  const viewCount = Object.keys(data.views ?? {}).length;
-  if (sortedOptions.length === 0 && (learnerNames.length > 0 || viewCount > 0)) {
-    const missingViews = learnerNames.filter((name) => !data.views[name]);
-    return (
-      <Empty
-        description={`渲染后为 0 项（learners=${learnerNames.length}, views=${viewCount}, 缺失views=${missingViews.length}），请检查前端过滤逻辑与后端键名一致性。`}
-        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] py-10"
-      />
-    );
-  }
-
-  if (sortedOptions.length === 0) {
-    return (
-      <Empty
-        description={
-          emptyHint ?? "当前筛选条件下暂无学习器拓扑数据"
-        }
-        className="rounded-lg border border-dashed border-[#d9e4fa] bg-[#f6faff] h-[calc(100vh-330px)] py-10"
-      />
-    );
+  if (!data || sortedOptions.length === 0) {
+    if (data && sortedOptions.length === 0) {
+      const learnerNames = data.learners ?? [];
+      const viewCount = Object.keys(data.views ?? {}).length;
+      if (learnerNames.length > 0 || viewCount > 0) {
+        const missingViews = learnerNames.filter((name) => !data.views[name]);
+        console.warn(
+          "[LearnerInternalTopologyPanel] 渲染后为 0 项，请检查前后端键名一致性",
+          {
+            learners: learnerNames.length,
+            views: viewCount,
+            missingViews: missingViews.length,
+          },
+        );
+      }
+    }
+    return <TopologyEmpty />;
   }
 
   return (
