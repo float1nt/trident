@@ -46,10 +46,10 @@ function IpRangeRow({
           },
         ]}
         className="ip-range-row__field"
-        label="起始 IP"
-        colon={false}
+        labelCol={{ flex: "0" }}
+        wrapperCol={{ flex: "1" }}
       >
-        <Input placeholder="例如 10.0.0.0" allowClear />
+        <Input prefix="起始：" placeholder="例如 10.0.0.0" allowClear />
       </Form.Item>
       <span className="ip-range-row__sep" aria-hidden>
         —
@@ -67,10 +67,10 @@ function IpRangeRow({
           },
         ]}
         className="ip-range-row__field"
-        label="结束 IP"
-        colon={false}
+        labelCol={{ flex: "0" }}
+        wrapperCol={{ flex: "1" }}
       >
-        <Input placeholder="例如 10.255.255.255" allowClear />
+        <Input prefix="结束：" placeholder="例如 10.255.255.255" allowClear />
       </Form.Item>
       {canRemove ? (
         <button
@@ -118,7 +118,7 @@ export default function IpRangeFormList({ name }: IpRangeFormListProps) {
               type="dashed"
               onClick={() => add({ ...EMPTY_IP_RANGE })}
               icon={<PlusOutlined />}
-              className="w-full max-w-[360px]"
+              className="ip-range-add-btn"
             >
               添加 IP 范围
             </Button>

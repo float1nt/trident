@@ -271,7 +271,6 @@ export default function SettingView() {
         <Spin spinning={refreshingAgentStatus}>
           {!agentStatusAvailable && (
             <Alert
-              className="mb-4"
               type="warning"
               showIcon
               message="暂时无法读取采集机状态"
@@ -339,6 +338,7 @@ export default function SettingView() {
             <Form.Item
               label="最大流量限制"
               name="maxTrafficLimitGbps"
+              className="setting-traffic-limit-item"
               rules={[
                 { required: true, message: "请输入最大流量限制" },
                 {
@@ -353,7 +353,6 @@ export default function SettingView() {
                 step={0.1}
                 precision={2}
                 placeholder="请输入数字"
-                className="w-[200px]"
                 addonAfter="Gbps"
               />
             </Form.Item>

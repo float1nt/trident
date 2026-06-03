@@ -3,6 +3,33 @@
   font-weight: 400;
 }
 
+.setting-form {
+  --setting-single-field-width: calc((100% - 32px - 24px - 1em) / 2);
+}
+
+/* 与 IP 范围行中单列（起始/结束）输入框同宽 */
+.setting-form .setting-traffic-limit-item .ant-form-item-control-input-content {
+  max-width: 720px;
+  width: 100%;
+}
+
+.setting-form .setting-traffic-limit-item .ant-input-number-group-wrapper {
+  width: var(--setting-single-field-width);
+}
+
+.setting-form .ip-range-row__field {
+  flex: 0 0 var(--setting-single-field-width);
+  max-width: var(--setting-single-field-width);
+}
+
+.setting-form .ip-range-row__field .ant-input-affix-wrapper {
+  width: 100%;
+}
+
+.setting-form .ip-range-add-btn {
+  width: var(--setting-single-field-width);
+}
+
 .setting-protocol-group {
   display: flex;
   flex-wrap: wrap;
