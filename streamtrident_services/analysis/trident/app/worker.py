@@ -4,8 +4,11 @@ import argparse
 import os
 import signal
 import sys
+from time import sleep
 from time import perf_counter
 from pathlib import Path
+
+import redis
 
 from .config import TridentConfig, load_config
 from .flow_loader import FlowLoader
@@ -21,6 +24,8 @@ from .runtime.monitoring import process_metrics
 from .runtime.online_engine import FlowAssignment, OnlineEngine
 from .runtime.snapshot_service import SnapshotService
 from .window_buffer import BufferedFlow, FlowWindow, WindowBuffer
+
+REDIS_RETRY_DELAY_SECONDS = 5.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -73,8 +78,6 @@ def main() -> int:
     else:
         raise ValueError(f"unsupported queue_type: {cfg.queue_type}")
     reliable_consumer = queue_type == "stream" and cfg.consumer_mode == "reliable"
-    if reliable_consumer:
-        consumer.ensure_group()
     loader = FlowLoader(
         session_id=cfg.session_id,
         feature_profile=cfg.feature_profile,
@@ -132,9 +135,12 @@ def main() -> int:
     )
 
     if reliable_consumer:
-        pending = consumer.read_pending(count=cfg.read_count)
-        if not pending:
-            pending = consumer.autoclaim(min_idle_ms=cfg.pending_idle_ms, count=cfg.read_count)
+        while not shutdown.stop:
+            if _ensure_reliable_consumer_ready(consumer, cfg=cfg):
+                break
+        if shutdown.stop:
+            return 0
+        pending = _recover_reliable_pending(consumer, cfg=cfg)
         emit_event(
             "reliable_consumer_recovery",
             session_id=cfg.session_id,
@@ -165,15 +171,12 @@ def main() -> int:
     last_id = cfg.best_effort_start_id
     last_idle_log = 0.0
     while not shutdown.stop:
-        if queue_type == "list":
-            consumer.trim_to_maxlen(cfg.list_maxlen)  # type: ignore[attr-defined]
-            messages = consumer.read_pop(count=cfg.read_count, block_ms=cfg.block_ms)  # type: ignore[attr-defined]
-        elif reliable_consumer:
-            messages = consumer.read_new(count=cfg.read_count, block_ms=cfg.block_ms)
-        else:
-            messages = consumer.read_best_effort(last_id=last_id, count=cfg.read_count, block_ms=cfg.block_ms)
-            if messages:
-                last_id = messages[-1].message_id
+        messages, last_id = _read_input_messages(
+            consumer,
+            cfg=cfg,
+            reliable_consumer=reliable_consumer,
+            last_id=last_id,
+        )
         if not messages:
             if cfg.process_partial_window:
                 window = buffer.flush()
@@ -260,6 +263,95 @@ def main() -> int:
             return 0
         last_idle_log = 0.0
     return 0
+
+
+def _ensure_reliable_consumer_ready(
+    consumer: RedisListConsumer | RedisStreamConsumer,
+    *,
+    cfg: TridentConfig,
+) -> bool:
+    try:
+        consumer.ensure_group()  # type: ignore[attr-defined]
+        return True
+    except redis.exceptions.RedisError as exc:
+        _log_redis_failure("ensure_group", exc, cfg=cfg)
+        sleep(_redis_retry_delay_seconds())
+        return False
+
+
+def _recover_reliable_pending(
+    consumer: RedisListConsumer | RedisStreamConsumer,
+    *,
+    cfg: TridentConfig,
+) -> list[object]:
+    try:
+        pending = consumer.read_pending(count=cfg.read_count)  # type: ignore[attr-defined]
+        if not pending:
+            pending = consumer.autoclaim(min_idle_ms=cfg.pending_idle_ms, count=cfg.read_count)  # type: ignore[attr-defined]
+        return pending
+    except redis.exceptions.RedisError as exc:
+        _log_redis_failure("reliable_recovery", exc, cfg=cfg)
+        sleep(_redis_retry_delay_seconds())
+        return []
+
+
+def _read_input_messages(
+    consumer: RedisListConsumer | RedisStreamConsumer,
+    *,
+    cfg: TridentConfig,
+    reliable_consumer: bool,
+    last_id: str,
+) -> tuple[list[object], str]:
+    try:
+        if cfg.queue_type == "list":
+            consumer.trim_to_maxlen(cfg.list_maxlen)  # type: ignore[attr-defined]
+            return (
+                consumer.read_pop(count=cfg.read_count, block_ms=cfg.block_ms),  # type: ignore[attr-defined]
+                last_id,
+            )
+        if reliable_consumer:
+            return consumer.read_new(count=cfg.read_count, block_ms=cfg.block_ms), last_id  # type: ignore[attr-defined]
+
+        messages = consumer.read_best_effort(last_id=last_id, count=cfg.read_count, block_ms=cfg.block_ms)  # type: ignore[attr-defined]
+        if messages:
+            last_id = messages[-1].message_id
+        return messages, last_id
+    except redis.exceptions.RedisError as exc:
+        operation = "list_read" if cfg.queue_type == "list" else (
+            "stream_reliable_read" if reliable_consumer else "stream_best_effort_read"
+        )
+        _log_redis_failure(operation, exc, cfg=cfg)
+        sleep(_redis_retry_delay_seconds())
+        return [], last_id
+
+
+def _log_redis_failure(operation: str, exc: redis.exceptions.RedisError, *, cfg: TridentConfig) -> None:
+    event = "worker_redis_wrong_type" if _is_wrong_type_error(exc) else "worker_redis_unavailable"
+    emit_event(
+        event,
+        session_id=cfg.session_id,
+        input_stream=cfg.input_stream,
+        queue_type=cfg.queue_type,
+        redis_url=cfg.redis_url,
+        operation=operation,
+        error_type=type(exc).__name__,
+        error=str(exc),
+        retry_delay_seconds=_redis_retry_delay_seconds(),
+    )
+
+
+def _is_wrong_type_error(exc: redis.exceptions.RedisError) -> bool:
+    return isinstance(exc, redis.exceptions.ResponseError) and "WRONGTYPE" in str(exc).upper()
+
+
+def _redis_retry_delay_seconds() -> float:
+    raw_value = os.getenv("TRIDENT_REDIS_RETRY_DELAY_SECONDS")
+    if raw_value:
+        try:
+            return max(0.0, float(raw_value))
+        except ValueError:
+            return REDIS_RETRY_DELAY_SECONDS
+    return REDIS_RETRY_DELAY_SECONDS
 
 
 def _process_messages(
