@@ -13,3 +13,97 @@
   margin-inline-start: 0;
   min-width: 88px;
 }
+
+.setting-status-refresh.ant-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #d8e3f5;
+  background: #f0f5ff;
+  color: #4368f0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.setting-status-refresh.ant-btn:hover {
+  color: #1777ff;
+  border-color: #91b4ff;
+  background: #fff;
+}
+
+.setting-agent-info-card {
+  margin-bottom: 12px;
+  overflow: hidden;
+  border: 1px solid #e8eaed;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.setting-agent-info-card:last-child {
+  margin-bottom: 0;
+}
+
+.setting-agent-info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 32px;
+  padding: 16px;
+}
+
+.setting-agent-info-field {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.setting-agent-info-field--full {
+  grid-column: 1 / -1;
+}
+
+.setting-agent-info-field--span-2 {
+  grid-column: span 2;
+}
+
+.setting-agent-info-field__label {
+  flex-shrink: 0;
+  color: #8c8c8c;
+}
+
+.setting-agent-info-field__value {
+  min-width: 0;
+  color: #333;
+  word-break: break-all;
+}
+
+.setting-agent-info-field__value--success {
+  color: #389e0d;
+}
+
+.setting-agent-info-field__value--warning {
+  color: #d48806;
+}
+
+.setting-agent-info-field__value--danger {
+  color: #cf1322;
+}
+
+.setting-agent-info-field__value--strong {
+  font-weight: 600;
+  color: #333;
+}
+
+@media (max-width: 1024px) {
+  .setting-agent-info-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .setting-agent-info-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
