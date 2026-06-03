@@ -170,7 +170,7 @@
 
 .risk-event-summary__text {
   margin: 0;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 500;
   line-height: 24px;
   color: #333333;
@@ -178,7 +178,7 @@
 
 .risk-event-summary__num {
   margin: 0 4px;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   line-height: 28px;
   color: #4368f0;

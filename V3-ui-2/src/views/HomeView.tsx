@@ -232,7 +232,7 @@ export default function HomeView() {
           onRefresh={() => void loadOverview({ showSuccess: true })}
         />
         <div className="relative z-10 -mt-[36px] w-full rounded-[16px] bg-[#f6faff] p-[12px]">
-          <div className="flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
+          <div className="flex h-6 items-center gap-2 text-[18px] font-medium text-[#333]">
             <span
               className="h-[16px] w-[3px] shrink-0 rounded-[2px] bg-[#4368f0]"
               aria-hidden
@@ -302,7 +302,7 @@ export default function HomeView() {
               </Spin>
             </div>
           </div>
-          <div className="mt-[12px] flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]">
+          <div className="mt-[12px] flex h-6 items-center gap-2 text-[18px] font-medium text-[#333]">
             <span
               className="h-[16px] w-[3px] shrink-0 rounded-[2px] bg-[#4368f0]"
               aria-hidden

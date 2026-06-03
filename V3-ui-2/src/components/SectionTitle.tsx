@@ -8,7 +8,7 @@ export function SectionTitle({ children, className }: SectionTitleProps) {
   return (
     <div
       className={[
-        "flex h-6 items-center gap-2 text-[16px] font-medium text-[#333]",
+        "flex h-6 items-center gap-2 text-[18px] font-medium text-[#333]",
         className,
       ]
         .filter(Boolean)
