@@ -29,6 +29,6 @@ def test_dashboard_summary_counts_dst_ip_for_risk_flows() -> None:
 
     assert "uniqExactIf(dst_ip, assigned_learner IN ('NEW_1')) AS risk_ip_count" in repo.client.sql
     assert "groupUniqArrayIf(assigned_learner, assigned_learner IN ('NEW_1')) AS active_abnormal_learners" in repo.client.sql
-    assert "event_time <= parseDateTime64BestEffort('2026-05-02T00:00:00Z', 3)" in repo.client.sql
+    assert "event_time <= parseDateTime64BestEffort('2026-05-02T00:00:00Z', 3, 'UTC')" in repo.client.sql
     assert summary["risk_ip_count"] == 2
     assert summary["active_abnormal_learners"] == ["NEW_1"]

@@ -7,6 +7,10 @@ from app.redis_consumer import RedisStreamMessage
 from app.runtime.online_engine import FlowAssignment
 
 
+TIME_FROM_SQL = "event_time >= parseDateTime64BestEffort('2026-06-02T00:00:00Z', 3, 'UTC')"
+TIME_TO_SQL = "event_time <= parseDateTime64BestEffort('2026-06-02T01:00:00Z', 3, 'UTC')"
+
+
 def test_main_protocol_sql_falls_back_when_app_proto_is_unknown() -> None:
     sql = _main_protocol_sql()
     assert "lower(app_proto) NOT IN ('unknown'" in sql
@@ -387,8 +391,8 @@ def test_dashboard_topology_graphs_applies_time_bounds_to_both_queries() -> None
 
     assert len(repo.client.sql) == 2
     for sql in repo.client.sql:
-        assert "event_time >= parseDateTime64BestEffort('2026-06-02T00:00:00Z', 3)" in sql
-        assert "event_time <= parseDateTime64BestEffort('2026-06-02T01:00:00Z', 3)" in sql
+        assert TIME_FROM_SQL in sql
+        assert TIME_TO_SQL in sql
 
 
 def test_dashboard_topology_stats_batches_all_kinds_with_approximate_distincts() -> None:
@@ -423,11 +427,39 @@ def test_dashboard_topology_stats_batches_all_kinds_with_approximate_distincts()
     assert "uniqCombined(endpoint) AS unique_endpoint_count" in sql
     assert "uniqCombined(dst_port) AS unique_dst_port_count" in sql
     assert "row_number() OVER (PARTITION BY topology_kind ORDER BY port_count DESC, dst_port ASC)" in sql
-    assert "event_time >= parseDateTime64BestEffort('2026-06-02T00:00:00Z', 3)" in sql
-    assert "event_time <= parseDateTime64BestEffort('2026-06-02T01:00:00Z', 3)" in sql
+    assert TIME_FROM_SQL in sql
+    assert TIME_TO_SQL in sql
     assert stats["combined"]["top_dst_port"] == 443
     assert stats["combined"]["top_dst_port_ratio"] == 0.6
     assert stats["attack"]["total_flow_count"] == 4
+
+
+def test_traffic_trend_buckets_utc_storage_in_display_timezone() -> None:
+    class FakeClient:
+        def __init__(self) -> None:
+            self.sql = ""
+
+        def execute(self, sql: str) -> str:
+            self.sql = sql
+            return '{"bucket_start":"2026-06-02 08:00:00","normal":10,"abnormal":2}\n'
+
+    repo = ChFlowRepository.__new__(ChFlowRepository)
+    repo.client = FakeClient()
+    repo.display_timezone = "Asia/Shanghai"
+
+    rows = repo.traffic_trend(
+        session_id="s1",
+        risk_learners=["NEW_1"],
+        bucket="hour",
+        time_from="2026-06-02T00:00:00Z",
+        time_to="2026-06-02T01:00:00Z",
+    )
+
+    assert "toStartOfHour(toTimeZone(event_time, 'Asia/Shanghai'))" in repo.client.sql
+    assert "formatDateTime(bucket_start, '%Y-%m-%d %H:%i:%S', 'Asia/Shanghai')" in repo.client.sql
+    assert TIME_FROM_SQL in repo.client.sql
+    assert TIME_TO_SQL in repo.client.sql
+    assert rows == [{"bucket_start": "2026-06-02 08:00:00", "normal": 10, "abnormal": 2}]
 
 
 def test_learner_topology_stats_batches_page_learners_with_approximate_distincts() -> None:
