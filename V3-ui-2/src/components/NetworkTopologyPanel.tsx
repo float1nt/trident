@@ -299,8 +299,9 @@ function buildChartOption(
   compact = false,
 ): EChartsOption {
   const n = graphData.nodes.length;
-  const force = compactForceParams(n, repulsion, compact);
-  const zoom = initialGraphZoom(n, compact);
+  // compact 仅影响节点/边样式与头部 UI；力导向与初始缩放与非 compact 一致
+  const force = compactForceParams(n, repulsion, false);
+  const zoom = initialGraphZoom(n, false);
 
   return {
     backgroundColor: "transparent",
