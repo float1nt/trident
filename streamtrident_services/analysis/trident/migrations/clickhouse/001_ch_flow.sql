@@ -1,8 +1,8 @@
 CREATE TABLE IF NOT EXISTS ch_flow (
     session_id String,
     flow_uid String,
-    event_time DateTime64(3),
-    ingest_time DateTime64(3) DEFAULT now64(3),
+    event_time DateTime64(3, 'UTC'),
+    ingest_time DateTime64(3, 'UTC') DEFAULT now64(3, 'UTC'),
     src_ip String,
     dst_ip String,
     src_port UInt16,

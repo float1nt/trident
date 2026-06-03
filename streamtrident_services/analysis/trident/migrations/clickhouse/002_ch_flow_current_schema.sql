@@ -1,4 +1,6 @@
 ALTER TABLE ch_flow
+    MODIFY COLUMN IF EXISTS event_time DateTime64(3, 'UTC'),
+    MODIFY COLUMN IF EXISTS ingest_time DateTime64(3, 'UTC') DEFAULT now64(3, 'UTC'),
     ADD COLUMN IF NOT EXISTS app_proto LowCardinality(String) DEFAULT 'unknown' AFTER protocol,
     ADD COLUMN IF NOT EXISTS total_bytes UInt64 DEFAULT 0 AFTER app_proto,
     ADD COLUMN IF NOT EXISTS payload_sample_b64 String DEFAULT '' AFTER source_flow_id,

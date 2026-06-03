@@ -65,10 +65,11 @@ RUN set -eux; \
       ! -name '__init__.py' \
       ! -path 'app/api.py' \
       ! -path 'app/api_routes/auth.py' \
+      ! -path 'app/coldstart_artifact.py' \
       ! -path 'app/worker.py' \
       ! -path 'app/migrate.py' \
       -delete; \
-    python -c "import app.api, app.worker, app.migrate; print('protected imports ok')"
+    python -c "import app.api, app.coldstart_artifact, app.worker, app.migrate; print('protected imports ok')"
 
 
 FROM python:3.11-slim AS runtime
@@ -102,7 +103,7 @@ COPY --from=builder /app/migrations ./migrations
 
 RUN set -eux; \
     mkdir -p /var/lib/trident/models; \
-    python -c "import app.api, app.worker, app.migrate; print('runtime imports ok')"; \
+    python -c "import app.api, app.coldstart_artifact, app.worker, app.migrate; print('runtime imports ok')"; \
     find /app/app -name '*.py' -print
 
 CMD ["python", "-m", "app.worker", "--config", "config/trident.yaml"]
